@@ -352,7 +352,7 @@ function SidebarSessionRowImpl({
         actions={card ? undefined : actionsNode}
         className={cn(
           'group row-hover relative',
-          card && SIDEBAR_ROW_CARD_MIN_H,
+          card && cn(SIDEBAR_ROW_CARD_MIN_H, 'shrink-0'),
           // Density-aware minimum heights for the inline (non-card) row: the
           // metadata / preview lines below need the extra rows (#68119).
           !card && density !== 'compact' && 'min-h-[2.75rem]',
