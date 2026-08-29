@@ -259,6 +259,7 @@ import {
   type NativeTokenSet,
   parseTokenResponse,
   resolveLoginStrategy,
+  resolveNativeLoginProvider,
   tokenNeedsRefresh
 } from './native-oauth'
 import { runNativeLogin } from './native-oauth-login'
@@ -325,6 +326,7 @@ import {
 import { missingRendererAssets } from './renderer-bundle'
 import { loadRendererLoadErrorPage } from './renderer-load-error-page'
 import { attachRendererConsoleCapture, formatRendererBoundaryReport } from './renderer-log'
+import { createScreenAnnotationsController, registerScreenAnnotationsIpc } from './screen-annotations-window'
 import {
   classifyStoredSecret,
   readSecretStoragePolicy,
@@ -6100,11 +6102,10 @@ function watchDirectory(rawDir) {
   return { id, path: watchDir }
 }
 
-// Best-effort read of a gateway's advertised auth providers, cached per base
-// URL for the life of the process. Used by the oauth pre-flight guard to tell
-// a password-provider gateway (which cannot satisfy the bearer/cookie checks
-// by design) from a real OAuth one. Any failure returns [] so callers keep the
-// strict guard — backends predating /api/auth/providers are unaffected.
+// Best-effort read of a gateway's interactive auth providers, cached per base
+// URL for the life of the process. Startup uses it to calibrate the pre-flight
+// guard; login uses it to avoid a native request when provider selection is
+// ambiguous. Any failure returns [] so older gateways keep their fallback.
 const gatewayAuthProvidersCache = new Map<string, any[]>()
 
 async function gatewayAuthProviders(baseUrl, headers = {}) {
@@ -13055,6 +13056,26 @@ const wakeIndicatorController = createWakeIndicatorWindowController({
   wireWindow: window => wireCommonWindowHandlers(window, zoomWiringForWindowKind('wakeIndicator'))
 })
 
+// The agent's on-screen marks (annotate_screen tool): a transparent,
+// click-through, always-on-top overlay covering the display of whatever
+// window the marks anchor to. Gateway-less like the wake cue — the chat
+// renderer that received the tool's request forwards it over IPC
+// (hermes:screen:annotate) and this controller does the native work.
+const screenAnnotationsController = createScreenAnnotationsController({
+  devServer: DEV_SERVER,
+  isMac: IS_MAC,
+  loadWindowUrl,
+  log: rememberLog,
+  preloadPath: PRELOAD_PATH,
+  rendererIndex: resolveRendererIndex,
+  titlesAvailable: () => (IS_MAC ? systemPreferences.getMediaAccessStatus?.('screen') === 'granted' : true),
+  // Same opt-out as the other helper overlays: global UI zoom would rescale
+  // the renderer and drag every mark off its screen coordinate.
+  wireWindow: window => wireCommonWindowHandlers(window, zoomWiringForWindowKind('petOverlay'))
+})
+
+registerScreenAnnotationsIpc(screenAnnotationsController)
+
 // The pet overlay: a single transparent, frameless, always-on-top window that
 // hosts ONLY the floating mascot. Shift-clicking the in-window pet "pops it out"
 // here so it can leave the app's bounds and stay visible while Hermes is
@@ -15302,16 +15323,12 @@ async function fetchJsonForBackend(
 ipcMain.handle('hermes:connection-config:probe', async (_event, rawUrl) => probeRemoteAuthMode(rawUrl))
 ipcMain.handle('hermes:connection-config:oauth-login', async (_event, rawUrl) => {
   // Capability-gated login (RFC 8252). Probe the gateway's public /api/status
-  // for supported auth_flows and /api/auth/providers for provider capabilities:
-  //   - all providers support password → always use the embedded login window
-  //     (password providers require the dashboard login form; native PKCE
-  //     can never complete for that provider shape)
-  //   - advertises "native_pkce" AND at least one non-password provider →
-  //     run the system-browser + loopback + PKCE flow
-  //   - older gateway with no provider metadata → fall back to the auth_flows
-  //     check (existing compatibility)
-  //   - a failed native login reports the error rather than auto-falling back
-  //     to the embedded flow — one sign-in action opens at most one window.
+  // and /api/auth/providers:
+  //   - "native_pkce" + one unambiguous provider → system browser + PKCE
+  //   - multiple eligible providers → embedded login with its provider chooser
+  //   - older gateway without native_pkce → embedded login
+  //   - a failed native login reports the error rather than silently switching
+  //     to a cookie-only session
   const baseUrl = normalizeRemoteBaseUrl(rawUrl)
 
   let statusBody: any = null
@@ -15330,11 +15347,15 @@ ipcMain.handle('hermes:connection-config:oauth-login', async (_event, rawUrl) =>
 
   if (strategy === 'native') {
     try {
-      const tokens = await runNativeLogin(baseUrl, {
-        openExternal: url => shell.openExternal(url),
-        postJson: (url, body, opts) => postJsonNoAuth(url, body, opts),
-        rememberLog
-      })
+      const tokens = await runNativeLogin(
+        baseUrl,
+        {
+          openExternal: url => shell.openExternal(url),
+          postJson: (url, body, opts) => postJsonNoAuth(url, body, opts),
+          rememberLog
+        },
+        { provider: resolveNativeLoginProvider(providers) }
+      )
 
       _storeNativeTokens(baseUrl, tokens)
       // Confirmed sign-in — release the reauth latch so the next
@@ -17561,6 +17582,10 @@ app.on('before-quit', event => {
   // pet can't keep the process alive or float over a quit app.
   closePetOverlay()
   wakeIndicatorController.close()
+
+  // Same for the agent's screen-annotation overlay — marks floating over a
+  // quit app would be pure ghost UI.
+  screenAnnotationsController.close()
 
   // Same for the HUD — an always-on-top panel outliving the app would leave a
   // floating composer with nothing behind it. Close it directly rather than via

@@ -482,6 +482,7 @@ class AIAgent:
         read_preview_callback: callable = None,
         drive_preview_callback: callable = None,
         read_window_below_callback: callable = None,
+        annotate_screen_callback: callable = None,
         setup_mcp_callback: callable = None,
         tour_callback: callable = None,
         step_callback: callable = None,
@@ -573,6 +574,7 @@ class AIAgent:
             read_preview_callback=read_preview_callback,
             drive_preview_callback=drive_preview_callback,
             read_window_below_callback=read_window_below_callback,
+            annotate_screen_callback=annotate_screen_callback,
             setup_mcp_callback=setup_mcp_callback,
             tour_callback=tour_callback,
             step_callback=step_callback,
@@ -798,6 +800,11 @@ class AIAgent:
         self.session_estimated_cost_usd = 0.0
         self.session_cost_status = "unknown"
         self.session_cost_source = "none"
+
+        # Session boundary: the usage anchor describes the OLD session's
+        # transcript — a fresh/branched/resumed session must fall back to
+        # full estimation until its first provider response re-anchors.
+        self._usage_anchor = None
         
         # Turn counter (added after reset_session_state was first written — #2635)
         self._user_turn_count = 0

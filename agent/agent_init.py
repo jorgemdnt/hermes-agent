@@ -572,6 +572,7 @@ def init_agent(
     read_preview_callback: callable = None,
     drive_preview_callback: callable = None,
     read_window_below_callback: callable = None,
+    annotate_screen_callback: callable = None,
     setup_mcp_callback: callable = None,
     tour_callback: callable = None,
     step_callback: callable = None,
@@ -871,6 +872,7 @@ def init_agent(
     agent.read_preview_callback = read_preview_callback
     agent.drive_preview_callback = drive_preview_callback
     agent.read_window_below_callback = read_window_below_callback
+    agent.annotate_screen_callback = annotate_screen_callback
     agent.setup_mcp_callback = setup_mcp_callback
     agent.tour_callback = tour_callback
     agent.step_callback = step_callback
@@ -2952,6 +2954,12 @@ def init_agent(
     agent._user_turn_count = 0
     # Copilot x-initiator flag: first API call of a user turn sends "user" (#3040).
     agent._is_user_initiated_turn = False
+
+    # Usage-anchored context accounting (agent/model_metadata.py): the last
+    # main-loop provider response's exact usage + transcript snapshot. None
+    # until the first response with usage; invalidated on compaction and
+    # session switches so stale anchors can never suppress compression.
+    agent._usage_anchor = None
 
     # Cumulative token usage for the session
     agent.session_prompt_tokens = 0
