@@ -13,11 +13,14 @@ import {
   RUN_START_SNAP_THRESHOLD_PX,
   shouldAnchorBeforePrepend,
   shouldClampTranscriptBudget,
+  prependAnchorFromBottom,
   shouldRePinOnTranscriptReload,
+  shouldResettleTranscript,
   shouldSnapOnRunStart,
   subscribeToThreadForeground,
   transcriptBackfillFrameCount,
-  transcriptPaneBudget
+  transcriptPaneBudget,
+  transcriptSettleAdvance
 } from './list'
 
 afterEach(() => {
@@ -509,5 +512,61 @@ describe('resolveThreadScrollTarget while selecting', () => {
     window.getSelection()?.removeAllRanges()
 
     expect(resolveThreadScrollTarget(999, contextFor())).toBe(999)
+  })
+})
+
+describe('shouldResettleTranscript', () => {
+  it('re-settles only when a hot-hidden pane becomes visible again', () => {
+    expect(shouldResettleTranscript('hot-hidden', 'visible')).toBe(true)
+    expect(shouldResettleTranscript('visible', 'hot-hidden')).toBe(false)
+    expect(shouldResettleTranscript('visible', 'visible')).toBe(false)
+    expect(shouldResettleTranscript('parked', 'visible')).toBe(false)
+  })
+})
+
+describe('prependAnchorFromBottom', () => {
+  it('pins to the bottom while a load or tab-reveal has not settled', () => {
+    expect(prependAnchorFromBottom(false, 4000, 0)).toBe(0)
+  })
+
+  it('preserves a settled reading position through a prepend', () => {
+    expect(prependAnchorFromBottom(true, 800, 200)).toBe(600)
+    expect(prependAnchorFromBottom(true, 800, 0)).toBe(800)
+  })
+})
+
+describe('transcriptSettleAdvance', () => {
+  const filled = {
+    clientHeight: 800,
+    frame: 4,
+    lastHeight: 12_000,
+    paneBudget: 600,
+    renderBudget: 600,
+    scrollHeight: 12_000,
+    stableFrames: 1
+  }
+
+  it('does not settle while the window is still 0-tall (app reopen / boot)', () => {
+    const next = transcriptSettleAdvance({
+      ...filled,
+      clientHeight: 0,
+      frame: 20,
+      lastHeight: 0,
+      scrollHeight: 0,
+      stableFrames: 8
+    })
+
+    expect(next.done).toBe(false)
+    expect(next.frame).toBe(20)
+  })
+
+  it('does not settle while first-paint backfill is still catching up', () => {
+    const next = transcriptSettleAdvance({ ...filled, renderBudget: 20, stableFrames: 2 })
+
+    expect(next.done).toBe(false)
+  })
+
+  it('settles once the pane is filled and height holds', () => {
+    expect(transcriptSettleAdvance(filled).done).toBe(true)
   })
 })
