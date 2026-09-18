@@ -20,6 +20,7 @@ import { ToolIcon } from '@/components/ui/tool-icon'
 import { translateNow } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID } from '@/store/layout'
+import { $threadChrome, threadPreviewOpen } from '@/store/thread-chrome'
 import {
   $allDockedPreviewTabs,
   $browserPages,
@@ -238,6 +239,7 @@ export function watchPreviewTiles(): void {
 
   const syncVisibility = () => {
     const focused = previewOwnerKey()
+    const previewOpen = threadPreviewOpen(focused)
     const all = $allDockedPreviewTabs.get()
     let focusedHas = false
 
@@ -248,14 +250,15 @@ export function watchPreviewTiles(): void {
         focusedHas = true
       }
 
-      setTreePaneHidden(previewPaneId(tab.id), owner !== focused)
+      setTreePaneHidden(previewPaneId(tab.id), owner !== focused || !previewOpen)
     }
 
-    setTreePaneHidden(WORK_PANE_ID, focusedHas)
+    setTreePaneHidden(WORK_PANE_ID, !previewOpen || focusedHas)
   }
 
   $allDockedPreviewTabs.listen(syncVisibility)
   $previewTabs.listen(syncVisibility)
+  $threadChrome.listen(syncVisibility)
   syncVisibility()
 
   // And the reverse: clicking a preview TAB activates its pane in the TREE

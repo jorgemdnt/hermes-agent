@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { $rightRailActiveTabId, selectRightRailTab } from './layout'
+import { $fileBrowserOpen, $rightRailActiveTabId, selectRightRailTab } from './layout'
 import {
   $previewServerRestart,
   $previewServerRestartStatus,
@@ -20,6 +20,7 @@ import {
   progressPreviewServerRestart
 } from './preview'
 import { $selectedStoredSessionId } from './session'
+import { $threadChrome } from './thread-chrome'
 
 function fileTarget(source: string): PreviewTarget {
   return { kind: 'file', label: source, path: source, previewKind: 'html', source, url: `file://${source}` }
@@ -37,6 +38,8 @@ describe('preview store', () => {
   beforeEach(() => {
     $previewServerRestart.set(null)
     $selectedStoredSessionId.set(null)
+    $previewTabsBySession.set({ activeBySession: {}, tabs: {} })
+    $threadChrome.set({ previewOpen: {}, terminalOpen: {} })
     closeRightRail()
     window.localStorage.clear()
   })
@@ -275,5 +278,19 @@ describe('preview store', () => {
 
     $selectedStoredSessionId.set('session-hermes')
     expect($previewTabs.get()).toHaveLength(0)
+  })
+
+  it('closes the preview rail on a thread that never opened it', () => {
+    $selectedStoredSessionId.set('session-a')
+    openPreview(urlTarget('http://a.example'), 'explicit-link')
+    expect($fileBrowserOpen.get()).toBe(true)
+
+    $selectedStoredSessionId.set('session-b')
+    expect($previewTabs.get()).toHaveLength(0)
+    expect($fileBrowserOpen.get()).toBe(false)
+
+    $selectedStoredSessionId.set('session-a')
+    expect($fileBrowserOpen.get()).toBe(true)
+    expect($previewTabs.get()[0]?.target.url).toBe('http://a.example')
   })
 })

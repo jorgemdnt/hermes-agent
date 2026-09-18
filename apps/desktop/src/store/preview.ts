@@ -8,6 +8,8 @@ import { $activeSessionId, $selectedStoredSessionId } from './session'
 import { $focusedRuntimeId, $focusedStoredSessionId, $sessionStates, $sessionTiles } from './session-states'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
 
+import './thread-chrome'
+
 /**
  * PREVIEW RAIL — one list of tabs, one way in.
  *
