@@ -7,9 +7,8 @@ import { reachablePreviewUrl } from '@/lib/preview-reach'
 import {
   $previewTabs,
   beginPreviewServerRestart,
-  closePreviewMatching,
+  closePreviewMatchingForSession,
   closeRightRail,
-  closeRightRailTab,
   completePreviewServerRestart,
   openPreview,
   progressPreviewServerRestart,
@@ -91,20 +90,13 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
       baseHandleGatewayEvent(event)
 
       if (event.type === 'preview.open') {
-        // Agent-driven open in response to an explicit user request ("show
-        // cnn.com in the preview pane"). Honor it for any session that's ON
-        // SCREEN — the primary chat or an open tile — not only the focused
-        // one: the turn's window routing already scoped the event to this
-        // window, and gating on focus made the open silently vanish whenever
-        // the user's click had moved focus to a different zone by the time
-        // the tool ran (an "open reddit" they explicitly asked for). A
-        // session that is NOT visible anywhere still can't yank the pane
-        // open (offer, don't hijack). Routes through the same normalizer as
-        // the file browser so URLs, localhost, and file paths all resolve.
+        // Agent-driven open. Store it on the thread that created it — never
+        // the chat that happens to be focused. Off-screen / other-tile opens
+        // stay in that session's bucket and only appear when you switch to it.
         const { url, label } = asRecord(event.payload)
         const target = typeof url === 'string' ? url.trim() : ''
 
-        if (target && (!event.session_id || sessionIsOnScreen(event.session_id))) {
+        if (target) {
           void normalizeOrLocalPreviewTarget(target, $currentCwd.get() || currentCwd || undefined).then(
             async resolved => {
               if (!resolved) {
@@ -127,23 +119,20 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
       }
 
       if (event.type === 'preview.close') {
-        // Agent-driven close via close_preview. Same on-screen gate as open:
-        // a session the user can see may tidy the pane it opened; a hidden
-        // background turn must not dismiss the user's preview.
+        // Close the tab on the thread that opened it. Never wipe the focused
+        // chat because a background session asked to close its own preview.
         const { url } = asRecord(event.payload)
         const target = typeof url === 'string' ? url.trim() : ''
 
-        if (event.session_id && !sessionIsOnScreen(event.session_id)) {
-          return
-        }
-
         if (!target) {
-          closeRightRail()
+          if (!event.session_id || sessionIsOnScreen(event.session_id)) {
+            closeRightRail()
+          }
 
           return
         }
 
-        if (closePreviewMatching(target)) {
+        if (closePreviewMatchingForSession(event.session_id, target)) {
           return
         }
 
@@ -159,7 +148,7 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
               }
             }
 
-            closePreviewMatching(...candidates)
+            closePreviewMatchingForSession(event.session_id, ...candidates)
           }
         )
 

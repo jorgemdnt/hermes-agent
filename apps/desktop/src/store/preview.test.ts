@@ -5,6 +5,7 @@ import {
   $previewServerRestart,
   $previewServerRestartStatus,
   $previewTabs,
+  $previewTabsBySession,
   $previewTarget,
   beginPreviewServerRestart,
   closePreviewForSource,
@@ -260,5 +261,19 @@ describe('preview store', () => {
 
     $selectedStoredSessionId.set('session-a')
     expect($previewTabs.get()[0]?.target.url).toBe('http://localhost:5174')
+  })
+
+  it('does not put another thread\'s preview on the focused chat', () => {
+    $selectedStoredSessionId.set('session-hermes')
+    openPreview(urlTarget('https://artemis.example/sales'), 'tool-result', 'session-artemis')
+
+    expect($previewTabs.get()).toHaveLength(0)
+    expect($previewTabsBySession.get().tabs['session-artemis']?.[0]?.target.url).toBe('https://artemis.example/sales')
+
+    $selectedStoredSessionId.set('session-artemis')
+    expect($previewTabs.get()[0]?.target.url).toBe('https://artemis.example/sales')
+
+    $selectedStoredSessionId.set('session-hermes')
+    expect($previewTabs.get()).toHaveLength(0)
   })
 })

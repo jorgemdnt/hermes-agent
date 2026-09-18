@@ -4,8 +4,8 @@ import { readKey, writeKey } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab } from './layout'
-import { $selectedStoredSessionId } from './session'
-import { $focusedStoredSessionId } from './session-states'
+import { $activeSessionId, $selectedStoredSessionId } from './session'
+import { $focusedRuntimeId, $focusedStoredSessionId, $sessionStates, $sessionTiles } from './session-states'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
 
 /**
@@ -17,8 +17,9 @@ import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
  * a tool result, a file-browser click, and an artifact card all travel the
  * same road and behave identically once open.
  *
- * Tabs are global and outlive the session that created them, like tabs
- * anywhere else — they close when you close them.
+ * Tabs are per stored session. Switching chats swaps the visible slice;
+ * opening a preview on another thread stores it there and must not appear
+ * on the chat you are looking at.
  */
 
 export interface PreviewTarget {
@@ -78,6 +79,38 @@ export function previewOwnerKey(focusedStoredId: null | string | undefined = $fo
   return focusedStoredId?.trim() || PREVIEW_DRAFT_OWNER
 }
 
+function storedIdFromRuntime(runtimeId: string): null | string {
+  const cached = $sessionStates.get()[runtimeId]?.storedSessionId?.trim()
+
+  if (cached) {
+    return cached
+  }
+
+  return $sessionTiles.get().find(tile => tile.runtimeId === runtimeId)?.storedSessionId?.trim() || null
+}
+
+/** Bucket a preview belongs in. A runtime/stored id from another thread stays
+ *  on that thread — never the chat that happens to be focused. */
+function previewBucketOwner(sessionId?: null | string): string {
+  const focused = previewOwnerKey()
+  const raw = sessionId?.trim()
+
+  if (!raw) {
+    return focused
+  }
+
+  if (
+    raw === focused ||
+    raw === $focusedStoredSessionId.get() ||
+    raw === $focusedRuntimeId.get() ||
+    raw === $activeSessionId.get()
+  ) {
+    return focused
+  }
+
+  return storedIdFromRuntime(raw) || raw
+}
+
 interface PreviewTabsBySession {
   activeBySession: Record<string, null | string>
   tabs: Record<string, PreviewTab[]>
@@ -87,18 +120,23 @@ const emptyPreviewTabsBySession = (): PreviewTabsBySession => ({ activeBySession
 
 function persistPreviewTabsBySession(state: PreviewTabsBySession) {
   const tabs: Record<string, PreviewTab[]> = {}
+  const activeBySession: Record<string, null | string> = {}
 
   for (const [owner, list] of Object.entries(state.tabs)) {
     const kept = list.filter(
       tab => tab.target.kind !== 'artifact' && !tab.target.transient && !(tab.target.previewKind === 'html' && tab.target.dataUrl)
     )
 
-    if (kept.length) {
-      tabs[owner] = kept
+    if (!kept.length) {
+      continue
     }
+
+    tabs[owner] = kept
+    const active = state.activeBySession[owner]
+    activeBySession[owner] = kept.some(tab => tab.id === active) ? active : (kept[0]?.id ?? null)
   }
 
-  writeKey(TABS_STORAGE_KEY_V3, JSON.stringify({ activeBySession: state.activeBySession, tabs }, (key, value) => (key === 'dataUrl' ? undefined : value)))
+  writeKey(TABS_STORAGE_KEY_V3, JSON.stringify({ activeBySession, tabs }, (key, value) => (key === 'dataUrl' ? undefined : value)))
 }
 
 function loadPreviewTabsBySession(): PreviewTabsBySession {
@@ -225,22 +263,34 @@ function visibleTabsForOwner(owner: string): PreviewTab[] {
 
 export const $previewTabs = atom<PreviewTab[]>(visibleTabsForOwner(previewOwnerKey()))
 
-function writeVisiblePreviewTabs(tabs: PreviewTab[]) {
-  $previewTabs.set(tabs)
-
-  if (applyingPreviewBucket) {
-    return
-  }
-
-  const owner = previewOwnerKey()
+function writeTabsForOwner(owner: string, tabs: PreviewTab[], activeId?: RightRailTabId | null) {
   const state = $previewTabsBySession.get()
   const next: PreviewTabsBySession = {
-    activeBySession: { ...state.activeBySession, [owner]: $rightRailActiveTabId.get() },
+    activeBySession: {
+      ...state.activeBySession,
+      [owner]: activeId !== undefined ? activeId : owner === previewOwnerKey() ? $rightRailActiveTabId.get() : (state.activeBySession[owner] ?? tabs[0]?.id ?? null)
+    },
     tabs: { ...state.tabs, [owner]: tabs }
   }
 
   $previewTabsBySession.set(next)
   persistPreviewTabsBySession(next)
+
+  if (owner === previewOwnerKey()) {
+    applyingPreviewBucket = true
+    $previewTabs.set(tabs)
+    applyingPreviewBucket = false
+  }
+}
+
+function writeVisiblePreviewTabs(tabs: PreviewTab[]) {
+  if (applyingPreviewBucket) {
+    $previewTabs.set(tabs)
+
+    return
+  }
+
+  writeTabsForOwner(previewOwnerKey(), tabs)
 }
 
 function applyPreviewOwner(owner: string) {
@@ -265,7 +315,7 @@ $selectedStoredSessionId.listen(id => {
   const state = $previewTabsBySession.get()
   const draft = state.tabs[PREVIEW_DRAFT_OWNER]
 
-  if (!draft?.length) {
+  if (!draft?.length || (state.tabs[id] ?? []).length) {
     return
   }
 
@@ -530,14 +580,17 @@ export function openPreview(
   sessionId?: null | string
 ) {
   const resolved = previewTargetForSource(target, source)
-  const current = $previewTabs.get()
+  const owner = previewBucketOwner(sessionId)
+  const current = $previewTabsBySession.get().tabs[owner] ?? []
   const id = resolved.kind === 'url' ? browserTabId(current) : previewTabId(resolved)
   const index = current.findIndex(tab => tab.id === id)
-  const owner = previewOwnerKey()
-  const tab: PreviewTab = { id, target: resolved, sessionId: sessionId?.trim() || owner }
+  const tab: PreviewTab = { id, target: resolved, sessionId: owner }
 
-  writeVisiblePreviewTabs(index === -1 ? [...current, tab] : current.map((item, i) => (i === index ? tab : item)))
-  selectRightRailTab(id)
+  writeTabsForOwner(owner, index === -1 ? [...current, tab] : current.map((item, i) => (i === index ? tab : item)), id)
+
+  if (owner === previewOwnerKey()) {
+    selectRightRailTab(id)
+  }
 }
 
 const blankPage = (): PreviewTarget => ({ kind: 'url', label: 'Browser', source: 'about:blank', url: 'about:blank' })
@@ -591,23 +644,40 @@ export function closePreviewForSource(source: string): boolean {
  *  Empty candidates are a no-op so a missed match cannot wipe the rail —
  *  closing the whole pane is `closeRightRail`. */
 export function closePreviewMatching(...candidates: string[]): boolean {
+  return closePreviewMatchingForOwner(previewOwnerKey(), candidates)
+}
+
+export function closePreviewMatchingForSession(sessionId: null | string | undefined, ...candidates: string[]): boolean {
+  return closePreviewMatchingForOwner(previewBucketOwner(sessionId), candidates)
+}
+
+function closePreviewMatchingForOwner(owner: string, candidates: string[]): boolean {
   const queries = [...new Set(candidates.map(value => value.trim()).filter(Boolean))]
 
   if (queries.length === 0) {
     return false
   }
 
-  const tab = $previewTabs.get().find(item => {
+  const current = $previewTabsBySession.get().tabs[owner] ?? []
+  const index = current.findIndex(item => {
     const fields = [item.target.source, item.target.url, item.target.label]
 
     return queries.some(query => fields.includes(query))
   })
 
-  if (!tab) {
+  if (index === -1) {
     return false
   }
 
-  closeRightRailTab(tab.id)
+  const tab = current[index]
+  const next = current.filter(item => item.id !== tab.id)
+  const nextActive = next[Math.min(index, next.length - 1)]?.id ?? null
+
+  writeTabsForOwner(owner, next, nextActive)
+
+  if (owner === previewOwnerKey() && $rightRailActiveTabId.get() === tab.id) {
+    selectRightRailTab(nextActive)
+  }
 
   return true
 }
