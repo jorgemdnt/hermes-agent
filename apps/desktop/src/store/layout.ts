@@ -25,6 +25,12 @@ export const SIDEBAR_MAX_WIDTH = 360
 export const FILE_BROWSER_DEFAULT_WIDTH = `${SIDEBAR_DEFAULT_WIDTH}px`
 export const FILE_BROWSER_MIN_WIDTH = '10rem'
 export const FILE_BROWSER_MAX_WIDTH = '20rem'
+/** Work slot (browser / file / preview). A declared `width` makes the zone a
+ *  fixed 237px track; `maxWidth: 20rem` is the file-tree rail cap. Neither
+ *  belongs on a Codex-style preview split — min only, sash grows from there. */
+export const workSlotSizing = {
+  minWidth: '22rem'
+}
 
 export const SIDEBAR_SESSIONS_PAGE_SIZE = 50
 // How deep the list reaches once a filter is on. A filter that only searches

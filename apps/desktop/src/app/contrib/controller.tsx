@@ -64,7 +64,8 @@ import {
   setSidebarOpen,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
-  WORK_PANE_ID
+  WORK_PANE_ID,
+  workSlotSizing
 } from '@/store/layout'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
@@ -241,9 +242,7 @@ registry.registerMany([
       dock: { pane: 'workspace', pos: 'right' },
       hideOnly: true,
       revealAliases: [FILE_BROWSER_PANE_ID],
-      width: FILE_BROWSER_DEFAULT_WIDTH,
-      minWidth: FILE_BROWSER_MIN_WIDTH,
-      maxWidth: FILE_BROWSER_MAX_WIDTH,
+      ...workSlotSizing,
       tabTitle: () => <LocalizedTabTitle select={t => t.sidebar.files} />,
       tabTitleText: () => translateNow('sidebar.files')
     },

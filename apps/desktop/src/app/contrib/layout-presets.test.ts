@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { allPaneIds } from '@/components/pane-shell/tree/model'
+import { workSlotSizing } from '@/store/layout'
 
 import { DEFAULT_TREE } from './layout-presets'
 
@@ -10,5 +11,12 @@ describe('DEFAULT_TREE', () => {
 
     expect(ids).toContain('work')
     expect(ids).not.toContain('files')
+  })
+})
+
+describe('work slot sizing', () => {
+  it('is a growable preview split, not a 20rem file-tree rail', () => {
+    expect(workSlotSizing).not.toHaveProperty('maxWidth')
+    expect(workSlotSizing).not.toHaveProperty('width')
   })
 })
