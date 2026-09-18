@@ -4,10 +4,11 @@ import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { assistantTextPart, type ChatMessage } from '@/lib/chat-messages'
-import { $previewTabs, $previewTarget, closeRightRail, type PreviewTarget } from '@/store/preview'
+import { $previewTabs, $previewTarget, closeRightRail, openPreview, type PreviewTarget } from '@/store/preview'
 import { $activeSessionId, $currentCwd, $messages, $selectedStoredSessionId } from '@/store/session'
+import { $sessionTiles } from '@/store/session-states'
 
-import { usePreviewRouting } from './use-preview-routing'
+import { pruneOffscreenSessionPreviews, usePreviewRouting } from './use-preview-routing'
 
 const RUNTIME_SESSION_ID = '20260727_140707_edec2d'
 
@@ -269,6 +270,20 @@ describe('preview routing', () => {
       await emitPreviewClose()
 
       expect($previewTabs.get()).toHaveLength(0)
+    })
+  })
+
+  describe('session-owned tool-result tabs', () => {
+    it('keeps tagged tabs when its session leaves the screen (hide, do not close)', () => {
+      openPreview(fileTarget('/work/owned.html'), 'tool-result', RUNTIME_SESSION_ID)
+      openPreview(fileTarget('/work/browsed.html'), 'file-browser')
+      expect($previewTabs.get()).toHaveLength(2)
+
+      $activeSessionId.set('other-session')
+      $sessionTiles.set([])
+      pruneOffscreenSessionPreviews()
+
+      expect($previewTabs.get().map(tab => tab.target.path)).toEqual(['/work/owned.html', '/work/browsed.html'])
     })
   })
 })

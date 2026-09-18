@@ -32,6 +32,8 @@ export function useEnteredProjectSessions(
       return
     }
 
+    // Keep the last tree on screen while the RPC runs. Blanking here is what
+    // made older threads flash skeletons on every treeRevision refresh.
     setLoading(true)
     void fetchProjectSessions(projectId)
       .then(next => {

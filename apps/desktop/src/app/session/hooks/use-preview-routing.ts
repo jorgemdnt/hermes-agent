@@ -1,5 +1,5 @@
 import type { GatewayEvent } from '@hermes/shared'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { gatewayEventCompletedFileDiff } from '@/lib/gateway-events'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
@@ -9,6 +9,7 @@ import {
   beginPreviewServerRestart,
   closePreviewMatching,
   closeRightRail,
+  closeRightRailTab,
   completePreviewServerRestart,
   openPreview,
   progressPreviewServerRestart,
@@ -36,6 +37,9 @@ function sessionIsOnScreen(sessionId: string): boolean {
     $sessionTiles.get().some(tile => tile.runtimeId === sessionId)
   )
 }
+
+/** Hide-on-leave, don't close. Per-session buckets already isolate the rail. */
+export function pruneOffscreenSessionPreviews() {}
 
 export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestGateway }: PreviewRoutingOptions) {
   const restartPreviewServer = useCallback(
@@ -67,6 +71,20 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
     },
     [currentCwd, requestGateway]
   )
+
+  useEffect(() => {
+    const offs = [
+      $focusedRuntimeId.listen(pruneOffscreenSessionPreviews),
+      $activeSessionId.listen(pruneOffscreenSessionPreviews),
+      $sessionTiles.listen(pruneOffscreenSessionPreviews)
+    ]
+
+    return () => {
+      for (const off of offs) {
+        off()
+      }
+    }
+  }, [])
 
   const handleDesktopGatewayEvent = useCallback<EventHandler>(
     event => {
@@ -100,7 +118,7 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
               const url = resolved.kind === 'url' ? await reachablePreviewUrl(resolved.url) : resolved.url
               const reached = url === resolved.url ? resolved : { ...resolved, label: resolved.label || target, url }
 
-              openPreview(trimmedLabel ? { ...reached, label: trimmedLabel } : reached, 'tool-result')
+              openPreview(trimmedLabel ? { ...reached, label: trimmedLabel } : reached, 'tool-result', event.session_id)
             }
           )
         }

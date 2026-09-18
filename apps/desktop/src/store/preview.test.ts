@@ -18,6 +18,7 @@ import {
   type PreviewTarget,
   progressPreviewServerRestart
 } from './preview'
+import { $selectedStoredSessionId } from './session'
 
 function fileTarget(source: string): PreviewTarget {
   return { kind: 'file', label: source, path: source, previewKind: 'html', source, url: `file://${source}` }
@@ -34,12 +35,14 @@ function artifactTarget(id: string): PreviewTarget {
 describe('preview store', () => {
   beforeEach(() => {
     $previewServerRestart.set(null)
+    $selectedStoredSessionId.set(null)
     closeRightRail()
     window.localStorage.clear()
   })
 
   afterEach(() => {
     $previewServerRestart.set(null)
+    $selectedStoredSessionId.set(null)
     closeRightRail()
     window.localStorage.clear()
   })
@@ -212,7 +215,7 @@ describe('preview store', () => {
     openPreview(urlTarget('http://localhost:5174'), 'tool-result')
     openPreview(artifactTarget('session-1:dashboard'))
 
-    const stored = window.localStorage.getItem('hermes.desktop.previewTabs.v2') ?? ''
+    const stored = window.localStorage.getItem('hermes.desktop.previewTabs.v3') ?? ''
 
     expect(stored).toContain('/work/demo.html')
     expect(stored).toContain('localhost:5174')
@@ -222,15 +225,13 @@ describe('preview store', () => {
   it('strips inline image bytes rather than pushing megabytes into storage', () => {
     openPreview({ ...fileTarget('/work/shot.png'), dataUrl: 'data:image/png;base64,AAAA', previewKind: 'image' })
 
-    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v2') ?? '').not.toContain('base64')
+    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v3') ?? '').not.toContain('base64')
   })
 
   it('does not persist remote HTML without its in-memory document', () => {
     openPreview({ ...fileTarget('/remote/report.html'), dataUrl: 'data:text/html;base64,PGgxPnJlbW90ZTwvaDE+' })
 
-    // Nothing persistable, so the profile's bucket is empty and the key is
-    // removed rather than stored as an empty list (matching the tiles store).
-    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v2')).toBeNull()
+    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v3') ?? '').not.toContain('/remote/report.html')
   })
 
   it('preserves an explicit HTML source fallback', () => {
@@ -244,8 +245,20 @@ describe('preview store', () => {
 
     openPreview(target, 'tool-result')
 
-    // Nothing persistable, so the profile's bucket is empty and the key is
-    // removed rather than stored as an empty list (matching the tiles store).
-    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v2')).toBeNull()
+    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v3') ?? '').not.toContain('/remote/report.html')
+  })
+
+  it('isolates preview tabs per focused session', () => {
+    $selectedStoredSessionId.set('session-a')
+    openPreview(urlTarget('http://localhost:5174'), 'tool-result')
+    expect($previewTabs.get()).toHaveLength(1)
+
+    $selectedStoredSessionId.set('session-b')
+    expect($previewTabs.get()).toHaveLength(0)
+    openPreview(urlTarget('http://localhost:5174'), 'tool-result')
+    expect($previewTabs.get()).toHaveLength(1)
+
+    $selectedStoredSessionId.set('session-a')
+    expect($previewTabs.get()[0]?.target.url).toBe('http://localhost:5174')
   })
 })

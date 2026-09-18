@@ -32,6 +32,7 @@ import {
   sourceByConnection,
   useRoster
 } from './data'
+import { rosterPaintSource } from './roster-paint'
 import { $groupChats, $groupChatWorkspace, $groupClarify, $groupNeedsYou } from './group-chat'
 import { GroupChatWorkspace, openGroupChat } from './group-chat-view'
 import { groupChatMemberBots } from './group-membership'
@@ -283,7 +284,7 @@ export function BotsPane() {
   // waking from sleep fail transiently. Render the last good snapshot with
   // a notice; the full error card is reserved for "never had a roster".
   const live = Array.isArray(data?.profiles) ? data.profiles : null
-  const source = live ?? (error ? $lastRoster.get() : [])
+  const source = rosterPaintSource(live, $lastRoster.get())
   const sourceSnapshot = Array.isArray(data?.sources) ? data.sources : rememberedSources
 
   const sourceWithSelectedOwner =

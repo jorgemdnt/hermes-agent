@@ -161,7 +161,6 @@ import {
   orderProjectsByIds,
   overlayLiveLanes,
   overlayLivePreviews,
-  PROJECT_PREVIEW_COUNT,
   ProjectBackRow,
   ProjectMenu,
   projectTreeCwd,
@@ -1198,7 +1197,7 @@ export function ChatSidebar({
         projectOverview ?? [],
         agentSessions,
         projects,
-        showAllSessions ? Infinity : PROJECT_PREVIEW_COUNT,
+        Number.POSITIVE_INFINITY,
         {
           removed: removedSessionIds,
           // Rank before the trim, so "3 priciest in this project" isn't "3 most
@@ -1773,7 +1772,7 @@ export function ChatSidebar({
                 )}
                 dndSensors={dndSensors}
                 emptyState={
-                  inProject && projectLoadFailed ? null : showSessionSkeletons || (inProject && projectLoading) ? (
+                  inProject && projectLoadFailed ? null : showSessionSkeletons || (inProject && projectLoading && scopedSessions.length === 0) ? (
                     <SidebarSessionSkeletons />
                   ) : (
                     <div className="grid min-h-16 place-items-center rounded-lg px-2 text-center text-xs text-(--ui-text-tertiary)">

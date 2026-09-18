@@ -25,7 +25,7 @@ import {
 } from '../chrome'
 import { shellOwnsPress } from '../reorderable-list'
 
-import { expandedProjectSessions, latestProjectSessions, PROJECT_PREVIEW_COUNT, useWorkspaceNodeOpen } from './model'
+import { expandedProjectSessions, latestProjectSessions, useWorkspaceNodeOpen } from './model'
 import { ProjectContextMenu, ProjectMenu } from './project-menu'
 import { excludeProjectSessions, type SidebarProjectTree } from './workspace-groups'
 import { WorkspaceAddButton } from './workspace-header'
@@ -125,7 +125,7 @@ export function ProjectOverviewRow({
   // rather than widening every project's preview window.
   const [expanded, setExpanded] = useState<SidebarProjectTree | null>(null)
   const [expanding, setExpanding] = useState(false)
-  const limit = showAllSessions || expanded ? Infinity : PROJECT_PREVIEW_COUNT
+  const limit = Number.POSITIVE_INFINITY
   const fetched = (previewSessions ?? []).slice(0, limit)
   const recent = fetched.length ? fetched : latestProjectSessions(project, limit)
   // The hydrated lanes come straight from the backend, so — like the drill-in

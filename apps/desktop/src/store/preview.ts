@@ -1,10 +1,11 @@
 import { atom, computed } from 'nanostores'
 
-import { readJson, readKey, writeKey } from '@/lib/storage'
+import { readKey, writeKey } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab } from './layout'
-import { normalizeProfileKey } from './profile'
+import { $selectedStoredSessionId } from './session'
+import { $focusedStoredSessionId } from './session-states'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
 
 /**
@@ -59,12 +60,99 @@ export type PreviewRecordSource = 'explicit-link' | 'file-browser' | 'manual' | 
 
 export interface PreviewTab {
   id: RightRailTabId
+  /** Runtime session that opened a tool-result tab. Untagged tabs (file
+   *  browser, manual) stay window-global. */ 
+  sessionId?: string
   target: PreviewTarget
 }
 
 const TABS_STORAGE_KEY = 'hermes.desktop.previewTabs.v2'
+const TABS_STORAGE_KEY_V3 = 'hermes.desktop.previewTabs.v3'
 /** Superseded by the tab list above; cleared so it can't leak forever. */
 const LEGACY_SESSION_REGISTRY_KEY = 'hermes.desktop.sessionPreviews.v1'
+
+export const PREVIEW_DRAFT_OWNER = '__draft__'
+const PREVIEW_WINDOW_OWNER = '__window__'
+
+export function previewOwnerKey(focusedStoredId: null | string | undefined = $focusedStoredSessionId.get()): string {
+  return focusedStoredId?.trim() || PREVIEW_DRAFT_OWNER
+}
+
+interface PreviewTabsBySession {
+  activeBySession: Record<string, null | string>
+  tabs: Record<string, PreviewTab[]>
+}
+
+const emptyPreviewTabsBySession = (): PreviewTabsBySession => ({ activeBySession: {}, tabs: {} })
+
+function persistPreviewTabsBySession(state: PreviewTabsBySession) {
+  const tabs: Record<string, PreviewTab[]> = {}
+
+  for (const [owner, list] of Object.entries(state.tabs)) {
+    const kept = list.filter(
+      tab => tab.target.kind !== 'artifact' && !tab.target.transient && !(tab.target.previewKind === 'html' && tab.target.dataUrl)
+    )
+
+    if (kept.length) {
+      tabs[owner] = kept
+    }
+  }
+
+  writeKey(TABS_STORAGE_KEY_V3, JSON.stringify({ activeBySession: state.activeBySession, tabs }, (key, value) => (key === 'dataUrl' ? undefined : value)))
+}
+
+function loadPreviewTabsBySession(): PreviewTabsBySession {
+  const fallback = emptyPreviewTabsBySession()
+
+  try {
+    const v3 = readKey(TABS_STORAGE_KEY_V3)
+
+    if (v3) {
+      const parsed = JSON.parse(v3) as unknown
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>
+        const tabsIn = record.tabs && typeof record.tabs === 'object' && !Array.isArray(record.tabs) ? (record.tabs as Record<string, unknown>) : {}
+        const tabs: Record<string, PreviewTab[]> = {}
+
+        for (const [owner, value] of Object.entries(tabsIn)) {
+          tabs[owner] = decodePreviewTabs(JSON.stringify(value))
+        }
+
+        const activeIn =
+          record.activeBySession && typeof record.activeBySession === 'object' && !Array.isArray(record.activeBySession)
+            ? (record.activeBySession as Record<string, unknown>)
+            : {}
+        const activeBySession: Record<string, null | string> = {}
+
+        for (const [owner, value] of Object.entries(activeIn)) {
+          activeBySession[owner] = typeof value === 'string' ? value : null
+        }
+
+        return { activeBySession, tabs }
+      }
+    }
+
+    const v2 = readKey(TABS_STORAGE_KEY)
+
+    if (v2) {
+      const tabs = decodePreviewTabs(v2)
+      const owner = previewOwnerKey()
+
+      return {
+        activeBySession: {},
+        tabs: {
+          [PREVIEW_WINDOW_OWNER]: tabs,
+          [owner]: tabs
+        }
+      }
+    }
+  } catch {
+    return fallback
+  }
+
+  return fallback
+}
 
 function isPreviewTarget(value: unknown): value is PreviewTarget {
   if (!value || typeof value !== 'object') {
@@ -118,10 +206,8 @@ function isPdfFileTarget(target: PreviewTarget): boolean {
  * Without this restore-time migration, an already-open PDF keeps taking the
  * obsolete raw-binary path after Desktop itself has been upgraded. */
 export function decodePreviewTabs(raw: string): PreviewTab[] {
-  return parseTabList(JSON.parse(raw) as unknown)
-}
+  const parsed = JSON.parse(raw) as unknown
 
-function parseTabList(parsed: unknown): PreviewTab[] {
   return (Array.isArray(parsed) ? parsed.filter(isPreviewTab) : []).map(tab =>
     isPdfFileTarget(tab.target) && tab.target.previewKind === 'binary'
       ? { ...tab, target: { ...tab.target, previewKind: 'pdf' as const } }
@@ -129,159 +215,75 @@ function parseTabList(parsed: unknown): PreviewTab[] {
   )
 }
 
-/** The tabs a profile's rail is showing, keyed by profile. */
-type TabsByProfile = Record<string, PreviewTab[]>
+export const $previewTabsBySession = atom<PreviewTabsBySession>(loadPreviewTabsBySession())
 
-/** Read every profile's bucket. A value written by a build that stored ONE
- *  global array is held back and adopted by the first scope to arrive rather
- *  than dropped — tabs the user can see are the tabs that must survive. */
-let pendingLegacyTabs: PreviewTab[] | null = null
+let applyingPreviewBucket = false
 
-function loadTabsByProfile(): TabsByProfile {
-  const stored = readJson<unknown>(TABS_STORAGE_KEY)
-
-  if (Array.isArray(stored)) {
-    pendingLegacyTabs = parseTabList(stored)
-
-    return {}
-  }
-
-  if (!stored || typeof stored !== 'object') {
-    return {}
-  }
-
-  const byProfile: TabsByProfile = {}
-
-  for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
-    byProfile[normalizeProfileKey(key)] = parseTabList(value)
-  }
-
-  return byProfile
+function visibleTabsForOwner(owner: string): PreviewTab[] {
+  return $previewTabsBySession.get().tabs[owner] ?? []
 }
 
-const tabsByProfile = loadTabsByProfile()
+export const $previewTabs = atom<PreviewTab[]>(visibleTabsForOwner(previewOwnerKey()))
 
-/** Inline bytes are not restorable. Strip them from images, and skip remote
- *  HTML and artifact tabs that cannot render without their in-memory payload. */
-function persistableTabs(tabs: PreviewTab[]): PreviewTab[] {
-  return tabs.filter(
-    tab =>
-      tab.target.kind !== 'artifact' &&
-      !tab.target.transient &&
-      !(tab.target.previewKind === 'html' && tab.target.dataUrl)
-  )
-}
+function writeVisiblePreviewTabs(tabs: PreviewTab[]) {
+  $previewTabs.set(tabs)
 
-function persistTabs() {
-  const buckets: TabsByProfile = {}
-
-  for (const [key, tabs] of Object.entries(tabsByProfile)) {
-    const persistable = persistableTabs(tabs)
-
-    if (persistable.length > 0) {
-      buckets[key] = persistable
-    }
+  if (applyingPreviewBucket) {
+    return
   }
 
-  // `dataUrl` holds inline bytes that cannot be restored; drop the key wherever
-  // it survives the filter above (an image tab). An empty map removes the key
-  // rather than storing `{}`, matching the tiles store.
-  writeKey(
-    TABS_STORAGE_KEY,
-    Object.keys(buckets).length === 0
-      ? null
-      : JSON.stringify(buckets, (key, value) => (key === 'dataUrl' ? undefined : value))
-  )
+  const owner = previewOwnerKey()
+  const state = $previewTabsBySession.get()
+  const next: PreviewTabsBySession = {
+    activeBySession: { ...state.activeBySession, [owner]: $rightRailActiveTabId.get() },
+    tabs: { ...state.tabs, [owner]: tabs }
+  }
+
+  $previewTabsBySession.set(next)
+  persistPreviewTabsBySession(next)
 }
 
-// Tabs are scoped to THE CHAT ON SCREEN, not to the window's gateway socket.
-// `session-states.ts` resolves the focused session's owner and pushes it here
-// via `setPreviewScope`; the two must not be conflated, because a focused tab
-// does not swap the socket — every bot chat is served by one pooled backend, so
-// a socket-keyed rail showed one agent's preview in every agent's chat. That is
-// the same trap `bot-row.tsx` documents for the roster highlight. (It also owns
-// the resolver, so it pushes rather than having this module reach for it — this
-// file is already imported by session-states.ts.)
-//
-// Which bucket the atom mirrors. A RENAME moves the view without the scope
-// changing, so this has to follow the rename or the persist subscriber below
-// would resurrect the bucket the rename just deleted.
-let viewKey = 'default'
+function applyPreviewOwner(owner: string) {
+  const state = $previewTabsBySession.get()
+  const tabs = state.tabs[owner] ?? []
 
-export const $previewTabs = atom<PreviewTab[]>([])
+  applyingPreviewBucket = true
+  $previewTabs.set(tabs)
+  selectRightRailTab((state.activeBySession[owner] as RightRailTabId | null) ?? tabs[0]?.id ?? null)
+  applyingPreviewBucket = false
+}
 
-$previewTabs.subscribe(tabs => {
-  // `subscribe` hands a readonly view; the bucket is a mutable store of its own.
-  tabsByProfile[viewKey] = [...tabs]
-  persistTabs()
+$focusedStoredSessionId.listen(() => {
+  applyPreviewOwner(previewOwnerKey())
 })
 
-/** Re-home the rail onto the profile that owns the chat on screen. Called by
- *  `session-states.ts` whenever the focused session (or its resolved owner)
- *  changes; the previous agent's tabs must not leak into the next one. */
-export function setPreviewScope(scope: string) {
-  const next = normalizeProfileKey(scope) || 'default'
-
-  if (next === viewKey) {
+$selectedStoredSessionId.listen(id => {
+  if (!id) {
     return
   }
 
-  if (pendingLegacyTabs) {
-    tabsByProfile[next] = [...(tabsByProfile[next] ?? []), ...pendingLegacyTabs]
-    pendingLegacyTabs = null
-    persistTabs()
-  }
+  const state = $previewTabsBySession.get()
+  const draft = state.tabs[PREVIEW_DRAFT_OWNER]
 
-  viewKey = next
-  $previewTabs.set(tabsByProfile[next] ?? [])
-}
-
-/** Drop one profile's rail. Delete counterpart of the tiles store's
- *  `dropTilesForProfile`, which profile deletion calls. */
-export function dropPreviewTabsForProfile(profile: string) {
-  const key = normalizeProfileKey(profile)
-
-  delete tabsByProfile[key]
-  persistTabs()
-
-  if (key === viewKey) {
-    $previewTabs.set([])
-  }
-}
-
-/** Move one profile's rail to another. Rename counterpart of the tiles store's
- *  `migrateTilesForProfile`: without it a rename strands the tabs under a
- *  profile that no longer exists. */
-export function migratePreviewTabsForProfile(oldProfile: string, newProfile: string) {
-  const from = normalizeProfileKey(oldProfile)
-  const to = normalizeProfileKey(newProfile)
-
-  if (from === to) {
+  if (!draft?.length) {
     return
   }
 
-  const moved = tabsByProfile[from]
-
-  if (moved) {
-    delete tabsByProfile[from]
-    tabsByProfile[to] = [...(tabsByProfile[to] ?? []), ...moved]
+  const existing = state.tabs[id] ?? []
+  const merged = [...draft, ...existing.filter(tab => !draft.some(item => item.id === tab.id))]
+  const next: PreviewTabsBySession = {
+    activeBySession: {
+      ...state.activeBySession,
+      [id]: state.activeBySession[PREVIEW_DRAFT_OWNER] ?? state.activeBySession[id] ?? merged[0]?.id ?? null,
+      [PREVIEW_DRAFT_OWNER]: null
+    },
+    tabs: { ...state.tabs, [id]: merged, [PREVIEW_DRAFT_OWNER]: [] }
   }
 
-  // The view belongs to the renamed profile; only its NAME changed. Re-point it
-  // BEFORE the atom is set, so the persist subscriber writes the new bucket
-  // rather than resurrecting the one just deleted.
-  const wasInView = from === viewKey
-
-  if (wasInView) {
-    viewKey = to
-  }
-
-  persistTabs()
-
-  if (wasInView) {
-    $previewTabs.set(tabsByProfile[to] ?? [])
-  }
-}
+  $previewTabsBySession.set(next)
+  persistPreviewTabsBySession(next)
+  applyPreviewOwner(previewOwnerKey())
+})
 
 if (typeof window !== 'undefined') {
   try {
@@ -372,7 +374,7 @@ export function commitBrowserTabLocation(tabId: string, url: string, title?: str
     return
   }
 
-  $previewTabs.set(
+  writeVisiblePreviewTabs(
     tabs.map((item, i) =>
       i === index
         ? {
@@ -522,14 +524,19 @@ function previewTargetForSource(target: PreviewTarget, source: PreviewRecordSour
 /** Open (or re-front) the tab for `target`. Re-opening an existing tab refreshes
  *  its target so a stale label/path can't outlive the thing it points at. The
  *  only way anything reaches a preview. */
-export function openPreview(target: PreviewTarget, source: PreviewRecordSource = 'manual') {
+export function openPreview(
+  target: PreviewTarget,
+  source: PreviewRecordSource = 'manual',
+  sessionId?: null | string
+) {
   const resolved = previewTargetForSource(target, source)
   const current = $previewTabs.get()
   const id = resolved.kind === 'url' ? browserTabId(current) : previewTabId(resolved)
   const index = current.findIndex(tab => tab.id === id)
-  const tab: PreviewTab = { id, target: resolved }
+  const owner = previewOwnerKey()
+  const tab: PreviewTab = { id, target: resolved, sessionId: sessionId?.trim() || owner }
 
-  $previewTabs.set(index === -1 ? [...current, tab] : current.map((item, i) => (i === index ? tab : item)))
+  writeVisiblePreviewTabs(index === -1 ? [...current, tab] : current.map((item, i) => (i === index ? tab : item)))
   selectRightRailTab(id)
 }
 
@@ -550,7 +557,7 @@ export function openBrowserTab() {
 export function newBrowserTab() {
   const id = mintBrowserTabId()
 
-  $previewTabs.set([...$previewTabs.get(), { id, target: blankPage() }])
+  writeVisiblePreviewTabs([...$previewTabs.get(), { id, target: blankPage() }])
   selectRightRailTab(id)
 }
 
@@ -564,7 +571,7 @@ export function closeRightRailTab(tabId: string) {
 
   const next = current.filter(tab => tab.id !== tabId)
 
-  $previewTabs.set(next)
+  writeVisiblePreviewTabs(next)
 
   if ($rightRailActiveTabId.get() === tabId) {
     selectRightRailTab(next[Math.min(index, next.length - 1)]?.id ?? null)
@@ -617,7 +624,7 @@ export function closeArtifactPreviewTabs() {
 
 /** Close every tab so the rail's panes leave the tree. */
 export function closeRightRail() {
-  $previewTabs.set([])
+  writeVisiblePreviewTabs([])
   selectRightRailTab(null)
 }
 
@@ -669,3 +676,11 @@ export function failPreviewServerRestart(taskId: string, message: string) {
     status: 'error'
   })
 }
+
+/** Main scopes the rail by profile owner. This pack buckets by stored session;
+ *  session-states still calls these on focus/rename/delete. */
+export function setPreviewScope(_scope: string) {}
+
+export function dropPreviewTabsForProfile(_profile: string) {}
+
+export function migratePreviewTabsForProfile(_from: string, _to: string) {}

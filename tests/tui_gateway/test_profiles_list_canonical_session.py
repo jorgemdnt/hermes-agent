@@ -498,6 +498,42 @@ def test_canonical_session_scoped_per_profile_db(home):
     assert "ops profile content" in _row(rows, "ops")["canonical_session"]["preview"]
 
 
+def test_profiles_list_reuses_read_only_session_db_across_polls(home, monkeypatch):
+    """C2: a second profiles.list must not open+close each profile state.db again.
+
+    The roster poll is every 5s. Constructing SessionDB per profile per poll
+    (connect, pragmas, close) is the local-disk hitch, not a write lock.
+    """
+    import hermes_state
+
+    default_db = _db(home)
+    _add_session(default_db, "chat-default", title="Bot Chat", ts=1000, text="default")
+    default_db.close()
+    ops_db = _db(home / "profiles" / "ops")
+    _add_session(ops_db, "chat-ops", title="Bot Chat", ts=1000, text="ops")
+    ops_db.close()
+
+    seen = []
+    Real = hermes_state.SessionDB
+
+    class Spy(Real):
+        def __init__(self, *args, **kwargs):
+            seen.append((args, kwargs))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(hermes_state, "SessionDB", Spy)
+
+    first = _profiles({})
+    assert _row(first, "default")["canonical_session"]["preview"]
+    assert _row(first, "ops")["canonical_session"]["preview"]
+    opened = len(seen)
+    assert opened >= 2, opened
+
+    second = _profiles({})
+    assert _row(second, "ops")["canonical_session"]["preview"]
+    assert len(seen) == opened, f"second list opened {len(seen) - opened} extra SessionDB(s)"
+
+
 def test_profiles_list_opens_session_db_read_only(home, monkeypatch):
     """Roster inspection must not take a writable SessionDB (20s lock patience)."""
     import hermes_state

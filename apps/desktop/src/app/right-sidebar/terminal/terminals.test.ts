@@ -5,12 +5,16 @@ const STORAGE_KEY = 'hermes.desktop.terminals.v1'
 
 async function loadTerminalStore() {
   const $currentCwd = atom('/workspace')
+  const $focusedStoredSessionId = atom<string | null>(null)
 
   vi.doMock('@/store/session', () => ({
     $currentCwd
   }))
+  vi.doMock('@/store/session-states', () => ({
+    $focusedStoredSessionId
+  }))
 
-  return { ...(await import('./terminals')), $currentCwd }
+  return { ...(await import('./terminals')), $currentCwd, $focusedStoredSessionId }
 }
 
 describe('terminal store persistence', () => {
@@ -35,8 +39,8 @@ describe('terminal store persistence', () => {
 
     expect($activeTerminalId.get()).toBe('term-two')
     expect($terminals.get()).toEqual([
-      { auto: false, cwd: '/repo/one', id: 'term-one', kind: 'user', reviveBuffer: 'last output', title: 'zsh' },
-      { auto: true, cwd: '/repo/two', id: 'term-two', kind: 'user', title: 'Terminal' }
+      { auto: false, cwd: '/repo/one', id: 'term-one', kind: 'user', ownerSessionId: '__draft__', reviveBuffer: 'last output', title: 'zsh' },
+      { auto: true, cwd: '/repo/two', id: 'term-two', kind: 'user', ownerSessionId: '__draft__', title: 'Terminal' }
     ])
   })
 
@@ -186,5 +190,28 @@ describe('session cwd → terminal tab linking', () => {
     selectTerminal(first)
     $currentCwd.set('/repo')
     expect($activeTerminalId.get()).toBe(first)
+  })
+})
+
+describe('per-session terminal isolation', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    vi.resetModules()
+  })
+
+  it('keeps each chat its own PTY even when two sessions share a cwd', async () => {
+    const { $focusedStoredSessionId, $terminals, createTerminal } = await loadTerminalStore()
+
+    $focusedStoredSessionId.set('session-a')
+    const a = $terminals.get().find(term => term.kind === 'user')?.id ?? createTerminal('/repo/wt-a')
+
+    $focusedStoredSessionId.set('session-b')
+    expect($terminals.get().some(term => term.id === a)).toBe(false)
+    const b = $terminals.get().find(term => term.kind === 'user')?.id ?? createTerminal('/repo/wt-a')
+    expect(b).not.toBe(a)
+
+    $focusedStoredSessionId.set('session-a')
+    expect($terminals.get().map(term => term.id)).toContain(a)
+    expect($terminals.get().some(term => term.id === b)).toBe(false)
   })
 })

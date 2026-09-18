@@ -2,6 +2,7 @@ import { atom, computed } from 'nanostores'
 
 import { readKey, writeKey } from '@/lib/storage'
 import { $currentCwd } from '@/store/session'
+import { $focusedStoredSessionId } from '@/store/session-states'
 
 import { setTerminalTakeover } from '../store'
 
@@ -32,6 +33,8 @@ export interface TerminalEntry {
   /** `user` = interactive PTY shell. `agent` = read-only mirror of an agent
    *  background process (`terminal(background=true)`), keyed by `procId`. */
   kind: 'user' | 'agent'
+  /** Session that owns this tab (`__draft__` or stored id). */
+  ownerSessionId?: string
   procId?: string
 }
 
@@ -50,6 +53,12 @@ interface PersistedTerminalState {
 }
 
 const TERMINALS_STORAGE_KEY = 'hermes.desktop.terminals.v1'
+const TERMINALS_STORAGE_KEY_V2 = 'hermes.desktop.terminals.v2'
+export const TERMINAL_DRAFT_OWNER = '__draft__'
+
+export function terminalOwnerKey(focusedStoredId: null | string | undefined = $focusedStoredSessionId.get()): string {
+  return focusedStoredId?.trim() || TERMINAL_DRAFT_OWNER
+}
 
 // Cap a single tab's replayed history so the persisted layout can't blow the
 // localStorage quota. Roughly mirrors VS Code's persistentSessionScrollback
@@ -129,25 +138,118 @@ function persistTerminals(list: readonly TerminalEntry[], activeTerminalId: null
       title: term.title
     }))
 
+  const active = terminals.some(term => term.id === activeTerminalId) ? activeTerminalId : (terminals[0]?.id ?? null)
+
   if (!terminals.length) {
     writeKey(TERMINALS_STORAGE_KEY, null)
-
-    return
+  } else {
+    writeKey(TERMINALS_STORAGE_KEY, JSON.stringify({ activeTerminalId: active, terminals }))
   }
 
-  const active = terminals.some(term => term.id === activeTerminalId) ? activeTerminalId : (terminals[0]?.id ?? null)
-  writeKey(TERMINALS_STORAGE_KEY, JSON.stringify({ activeTerminalId: active, terminals }))
+  const owner = terminalOwnerKey()
+  terminalBuckets[owner] = {
+    activeId: active,
+    terminals: list.map(term => ({ ...term }))
+  }
+
+  const persisted: Record<string, { activeId: null | string; terminals: PersistedTerminalEntry[] }> = {}
+
+  for (const [key, bucket] of Object.entries(terminalBuckets)) {
+    const users = bucket.terminals
+      .filter(term => term.kind === 'user')
+      .map(term => ({
+        auto: term.auto,
+        cwd: term.cwd,
+        id: term.id,
+        ...(term.restoreCwd ? { restoreCwd: term.restoreCwd } : {}),
+        ...(term.reviveBuffer ? { reviveBuffer: term.reviveBuffer } : {}),
+        title: term.title
+      }))
+
+    if (users.length) {
+      persisted[key] = { activeId: bucket.activeId, terminals: users }
+    }
+  }
+
+  writeKey(TERMINALS_STORAGE_KEY_V2, Object.keys(persisted).length ? JSON.stringify(persisted) : null)
 }
 
-const restored = loadPersistedTerminals()
+const terminalBuckets: Record<string, { activeId: null | string; terminals: TerminalEntry[] }> = {}
+let applyingTerminalBucket = false
 
-export const $terminals = atom<readonly TerminalEntry[]>(
-  restored.terminals.map(term => ({ ...term, kind: 'user' as const }))
-)
-export const $activeTerminalId = atom<string | null>(restored.activeTerminalId)
+function loadTerminalBuckets(): { activeId: null | string; terminals: TerminalEntry[] } {
+  const owner = terminalOwnerKey()
+  const v1 = loadPersistedTerminals()
+  const v1Terms = v1.terminals.map(term => ({ ...term, kind: 'user' as const, ownerSessionId: owner }))
 
-$terminals.subscribe(list => persistTerminals(list, $activeTerminalId.get()))
-$activeTerminalId.subscribe(active => persistTerminals($terminals.get(), active))
+  try {
+    const raw = readKey(TERMINALS_STORAGE_KEY_V2)
+
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            continue
+          }
+
+          const record = value as Record<string, unknown>
+          const terminals = Array.isArray(record.terminals)
+            ? record.terminals
+                .map(sanitizePersistedTerminal)
+                .filter((term): term is PersistedTerminalEntry => Boolean(term))
+                .map(term => ({ ...term, kind: 'user' as const, ownerSessionId: key }))
+            : []
+
+          terminalBuckets[key] = {
+            activeId: typeof record.activeId === 'string' ? record.activeId : null,
+            terminals
+          }
+        }
+      }
+    }
+  } catch {
+    /* v1 fallback below */
+  }
+
+  if (!terminalBuckets[owner] && v1Terms.length) {
+    terminalBuckets[owner] = { activeId: v1.activeTerminalId, terminals: v1Terms }
+  }
+
+  return terminalBuckets[owner] ?? { activeId: null, terminals: [] }
+}
+
+const restored = loadTerminalBuckets()
+
+export const $terminals = atom<readonly TerminalEntry[]>(restored.terminals)
+export const $activeTerminalId = atom<string | null>(restored.activeId)
+
+$terminals.subscribe(list => {
+  if (!applyingTerminalBucket) {
+    persistTerminals(list, $activeTerminalId.get())
+  }
+})
+$activeTerminalId.subscribe(active => {
+  if (!applyingTerminalBucket) {
+    persistTerminals($terminals.get(), active)
+  }
+})
+
+$focusedStoredSessionId.listen(() => {
+  const next = terminalOwnerKey()
+  const cwd = $currentCwd.get()
+
+  applyingTerminalBucket = true
+  const bucket = terminalBuckets[next] ?? { activeId: null, terminals: [] }
+  $terminals.set(bucket.terminals)
+  $activeTerminalId.set(bucket.activeId)
+  applyingTerminalBucket = false
+
+  if (cwd && !bucket.terminals.some(term => term.kind === 'user')) {
+    createTerminal(cwd)
+  }
+})
 
 export const $activeTerminal = computed(
   [$terminals, $activeTerminalId],
@@ -161,7 +263,8 @@ const newId = () =>
  *  tie to session/project state); pass an explicit cwd to override. Returns the id. */
 export function createTerminal(cwd: string = $currentCwd.get()): string {
   const id = newId()
-  $terminals.set([...$terminals.get(), { id, title: 'Terminal', auto: true, cwd, kind: 'user' }])
+  const ownerSessionId = terminalOwnerKey()
+  $terminals.set([...$terminals.get(), { id, title: 'Terminal', auto: true, cwd, kind: 'user', ownerSessionId }])
   $activeTerminalId.set(id)
 
   return id
