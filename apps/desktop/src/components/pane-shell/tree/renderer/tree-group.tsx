@@ -286,6 +286,9 @@ export function TreeGroup({
     Boolean(paneFor(id)) && (editMode || !hiddenPanes.has(id)) && !(narrow && paneChrome(paneFor(id)).collapsible)
 
   const shown = node.panes.filter(paneShown)
+  const keepAliveHidden = node.panes.filter(
+    id => !shown.includes(id) && Boolean(paneChrome(paneFor(id)).lifecycleKeepAlive)
+  )
   const memoryKey = workspaceScopeKey(workspaceMode, workspaceOwnerKey)
 
   const activeId = shown.includes(node.active)
@@ -336,12 +339,14 @@ export function TreeGroup({
     lifecycleRef.current = reconcilePaneLifecycle(lifecycleRef.current, {
       activeId,
       keepAlive: id => Boolean(paneChrome(paneFor(id)).lifecycleKeepAlive),
-      paneIds: shown
+      paneIds: [...shown, ...keepAliveHidden]
     })
   }
 
   const paneLifecycle = lifecycleRef.current.entries
-  const keptPanes = shown.filter(id => paneLifecycle[id] && paneLifecycle[id].lifecycle !== 'parked')
+  const keptPanes = [...shown, ...keepAliveHidden].filter(
+    id => paneLifecycle[id] && paneLifecycle[id].lifecycle !== 'parked'
+  )
 
   // A parked session pane releases its transcript from the warm cache
   // (#77311): publish which tiles are parked so use-session-state-cache stops

@@ -13,7 +13,7 @@
 import { useStore } from '@nanostores/react'
 
 import { findGroup, findGroupOfPane } from '@/components/pane-shell/tree/model'
-import { $activeTreeGroup, $layoutTree, revealTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
+import { $activeTreeGroup, $layoutTree, revealTreePane, setTreePaneHidden, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
 import { type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { ToolIcon } from '@/components/ui/tool-icon'
@@ -21,9 +21,11 @@ import { translateNow } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID } from '@/store/layout'
 import {
+  $allDockedPreviewTabs,
   $browserPages,
   $dockedPreviewTabs,
   $previewTabs,
+  $previewTabsBySession,
   adoptPersistedBrowserTab,
   type BrowserPage,
   closeRightRailTab,
@@ -31,6 +33,7 @@ import {
   markBrowserTabPopped,
   newBrowserTab,
   popOutBrowserTab,
+  previewOwnerKey,
   type PreviewTarget
 } from '@/store/preview'
 import { canOpenBrowserWindow } from '@/store/windows'
@@ -41,6 +44,14 @@ import { forgetPreviewConsole } from './right-rail/preview-console-store'
 
 /** The target behind a tile id, or null once its tab is gone. */
 function targetFor(tabId: string): PreviewTarget | null {
+  for (const list of Object.values($previewTabsBySession.get().tabs)) {
+    const tab = list.find(item => item.id === tabId)
+
+    if (tab) {
+      return tab.target
+    }
+  }
+
   return $previewTabs.get().find(tab => tab.id === tabId)?.target ?? null
 }
 
@@ -219,12 +230,33 @@ export function watchPreviewTiles(): void {
     const tabId = $rightRailActiveTabId.get()
 
     if (tabId && targetFor(tabId)) {
-      revealTreePane(`${PREVIEW_TILE_PREFIX}:${tabId}`)
+      revealTreePane(`${PREVIEW_TILE_PREFIX}:${tabId}`, { restoreSide: false })
     }
   }
 
   $rightRailActiveTabId.listen(reveal)
-  $previewTabs.listen(reveal)
+
+  const syncVisibility = () => {
+    const focused = previewOwnerKey()
+    const all = $allDockedPreviewTabs.get()
+    let focusedHas = false
+
+    for (const tab of all) {
+      const owner = tab.sessionId?.trim() || focused
+
+      if (owner === focused) {
+        focusedHas = true
+      }
+
+      setTreePaneHidden(previewPaneId(tab.id), owner !== focused)
+    }
+
+    setTreePaneHidden(WORK_PANE_ID, focusedHas)
+  }
+
+  $allDockedPreviewTabs.listen(syncVisibility)
+  $previewTabs.listen(syncVisibility)
+  syncVisibility()
 
   // And the reverse: clicking a preview TAB activates its pane in the TREE
   // only, so the store's selection must follow or `$previewTarget` (⌘L quote
@@ -253,7 +285,7 @@ export function watchPreviewTiles(): void {
 }
 
 const watchPreviewTileMirror = paneMirror<{ id: string }>({
-  source: $dockedPreviewTabs,
+  source: $allDockedPreviewTabs,
   // Unscoped on purpose. `$previewTabs` is one global Browser/file surface —
   // clicking a link in a bot chat must open the same pane Sessions already
   // shows. Scoping this to `sessions` filtered the pane out of Bot Mode, so

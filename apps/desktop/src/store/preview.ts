@@ -3,7 +3,7 @@ import { atom, computed } from 'nanostores'
 import { readKey, writeKey } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 
-import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab } from './layout'
+import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, setFileBrowserOpen } from './layout'
 import { $activeSessionId, $selectedStoredSessionId } from './session'
 import { $focusedRuntimeId, $focusedStoredSessionId, $sessionStates, $sessionTiles } from './session-states'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
@@ -518,6 +518,26 @@ export const $dockedPreviewTabs = computed([$previewTabs, $poppedBrowserTabIds],
   popped.size === 0 ? tabs : tabs.filter(tab => !popped.has(tab.id))
 )
 
+/** Every session's docked preview tabs. Browser tiles stay registered (and
+ *  mounted) when you switch chats so the owning thread does not reload. */
+export const $allDockedPreviewTabs = computed([$previewTabsBySession, $poppedBrowserTabIds], (state, popped) => {
+  const seen = new Set<string>()
+  const tabs: PreviewTab[] = []
+
+  for (const list of Object.values(state.tabs)) {
+    for (const tab of list) {
+      if (seen.has(tab.id) || popped.has(tab.id)) {
+        continue
+      }
+
+      seen.add(tab.id)
+      tabs.push(tab)
+    }
+  }
+
+  return tabs
+})
+
 export const $previewReloadRequest = atom(0)
 export const $previewServerRestart = atom<PreviewServerRestart | null>(null)
 export const $previewServerRestartStatus = computed($previewServerRestart, restart => restart?.status ?? 'idle')
@@ -590,6 +610,7 @@ export function openPreview(
 
   if (owner === previewOwnerKey()) {
     selectRightRailTab(id)
+    setFileBrowserOpen(true)
   }
 }
 

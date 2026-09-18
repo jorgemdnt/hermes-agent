@@ -161,3 +161,19 @@ describe('preview tiles stack, not split (#93610)', () => {
     }
   })
 })
+
+describe('preview tiles stay mounted for the owning thread', () => {
+  it('keeps the other session Browser registered when focus moves', async () => {
+    const { $selectedStoredSessionId } = await import('@/store/session')
+
+    $selectedStoredSessionId.set('session-a')
+    openPreview({ kind: 'url', label: 'A', source: 'https://a.example', url: 'https://a.example' }, 'explicit-link')
+    const aId = $previewTabs.get().find(tab => tab.target.kind === 'url')!.id
+
+    expect(paneDataOf(`preview-tile:${aId}`)?.lifecycleKeepAlive).toBe(true)
+
+    $selectedStoredSessionId.set('session-b')
+
+    expect(paneDataOf(`preview-tile:${aId}`)?.lifecycleKeepAlive).toBe(true)
+  })
+})

@@ -569,9 +569,15 @@ export function toggleFileBrowserOpen() {
     return
   }
 
-  const open = restoreMinimizedTreeSide('right') || !$fileBrowserOpen.get()
-  setPaneOpen(FILE_BROWSER_PANE_ID, open)
-  setTreeSideCollapsed('right', !open)
+  if ($fileBrowserOpen.get()) {
+    setFileBrowserOpen(false)
+
+    return
+  }
+
+  restoreMinimizedTreeSide('right')
+  setPaneOpen(FILE_BROWSER_PANE_ID, true)
+  setTreeSideCollapsed('right', false)
 }
 
 export function setFileBrowserOpen(open: boolean) {

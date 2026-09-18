@@ -1130,7 +1130,7 @@ export function treeSideOfPane(paneId: string): TreeSide | null {
  * App intent "show pane X" (a preview target landed, ⌘G opened review, …):
  * open its side, unhide it, and bring it to the front of its group.
  */
-export function revealTreePane(paneId: string) {
+export function revealTreePane(paneId: string, opts?: { restoreSide?: boolean }) {
   // Reveal beats a Close: un-dismiss and let adoption put the pane back.
   if ($dismissedPanes.get().has(paneId)) {
     setDismissed(paneId, false)
@@ -1152,7 +1152,7 @@ export function revealTreePane(paneId: string) {
 
   const side = treeSideOfPane(paneId)
 
-  if (side && $collapsedTreeSides.get().has(side)) {
+  if (opts?.restoreSide !== false && side && $collapsedTreeSides.get().has(side)) {
     // Un-collapse the COLUMN, never the side's bound store: on the right that
     // store is ⌘J / $fileBrowserOpen, i.e. the file tree's own toggle. Routing
     // a reveal through it dragged the tree open behind every neighbour that
