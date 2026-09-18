@@ -3163,6 +3163,9 @@ export const zhHant = defineLocale({
 
   preview: {
     tab: '預覽',
+    slotEmptyTitle: '尚未開啟任何內容',
+    slotEmptyBody: '開啟瀏覽器分頁或檔案，或等待聊天中的預覽。',
+    openFile: '開啟檔案',
     closePane: '關閉預覽窗格',
     loading: '正在載入預覽',
     unavailable: '預覽不可用',

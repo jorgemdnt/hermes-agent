@@ -57,4 +57,28 @@ describe('migratePersistedTree', () => {
 
     expect(JSON.stringify(migrated)).not.toContain('headerHidden')
   })
+
+  it('replaces a files pane with the work slot', () => {
+    const migrated = persisted({
+      active: 'files',
+      id: 'grp-files',
+      panes: ['files'],
+      type: 'group'
+    })
+
+    expect(migrated.panes).toEqual(['work'])
+    expect(migrated.active).toBe('work')
+  })
+
+  it('does not duplicate work when a group already has it next to files', () => {
+    const migrated = persisted({
+      active: 'files',
+      id: 'g',
+      panes: ['work', 'files'],
+      type: 'group'
+    })
+
+    expect(migrated.panes).toEqual(['work'])
+    expect(migrated.active).toBe('work')
+  })
 })

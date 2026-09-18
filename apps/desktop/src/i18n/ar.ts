@@ -312,7 +312,7 @@ export const ar = defineLocale({
       'composer.modelPicker': 'فتح منتقي النموذج',
       'composer.voice': 'بدء / إيقاف المحادثة الصوتية',
       'view.toggleSidebar': 'تبديل الشريط الجانبي للجلسات',
-      'view.toggleRightSidebar': 'تبديل متصفح الملفات',
+      'view.toggleRightSidebar': 'تبديل الشريط الأيمن',
       'view.toggleReview': 'تبديل لوحة المراجعة',
       'view.showFiles': 'إظهار متصفح الملفات',
       'view.showBrowser': 'فتح المتصفح',
@@ -2731,6 +2731,9 @@ export const ar = defineLocale({
   },
   preview: {
     tab: 'معاينة',
+    slotEmptyTitle: 'لا شيء مفتوح',
+    slotEmptyBody: 'افتح تبويب متصفح أو ملفًا، أو انتظر معاينة من المحادثة.',
+    openFile: 'فتح ملف',
     closePane: 'إغلاق جزء المعاينة',
     loading: 'جار تحميل المعاينة',
     unavailable: 'المعاينة غير متاحة',

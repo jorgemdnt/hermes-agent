@@ -145,4 +145,19 @@ describe('preview tiles stack, not split (#93610)', () => {
 
     expect(dockOf('preview-tile:file:/tmp/c.ts')?.pos).toBe('right')
   })
+
+  it('stacks the first preview into the work slot when that pane is in the tree', async () => {
+    const tree = await import('@/components/pane-shell/tree/store')
+    const model = await import('@/components/pane-shell/tree/model')
+
+    tree.declareDefaultTree(model.group(['work'], { id: 'grp-work' }))
+
+    try {
+      openPreview(fileTarget('/tmp/a.ts'), 'file-browser')
+
+      expect(dockOf('preview-tile:file:/tmp/a.ts')).toMatchObject({ pane: 'work', pos: 'center' })
+    } finally {
+      tree.$layoutTree.set(null)
+    }
+  })
 })

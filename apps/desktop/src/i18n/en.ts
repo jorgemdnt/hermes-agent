@@ -414,7 +414,7 @@ export const en: Translations = {
       'composer.voice': 'Start / stop voice conversation',
       'view.toggleSidebar': 'Toggle sessions sidebar',
       'view.cycleSidebarGrouping': 'Cycle session grouping',
-      'view.toggleRightSidebar': 'Toggle file browser',
+      'view.toggleRightSidebar': 'Toggle right sidebar',
       'view.toggleReview': 'Toggle review pane',
       'view.toggleStatusbar': 'Toggle status bar',
       'view.toggleTabStrip': 'Toggle tabs',
@@ -3865,6 +3865,9 @@ export const en: Translations = {
 
   preview: {
     tab: 'Preview',
+    slotEmptyTitle: 'Nothing open',
+    slotEmptyBody: 'Open a browser tab or a file, or wait for a preview from chat.',
+    openFile: 'Open file',
     closePane: 'Close preview pane',
     loading: 'Loading preview',
     unavailable: 'Preview unavailable',

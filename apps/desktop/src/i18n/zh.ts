@@ -378,7 +378,7 @@ export const zh = defineLocale({
       'composer.modelPicker': '打开模型选择器',
       'composer.voice': '开始 / 停止语音对话',
       'view.toggleSidebar': '切换会话侧边栏',
-      'view.toggleRightSidebar': '切换文件浏览器',
+      'view.toggleRightSidebar': '切换右侧栏',
       'view.toggleReview': '切换审查面板',
       'view.toggleStatusbar': '切换状态栏',
       'view.toggleTabStrip': '切换标签',
@@ -3954,6 +3954,9 @@ export const zh = defineLocale({
 
   preview: {
     tab: '预览',
+    slotEmptyTitle: '尚未打开任何内容',
+    slotEmptyBody: '打开浏览器标签或文件，或等待聊天中的预览。',
+    openFile: '打开文件',
     closePane: '关闭预览面板',
     loading: '正在加载预览',
     unavailable: '预览不可用',

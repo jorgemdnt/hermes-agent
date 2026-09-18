@@ -35,6 +35,7 @@ import {
   cycleSidebarGrouping,
   requestSessionSearchFocus,
   setFileBrowserOpen,
+  setFileTreeOpen,
   toggleFileBrowserOpen,
   togglePanesFlipped,
   toggleSidebarOpen
@@ -182,6 +183,7 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
   const showFiles = () => {
     setFileBrowserOpen(true)
     setTerminalTakeover(false)
+    setFileTreeOpen(true)
   }
 
   handlersRef.current = {

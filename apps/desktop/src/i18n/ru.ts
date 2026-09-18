@@ -334,7 +334,7 @@ export const ru = defineLocale({
       'composer.modelPicker': 'Открыть выбор модели',
       'composer.voice': 'Начать / остановить голосовой диалог',
       'view.toggleSidebar': 'Показать / скрыть панель сеансов',
-      'view.toggleRightSidebar': 'Показать / скрыть браузер файлов',
+      'view.toggleRightSidebar': 'Показать / скрыть правую панель',
       'view.toggleReview': 'Показать / скрыть панель ревью',
       'view.toggleStatusbar': 'Показать / скрыть строку состояния',
       'view.toggleTabStrip': 'Показать / скрыть вкладки',
@@ -3506,6 +3506,9 @@ export const ru = defineLocale({
   },
   preview: {
     tab: 'Предпросмотр',
+    slotEmptyTitle: 'Ничего не открыто',
+    slotEmptyBody: 'Откройте вкладку браузера или файл — или дождитесь превью из чата.',
+    openFile: 'Открыть файл',
     closePane: 'Закрыть панель предпросмотра',
     loading: 'Загрузка предпросмотра',
     unavailable: 'Предпросмотр недоступен',

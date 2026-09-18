@@ -3201,6 +3201,9 @@ export const ja = defineLocale({
 
   preview: {
     tab: 'プレビュー',
+    slotEmptyTitle: '何も開いていません',
+    slotEmptyBody: 'ブラウザタブやファイルを開くか、チャットのプレビューを待ちます。',
+    openFile: 'ファイルを開く',
     closePane: 'プレビューペインを閉じる',
     loading: 'プレビューを読み込み中',
     unavailable: 'プレビューは利用できません',

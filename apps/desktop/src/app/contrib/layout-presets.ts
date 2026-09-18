@@ -7,14 +7,13 @@ import { isOnboardingEnabled } from '@/lib/onboarding-enabled'
 // ---------------------------------------------------------------------------
 
 // The REAL default: sessions left, chat main, and the right sidebars in column
-// order main | … | review | file-browser (files outermost). Each is its OWN
-// zone. Review collapses to nothing while its pane is hidden (⌘G off).
+// order main | … | review | work (work slot outermost). Each is its OWN zone.
+// Review collapses to nothing while its pane is hidden (⌘G off).
 //
-// Preview tiles are DYNAMIC panes (like session tiles), so no preset names one:
-// they're registered by watchPreviewTiles as tabs open, and dockPaneBeside lands
-// each one directly beside the file tree wherever that currently lives — so a
-// file double-click still slides a preview open as its own pane next to the
-// tree, never as a tab stacked into the files sidebar.
+// The work slot is the Codex-style right split: empty until you open a browser
+// tab, a file, or a preview. Preview tiles stack into that zone as tabs — they
+// are not a second column beside a file tree. The file tree is a command
+// (`view.showFiles`), not the identity of "Show right sidebar".
 export const DEFAULT_TREE = split(
   'row',
   [
@@ -25,7 +24,7 @@ export const DEFAULT_TREE = split(
       [
         split(
           'row',
-          [group(['review'], { id: 'grp-review' }), group(['files'], { id: 'grp-files' })],
+          [group(['review'], { id: 'grp-review' }), group(['work'], { id: 'grp-work' })],
           [1, 1.2],
           'spl-rail'
         ),
@@ -39,16 +38,16 @@ export const DEFAULT_TREE = split(
   'spl-root'
 )
 
-const FOCUS_TREE = split('row', [group(['sessions']), group(['workspace', 'files', 'review', 'terminal'])], [1, 4.6])
+const FOCUS_TREE = split('row', [group(['sessions']), group(['workspace', 'work', 'review', 'terminal'])], [1, 4.6])
 
 // Basic starts with sessions and chat so first-run users need not learn
-// terminal, files or review panes before using Hermes.
+// terminal, work or review panes before using Hermes.
 const BASIC_TREE = split('row', [group(['sessions']), group(['workspace'])], [1, 4.6])
 
 const TERMINAL_TREE = split(
   'column',
   [
-    split('row', [group(['sessions']), group(['workspace']), group(['files', 'review'])], [1, 3.2, 1.2]),
+    split('row', [group(['sessions']), group(['workspace']), group(['work', 'review'])], [1, 3.2, 1.2]),
     group(['terminal'])
   ],
   [3, 1]
@@ -57,7 +56,7 @@ const TERMINAL_TREE = split(
 const QUAD_TREE = split(
   'column',
   [
-    split('row', [group(['sessions', 'files']), group(['workspace'])], [1, 3]),
+    split('row', [group(['sessions', 'work']), group(['workspace'])], [1, 3]),
     split('row', [group(['terminal']), group(['review'])], [1.4, 1])
   ],
   [3, 1]

@@ -590,6 +590,20 @@ export function setSplitWeights(root: LayoutNode, splitId: string, weights: numb
 // Validation (persisted trees are untrusted)
 // ---------------------------------------------------------------------------
 
+function mapFilesPaneToWork(panes: string[]): string[] {
+  const next: string[] = []
+
+  for (const id of panes) {
+    const mapped = id === 'files' ? 'work' : id
+
+    if (!next.includes(mapped)) {
+      next.push(mapped)
+    }
+  }
+
+  return next
+}
+
 /**
  * Bring a persisted tree onto the current attribute schema.
  *
@@ -610,8 +624,13 @@ export function migratePersistedTree(node: LayoutNode): LayoutNode {
   if (node.type === 'group') {
     const { headerHidden, ...rest } = node as GroupNode & { headerHidden?: unknown }
     const tabStrip = rest.tabStrip === 'always' || rest.tabStrip === 'never' ? rest.tabStrip : undefined
+    const panes = mapFilesPaneToWork(rest.panes)
+    const active =
+      rest.active === 'files' ? (panes.includes('work') ? 'work' : (panes[0] ?? rest.active)) : rest.active
+    const panesChanged = panes.length !== rest.panes.length || panes.some((id, i) => id !== rest.panes[i])
+    const unchanged = headerHidden === undefined && rest.tabStrip === tabStrip && !panesChanged && active === rest.active
 
-    return headerHidden === undefined && rest.tabStrip === tabStrip ? node : { ...rest, tabStrip }
+    return unchanged ? node : { ...rest, active, panes, tabStrip }
   }
 
   return { ...node, children: node.children.map(migratePersistedTree) }

@@ -12,14 +12,14 @@
 
 import { useStore } from '@nanostores/react'
 
-import { findGroup } from '@/components/pane-shell/tree/model'
+import { findGroup, findGroupOfPane } from '@/components/pane-shell/tree/model'
 import { $activeTreeGroup, $layoutTree, revealTreePane, treePanesWithPrefix } from '@/components/pane-shell/tree/store'
 import { type MenuKit, renderActionItem } from '@/components/ui/actions-menu'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { ToolIcon } from '@/components/ui/tool-icon'
 import { translateNow } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
-import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab } from '@/store/layout'
+import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID } from '@/store/layout'
 import {
   $browserPages,
   $dockedPreviewTabs,
@@ -190,6 +190,15 @@ function existingPreviewAnchor(tabId: string): string | undefined {
   return other ? previewPaneId(other.id) : undefined
 }
 
+/** The standing right split. First preview stacks here so ⌘J shows/hides the
+ *  browser/file/preview slot instead of a file tree. Absent in layouts that
+ *  never declared it — those still open a zone beside main. */
+function workSlotId(): string | undefined {
+  const tree = $layoutTree.get()
+
+  return tree && findGroupOfPane(tree, WORK_PANE_ID) ? WORK_PANE_ID : undefined
+}
+
 /** Keep pane contributions mirroring `$previewTabs`, keep the store's selection
  *  and the tree's active pane agreeing, and front a tile when its tab is
  *  selected. Call once from the root. */
@@ -251,13 +260,13 @@ const watchPreviewTileMirror = paneMirror<{ id: string }>({
   // `openPreview` ran and the click looked like a no-op.
   key: tab => tab.id,
   prefix: PREVIEW_TILE_PREFIX,
-  // The FIRST preview still opens its own zone docked beside main (identical
-  // to route tiles — NOT anchored to the file tree, so ⌘J can't take it
-  // along). Every SUBSEQUENT preview stacks into that zone as a center tab:
-  // without the anchor each opened file split a new zone off the right edge
-  // (#93610), turning three file opens into three ever-narrower columns.
-  dir: tab => (existingPreviewAnchor(tab.id) ? 'center' : 'right'),
-  anchor: tab => existingPreviewAnchor(tab.id),
+  // The FIRST preview stacks into the work slot when that pane is in the
+  // tree (⌘J then shows/hides browser, file, and preview together). Layouts
+  // without a work pane still open a zone beside main. Every SUBSEQUENT
+  // preview stacks into that zone as a center tab: without the anchor each
+  // opened file split a new zone off the right edge (#93610).
+  dir: tab => (existingPreviewAnchor(tab.id) || workSlotId() ? 'center' : 'right'),
+  anchor: tab => existingPreviewAnchor(tab.id) ?? workSlotId(),
   minWidth: '22rem',
   title: previewTitle,
   tabLead: tabId => <PreviewTabLead tabId={tabId} />,

@@ -65,6 +65,16 @@ export const FILE_BROWSER_PANE_ID = 'file-browser'
 /** The file tree's id in the LAYOUT TREE — distinct from the pane-state id
  *  above, which keys its open/width record. Toggles need both. */
 export const FILES_PANE_ID = 'files'
+/** Codex-style right split: browser / file / preview. Distinct from the
+ *  optional file tree (`files`), which is no longer the right-sidebar identity. */
+export const WORK_PANE_ID = 'work'
+
+/** File tree is command-only (`view.showFiles`), not the right-sidebar identity. */
+export const $fileTreeOpen = atom(false)
+
+export function setFileTreeOpen(open: boolean) {
+  $fileTreeOpen.set(open)
+}
 
 /** Every rail tab is a preview of something, namespaced by what backs it: a
  *  path on disk, a live URL, or an id into the in-memory artifact registry. */

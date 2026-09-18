@@ -1,8 +1,8 @@
 /**
  * Real-data panes + composable bar items for the contrib root:
  *
- *  - `PreviewRailPane` — the REAL ChatPreviewRail; files-pane clicks feed it.
- *  - `FilesPane` — real file browser; activating a file opens it in preview.
+ *  - `WorkPane` — empty Codex-style right slot (open browser / file).
+ *  - `FilesPane` — file browser; activating a file opens it in preview.
  *  - Core statusbar items with LIVE store-backed labels, registered as DATA
  *    contributions (`area: 'statusBar.left' / 'statusBar.right'`, payload =
  *    StatusbarItem) — plugins add theirs through the identical call.
@@ -12,19 +12,23 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { atom } from 'nanostores'
 
+import { PanelEmpty } from '@/app/overlays/panel'
 import { RightSidebarPane } from '@/app/right-sidebar'
 import { ReviewPane } from '@/app/right-sidebar/review'
 import type { GroupSetter } from '@/app/shell/group-setter'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
 import type { TitlebarTool } from '@/app/shell/titlebar-controls'
+import { Button } from '@/components/ui/button'
 import { DecodeText } from '@/components/ui/decode-text'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { registry } from '@/contrib/registry'
 import { getLogs } from '@/hermes'
+import { useI18n } from '@/i18n'
+import { selectDesktopPaths } from '@/lib/desktop-fs'
 import { normalizeOrLocalPreviewTarget } from '@/lib/local-preview'
 import { cn } from '@/lib/utils'
-import { openPreview } from '@/store/preview'
+import { openBrowserTab, openPreview } from '@/store/preview'
 import { $currentCwd } from '@/store/session'
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,43 @@ export function FilesPane() {
   return (
     <div className={ZONE_CONTENT}>
       <RightSidebarPane onActivateFile={previewFile} onActivateFolder={previewFile} />
+    </div>
+  )
+}
+
+/** Empty right split: open a browser, a file, or wait for a chat preview. */
+export function WorkPane() {
+  const { t } = useI18n()
+
+  const openFile = () => {
+    void selectDesktopPaths({ directories: false, multiple: false, title: t.preview.openFile })
+      .then(paths => {
+        const path = paths[0]
+
+        if (path) {
+          previewFile(path)
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  return (
+    <div className={cn(ZONE_CONTENT, 'flex min-h-0 flex-col')}>
+      <PanelEmpty
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={() => openBrowserTab()} size="sm" variant="secondary">
+              {t.keybinds.actions['view.showBrowser']}
+            </Button>
+            <Button onClick={openFile} size="sm" variant="secondary">
+              {t.preview.openFile}
+            </Button>
+          </div>
+        }
+        description={t.preview.slotEmptyBody}
+        icon="globe"
+        title={t.preview.slotEmptyTitle}
+      />
     </div>
   )
 }

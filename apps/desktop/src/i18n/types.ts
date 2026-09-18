@@ -3333,6 +3333,9 @@ export interface Translations {
 
   preview: {
     tab: string
+    slotEmptyTitle: string
+    slotEmptyBody: string
+    openFile: string
     closePane: string
     loading: string
     unavailable: string

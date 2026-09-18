@@ -51,15 +51,19 @@ import { TRANSCRIPT_DIRECTIVE_AREA, type TranscriptDirectiveContribution } from 
 import { setYoloEnabled } from '@/lib/yolo-session'
 import {
   $fileBrowserOpen,
+  $fileTreeOpen,
   $panesFlipped,
   $sidebarOpen,
   FILE_BROWSER_DEFAULT_WIDTH,
   FILE_BROWSER_MAX_WIDTH,
   FILE_BROWSER_MIN_WIDTH,
+  FILES_PANE_ID,
   setFileBrowserOpen,
+  setFileTreeOpen,
   setSidebarOpen,
   SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH
+  SIDEBAR_MAX_WIDTH,
+  WORK_PANE_ID
 } from '@/store/layout'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
@@ -96,7 +100,7 @@ import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
 import { $workspaceIsPage, WORKSPACE_PAGE_HEADER_AREA } from '../routes'
 
 import { DEFAULT_TREE, registerLayoutPresets } from './layout-presets'
-import { FilesPane, LogsPane, ReviewPaneContent } from './panes'
+import { FilesPane, LogsPane, ReviewPaneContent, WorkPane } from './panes'
 import { ContribWiring, WiredPane } from './wiring'
 
 /**
@@ -224,22 +228,24 @@ registry.registerMany([
     render: () => <WiredPane part="terminal" />
   },
   {
-    id: 'files',
+    id: WORK_PANE_ID,
     area: 'panes',
-    title: translateNow('sidebar.files'),
-    // dock: re-adoption target after a stale dismissal (see sessions).
+    title: 'Preview',
+    // Standing right split: browser / file / preview. hideOnly so ⌘J and the
+    // titlebar hide the slot; it is not a closeable tab. The file tree is a
+    // separate pane, summoned with view.showFiles.
     data: {
       placement: 'right',
       collapsible: true,
       dock: { pane: 'workspace', pos: 'right' },
-      revealAliases: ['file-browser'],
+      hideOnly: true,
       width: FILE_BROWSER_DEFAULT_WIDTH,
       minWidth: FILE_BROWSER_MIN_WIDTH,
       maxWidth: FILE_BROWSER_MAX_WIDTH,
       tabTitle: () => <LocalizedTabTitle select={t => t.sidebar.files} />,
       tabTitleText: () => translateNow('sidebar.files')
     },
-    render: () => idle(<FilesPane />)
+    render: () => idle(<WorkPane />)
   },
   {
     id: 'review',
@@ -570,29 +576,13 @@ $panesFlipped.listen(flipped => {
 bindTreeSideVisibility('left', $sidebarOpen, setSidebarOpen)
 bindTreeSideVisibility('right', $fileBrowserOpen, setFileBrowserOpen)
 
-// Workspace-scoped surfaces: the file tree and git diff only mean something
-// inside a project. A detached chat (no cwd) hides them — their zones
-// collapse and the chat absorbs the width; picking a project brings them
-// back. The terminal is NOT workspace-gated: unlike the old shell (where it
-// rode the rail's row and vanished with it), its zone stands on its own.
+// Workspace-scoped surfaces: the git diff only means something inside a
+// project. A detached chat (no cwd) hides it — the zone collapses and the
+// chat absorbs the width; picking a project brings it back. The work slot
+// and the terminal are NOT workspace-gated: browser/preview don't need a
+// cwd, and the terminal stands on its own.
 const $hasWorkspace = computed($currentCwd, cwd => Boolean(cwd.trim()))
 
-// The tree pane's own presence tracks ⌘J directly, not just the column's
-// collapse — otherwise a pane revealed into that shared column would drag the
-// tree along with it.
-//
-// Both get a CLOSER and an OPENER. The closer keeps ⌘J/⌘G truthful when the
-// pane is closed from the tab menu; the opener is its mirror, so bringing the
-// pane back through the tree (the toggle's reveal path, the rail, a preset)
-// writes the store too. Without the opener the boolean went stale the moment
-// anything but the toggle showed the pane — the divergence this whole change
-// is about.
-bindPaneVisibility(
-  'files',
-  computed([$hasWorkspace, $fileBrowserOpen], (workspace, open) => workspace && open),
-  () => setFileBrowserOpen(false),
-  () => setFileBrowserOpen(true)
-)
 // ⌘G — the review sidebar appears/disappears (and comes to the front).
 bindPaneVisibility(
   'review',
@@ -697,6 +687,46 @@ registry.register(
     set: () => togglePaneVisible('logs')
   })
 )
+
+// File tree is ⌘K-only chrome, same shape as logs: the pane contribution
+// EXISTS only while $fileTreeOpen is on. Off (the default) keeps it out of
+// the registry and the tree — Show right sidebar is the work slot, not files.
+let unregisterFilesPane: (() => void) | null = null
+
+const syncFilesPane = (open: boolean) => {
+  if (open) {
+    unregisterFilesPane ??= registry.register({
+      id: FILES_PANE_ID,
+      area: 'panes',
+      title: 'files',
+      data: {
+        placement: 'right',
+        collapsible: true,
+        dock: { pane: WORK_PANE_ID, pos: 'left' },
+        revealAliases: ['file-browser'],
+        width: FILE_BROWSER_DEFAULT_WIDTH,
+        minWidth: FILE_BROWSER_MIN_WIDTH,
+        maxWidth: FILE_BROWSER_MAX_WIDTH
+      },
+      render: () => idle(<FilesPane />)
+    })
+    revealTreePane(FILES_PANE_ID)
+  } else {
+    unregisterFilesPane?.()
+    unregisterFilesPane = null
+
+    const tree = $layoutTree.get()
+
+    if (tree && allPaneIds(tree).includes(FILES_PANE_ID)) {
+      removeTreePane(FILES_PANE_ID)
+    }
+  }
+}
+
+registerPaneCloser(FILES_PANE_ID, () => setFileTreeOpen(false))
+registerPaneOpener(FILES_PANE_ID, () => setFileTreeOpen(true))
+syncFilesPane($fileTreeOpen.get())
+$fileTreeOpen.listen(syncFilesPane)
 
 // Hide-only chrome tabs (sessions / Bots) get a ⌘K toggle each — the palette
 // door onto the same show/hide the zone menu offers. Auto-registered from the
