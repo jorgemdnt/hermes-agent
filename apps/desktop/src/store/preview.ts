@@ -540,6 +540,21 @@ export const $allDockedPreviewTabs = computed([$previewTabsBySession, $poppedBro
   return tabs
 })
 
+/** The target behind a tile id, even when that tab belongs to a background
+ *  thread. `$previewTabs` is only the focused slice — looking there alone
+ *  unmounts a hidden Browser and reloads (or rewinds) it on return. */
+export function previewTabTarget(tabId: string): PreviewTarget | undefined {
+  for (const list of Object.values($previewTabsBySession.get().tabs)) {
+    const tab = list.find(item => item.id === tabId)
+
+    if (tab) {
+      return tab.target
+    }
+  }
+
+  return $previewTabs.get().find(tab => tab.id === tabId)?.target
+}
+
 export const $previewReloadRequest = atom(0)
 export const $previewServerRestart = atom<PreviewServerRestart | null>(null)
 export const $previewServerRestartStatus = computed($previewServerRestart, restart => restart?.status ?? 'idle')

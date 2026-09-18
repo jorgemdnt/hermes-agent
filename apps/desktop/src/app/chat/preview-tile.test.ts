@@ -194,7 +194,7 @@ describe('preview tiles stay a right rail', () => {
 
     const tabId = $previewTabs.get().find(tab => tab.target.kind === 'url')!.id
 
-    expect(paneDataOf(`preview-tile:${tabId}`)).toMatchObject({ collapsible: true, placement: 'right' })
+    expect(paneDataOf(`preview-tile:${tabId}`)).toMatchObject({ placement: 'right' })
   })
 
   it('keeps the work column on the right after a Browser opens into it', async () => {

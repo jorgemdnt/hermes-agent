@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react'
 
 import { $restartPreviewServer } from '@/app/contrib/panes'
-import { $previewReloadRequest, $previewTabs } from '@/store/preview'
+import { $previewReloadRequest, $previewTabsBySession, previewTabTarget } from '@/store/preview'
 
 import { PreviewPane } from './preview-pane'
 
@@ -22,9 +22,9 @@ interface PreviewTilePaneProps {
  */
 export function PreviewTilePane({ tabId }: PreviewTilePaneProps) {
   const previewReloadRequest = useStore($previewReloadRequest)
-  const previewTabs = useStore($previewTabs)
+  useStore($previewTabsBySession)
   const restartPreviewServer = useStore($restartPreviewServer)
-  const target = previewTabs.find(tab => tab.id === tabId)?.target
+  const target = previewTabTarget(tabId)
 
   // The tab closed while this pane was still mounted (the mirror disposes it a
   // tick later).

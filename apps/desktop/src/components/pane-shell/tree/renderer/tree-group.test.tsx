@@ -7,7 +7,7 @@ import { $tabStripDefault, setTabStripDefault } from '@/store/tabstrip-prefs'
 import { stubResizeObserver } from '@/test/jsdom'
 
 import type { GroupNode } from '../model'
-import { $treeDragging, NEW_SESSION_DRAG, SESSION_TILE_DRAG } from '../store'
+import { $treeDragging, NEW_SESSION_DRAG, SESSION_TILE_DRAG, setTreePaneHidden } from '../store'
 
 import { TreeGroup } from './tree-group'
 
@@ -237,6 +237,43 @@ describe('TreeGroup', () => {
     expect(container!.querySelector('[data-live-page]')).toBe(page)
     expect(page.value).toBe('unsaved page state')
     expect(page.closest('[data-pane-hidden]')).toBeNull()
+  })
+
+  it('keeps a keep-alive guest mounted when every tab in the zone is hidden', () => {
+    const disposeBrowser = registry.register({
+      area: 'panes',
+      data: { lifecycleKeepAlive: true },
+      id: 'live-browser',
+      title: 'Browser',
+      render: () => <input data-live-page defaultValue="original" />
+    })
+
+    disposePane = () => {
+      setTreePaneHidden('live-browser', false)
+      disposeBrowser()
+    }
+
+    vi.stubGlobal('CSS', { escape: (value: string) => value })
+    stubResizeObserver()
+
+    const zone: GroupNode = {
+      active: 'live-browser',
+      id: 'work-zone',
+      panes: ['live-browser'],
+      type: 'group'
+    }
+
+    render(<TreeGroup node={zone} parentAxis="row" />)
+    const page = container!.querySelector<HTMLInputElement>('[data-live-page]')!
+    page.value = 'unsaved page state'
+
+    act(() => {
+      setTreePaneHidden('live-browser', true)
+    })
+    render(<TreeGroup node={zone} parentAxis="row" />)
+
+    expect(container!.querySelector('[data-live-page]')).toBe(page)
+    expect(page.value).toBe('unsaved page state')
   })
 
   it('keeps a top-edge strip inside its panel and yields native drag while moving a pane', () => {

@@ -20,6 +20,10 @@ describe('auto (no stored choice)', () => {
     expect(resolveTabStripVisible({ shown: [sideChrome()] })).toBe(false)
   })
 
+  it('shows the strip for a lone Browser so + can mint another tab', () => {
+    expect(resolveTabStripVisible({ shown: [{ collapsePane: false, mintable: true, placement: 'right' }] })).toBe(true)
+  })
+
   it('has nothing to draw for an empty zone', () => {
     expect(resolveTabStripVisible({ shown: [] })).toBe(false)
   })

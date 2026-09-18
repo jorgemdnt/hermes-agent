@@ -19,6 +19,8 @@ import { paneChrome } from './track-model'
 export interface StripPane {
   /** A tool panel (terminal / logs) that collapses rather than closes. */
   collapsePane: boolean
+  /** The active pane can mint another tab of its kind (Browser +). */
+  mintable?: boolean
   /** Contribution placement — `'main'` marks a docked tile (session, page,
    *  preview) as opposed to standing side chrome. */
   placement?: string
@@ -67,7 +69,7 @@ function stranded(shown: readonly StripPane[]): boolean {
 
   const [only] = shown
 
-  return only.collapsePane || (!only.uncloseable && only.placement === 'main')
+  return only.collapsePane || Boolean(only.mintable) || (!only.uncloseable && only.placement === 'main')
 }
 
 export function resolveTabStripVisible(zone: StripZone): boolean {
@@ -132,6 +134,7 @@ export function tabStripVisibleForZone(zone: {
 
       return {
         collapsePane: zone.isCollapsePane(id),
+        mintable: Boolean(chrome.newTab),
         placement: chrome.placement,
         uncloseable: chrome.uncloseable
       }

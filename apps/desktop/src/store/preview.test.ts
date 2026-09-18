@@ -16,6 +16,7 @@ import {
   newBrowserTab,
   openPreview,
   previewTabId,
+  previewTabTarget,
   type PreviewTarget,
   progressPreviewServerRestart
 } from './preview'
@@ -292,5 +293,15 @@ describe('preview store', () => {
     $selectedStoredSessionId.set('session-a')
     expect($fileBrowserOpen.get()).toBe(true)
     expect($previewTabs.get()[0]?.target.url).toBe('http://a.example')
+  })
+
+  it('still knows a background thread Browser after focus moves', () => {
+    $selectedStoredSessionId.set('session-a')
+    openPreview(urlTarget('http://a.example'), 'explicit-link')
+    const tabId = $previewTabs.get()[0]!.id
+
+    $selectedStoredSessionId.set('session-b')
+    expect($previewTabs.get()).toHaveLength(0)
+    expect(previewTabTarget(tabId)?.url).toBe('http://a.example')
   })
 })

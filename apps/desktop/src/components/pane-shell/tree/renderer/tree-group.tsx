@@ -335,7 +335,7 @@ export function TreeGroup({
   // tabs have no lifecycle entry and do not mount until first activation.
   const lifecycleRef = useRef(emptyPaneLifecycleState())
 
-  if (!node.minimized && !isEmpty) {
+  if (!node.minimized && (shown.length > 0 || keepAliveHidden.length > 0)) {
     lifecycleRef.current = reconcilePaneLifecycle(lifecycleRef.current, {
       activeId,
       keepAlive: id => Boolean(paneChrome(paneFor(id)).lifecycleKeepAlive),
@@ -781,7 +781,7 @@ export function TreeGroup({
           marker document-wide lookups filter on (see pane-visibility.ts). */}
       {(!node.minimized || mountedPanes.length > 0) && (
         <PaneBody hidden={Boolean(node.minimized)}>
-          {isEmpty ? (
+          {shown.length === 0 && mountedPanes.length === 0 ? (
             <div className="grid h-full place-items-center">
               {/* Same decode primitive as the CONNECTING boot overlay. */}
               <DecodeText className="text-(--ui-text-quaternary)" cursor prefix={1} text="HERMES" />
