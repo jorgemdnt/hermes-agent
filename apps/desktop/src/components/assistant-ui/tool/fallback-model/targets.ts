@@ -9,16 +9,25 @@ export function looksLikePath(value: string): boolean {
 }
 
 export function isPreviewableTarget(target: string): boolean {
+  if (!target) {
+    return false
+  }
+
   // Renderer metadata is not a deliverable; app.asar.unpacked is a real directory.
   if (/^file:\/\//i.test(target) && target.replace(/\\/g, '/').split('/').includes('app.asar')) {
     return false
   }
 
+  // Agent scratch HTML (~/.hermes/tmp/…) is not a user artifact. Surfacing it
+  // as a composer globe chip / preview tab follows the user across chats.
+  if (/(?:^|\/)\.hermes\/tmp\//i.test(target)) {
+    return false
+  }
+
   return Boolean(
-    target &&
-    (/^file:\/\//i.test(target) ||
+    /^file:\/\//i.test(target) ||
       /^(?:\/|\.{1,2}\/|~\/).+\.html?$/i.test(target) ||
-      /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target))
+      /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(target)
   )
 }
 
