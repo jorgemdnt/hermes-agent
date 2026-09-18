@@ -79,7 +79,14 @@ describe('browserTabExternalUrl', () => {
   })
 })
 
-type DockData = { dock?: { pane?: string; pos?: string }; lifecycleKeepAlive?: boolean } | undefined
+type DockData =
+  | {
+      collapsible?: boolean
+      dock?: { pane?: string; pos?: string }
+      lifecycleKeepAlive?: boolean
+      placement?: string
+    }
+  | undefined
 
 function paneDataOf(paneId: string) {
   return registry.getArea('panes').find(entry => entry.id === paneId)?.data as DockData
@@ -175,5 +182,66 @@ describe('preview tiles stay mounted for the owning thread', () => {
     $selectedStoredSessionId.set('session-b')
 
     expect(paneDataOf(`preview-tile:${aId}`)?.lifecycleKeepAlive).toBe(true)
+  })
+})
+
+describe('preview tiles stay a right rail', () => {
+  it('does not register a Browser as placement main (that makes ⌘J a no-op)', () => {
+    openPreview(
+      { kind: 'url', label: 'Browser', source: 'about:blank', url: 'about:blank' },
+      'explicit-link'
+    )
+
+    const tabId = $previewTabs.get().find(tab => tab.target.kind === 'url')!.id
+
+    expect(paneDataOf(`preview-tile:${tabId}`)).toMatchObject({ collapsible: true, placement: 'right' })
+  })
+
+  it('keeps the work column on the right after a Browser opens into it', async () => {
+    const tree = await import('@/components/pane-shell/tree/store')
+    const model = await import('@/components/pane-shell/tree/model')
+
+    const disposeWorkspace = registry.register({
+      area: 'panes',
+      data: { placement: 'main' },
+      id: 'workspace',
+      render: () => null,
+      title: 'Chat'
+    })
+    const disposeWork = registry.register({
+      area: 'panes',
+      data: { placement: 'right' },
+      id: 'work',
+      render: () => null,
+      title: 'Preview'
+    })
+
+    tree.declareDefaultTree(
+      model.split(
+        'row',
+        [
+          model.group(['workspace'], { id: 'grp-main' }),
+          model.group(['work'], { id: 'grp-work' })
+        ],
+        [3.4, 1.25],
+        'spl-root'
+      )
+    )
+
+    try {
+      openPreview(
+        { kind: 'url', label: 'Browser', source: 'about:blank', url: 'about:blank' },
+        'explicit-link'
+      )
+      const tabId = $previewTabs.get().find(tab => tab.target.kind === 'url')!.id
+
+      expect(tree.paneRootSide('work')).toBe('right')
+      expect(tree.paneRootSide(`preview-tile:${tabId}`)).toBe('right')
+      expect(tree.layoutHasRootSide('right')).toBe(true)
+    } finally {
+      disposeWorkspace()
+      disposeWork()
+      tree.$layoutTree.set(null)
+    }
   })
 })

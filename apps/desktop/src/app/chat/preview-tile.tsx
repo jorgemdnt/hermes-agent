@@ -300,6 +300,8 @@ const watchPreviewTileMirror = paneMirror<{ id: string }>({
   dir: tab => (existingPreviewAnchor(tab.id) || workSlotId() ? 'center' : 'right'),
   anchor: tab => existingPreviewAnchor(tab.id) ?? workSlotId(),
   minWidth: '22rem',
+  placement: 'right',
+  collapsible: true,
   title: previewTitle,
   tabLead: tabId => <PreviewTabLead tabId={tabId} />,
   tabTitle: tabId => (targetFor(tabId)?.kind === 'url' ? <BrowserTabLabel tabId={tabId} /> : undefined),

@@ -54,6 +54,12 @@ export interface PaneMirror<T> {
   tabDrag?: (key: string, event: ReactPointerEvent<HTMLElement>, onTap: () => void) => boolean
   /** Wired as the pane's closer (tab Close). */
   close: (key: string) => void
+  /** Tiling role. Preview tiles in the work slot must NOT be `'main'` — that
+   *  makes the whole right column count as main, so ⌘J / the titlebar cannot
+   *  collapse it. Session tiles stay `'main'`. */
+  placement?: string | ((tile: T) => string | undefined)
+  /** Leave the grid on a narrow viewport (edge overlay), like the work slot. */
+  collapsible?: boolean | ((tile: T) => boolean)
 }
 
 /** Build a `watch*` fn: syncs once, then re-syncs on every source/also change.
@@ -92,10 +98,12 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           lifecycleKeepAlive: cfg.lifecycleKeepAlive?.(key),
           minWidth: cfg.minWidth,
           newTab: cfg.newTab?.(key),
-          // Every mirrored tile is a full workspace surface docked beside main —
-          // and closeable, which is what keeps its tab when it lands in a zone of
-          // its own (see strip-visibility.ts).
-          placement: 'main',
+          collapsible: typeof cfg.collapsible === 'function' ? cfg.collapsible(tile) : cfg.collapsible,
+          // Session tiles are main. Preview tiles in the work slot are not —
+          // `'main'` on a right-column pane makes paneRootSide treat that
+          // column as main, so the titlebar cannot hide it.
+          placement:
+            (typeof cfg.placement === 'function' ? cfg.placement(tile) : cfg.placement) ?? 'main',
           tabDrag: cfg.tabDrag
             ? (event: ReactPointerEvent<HTMLElement>, onTap: () => void) => cfg.tabDrag!(key, event, onTap)
             : undefined, // returns boolean (handled) — see PaneChrome.tabDrag
