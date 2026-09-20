@@ -630,7 +630,7 @@ export const ru = defineLocale({
       tabStripAlways: 'Всегда',
       tabStripNever: 'Никогда',
       appActionsTitle: 'Действия приложения',
-      appActionsDesc: 'Где в заголовке окна сидят Настройки, Макет и HUD. Справа оставляют место для вкладок слева.',
+      appActionsDesc: 'Где в заголовке окна сидят Настройки и HUD. Справа оставляют место для вкладок слева.',
       appActionsLeft: 'Слева',
       appActionsRight: 'Справа',
       terminalFontTitle: 'Шрифт терминала',

@@ -47,6 +47,10 @@ export function reconcilePaneLifecycle(
 
     if (prior) {
       entries[id] = { ...prior, lifecycle: 'parked' }
+    } else if (keepAlive(id) && id !== activeId) {
+      // Standing chrome (Bots next to Sessions) must mount before the first
+      // click, or the roster fetch starts only when the tab is selected.
+      entries[id] = { lifecycle: 'hot-hidden', lastVisible: 0 }
     }
   }
 

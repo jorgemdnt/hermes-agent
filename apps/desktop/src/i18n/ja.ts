@@ -561,7 +561,7 @@ export const ja = defineLocale({
       tabStripNever: '表示しない',
       appActionsTitle: 'アプリ操作',
       appActionsDesc:
-        '設定・レイアウト・HUD をタイトルバーの左右どちらに置くか。右にするとタブ用のスペースが左に残ります。',
+        '設定・HUD をタイトルバーの左右どちらに置くか。右にするとタブ用のスペースが左に残ります。',
       appActionsLeft: '左',
       appActionsRight: '右',
       terminalFontTitle: 'ターミナルフォント',

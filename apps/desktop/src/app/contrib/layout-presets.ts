@@ -6,9 +6,9 @@ import { isOnboardingEnabled } from '@/lib/onboarding-enabled'
 // Layout presets — CHAT (main) always dominates.
 // ---------------------------------------------------------------------------
 
-// The REAL default: sessions left, chat main, and the right sidebars in column
-// order main | … | review | work (work slot outermost). Each is its OWN zone.
-// Review collapses to nothing while its pane is hidden (⌘G off).
+// The REAL default: sessions left, chat stacked over a bottom terminal, work
+// slot as the right split. Reset restores this — not a terminal stub under the
+// right rail. Review is not in the default tree; ⌘G adopts it by placement.
 //
 // The work slot is the Codex-style right split: empty until you open a browser
 // tab, a file, or a preview. Preview tiles stack into that zone as tabs — they
@@ -18,21 +18,13 @@ export const DEFAULT_TREE = split(
   'row',
   [
     group(['sessions'], { id: 'grp-sessions' }),
-    group(['workspace'], { id: 'grp-main' }),
     split(
       'column',
-      [
-        split(
-          'row',
-          [group(['review'], { id: 'grp-review' }), group(['work'], { id: 'grp-work' })],
-          [1, 1.2],
-          'spl-rail'
-        ),
-        group(['terminal'], { id: 'grp-terminal' })
-      ],
-      [1.6, 1],
-      'spl-right'
-    )
+      [group(['workspace'], { id: 'grp-main' }), group(['terminal'], { id: 'grp-terminal' })],
+      [3.2, 1],
+      'spl-center'
+    ),
+    group(['work'], { id: 'grp-work' })
   ],
   [1, 3.4, 1.25],
   'spl-root'

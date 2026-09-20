@@ -32,6 +32,17 @@ describe('per-zone pane lifecycle', () => {
     expect(zoneB.entries.y).toBeUndefined()
   })
 
+  it('mounts a keep-alive guest before it is first activated', () => {
+    const state = reconcilePaneLifecycle(emptyPaneLifecycleState(), {
+      activeId: 'sessions',
+      keepAlive: id => id === 'bots',
+      paneIds: ['sessions', 'bots']
+    })
+
+    expect(state.entries.sessions.lifecycle).toBe('visible')
+    expect(state.entries.bots.lifecycle).toBe('hot-hidden')
+  })
+
   it('keeps a hidden terminal alive outside the normal cap', () => {
     let state = emptyPaneLifecycleState()
     const paneIds = ['terminal', 'a', 'b', 'c']

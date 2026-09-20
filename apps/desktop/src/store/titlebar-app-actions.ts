@@ -4,7 +4,7 @@ export type TitlebarAppActionsSide = 'left' | 'right'
 
 const STORAGE_KEY = 'hermes.desktop.titlebarAppActions'
 
-/** Right is the original titlebar: Settings / Layout / HUD stay off the tab strip. */
+/** Right is the original titlebar: Settings and HUD stay off the tab strip. */
 export const TITLEBAR_APP_ACTIONS_DEFAULT: TitlebarAppActionsSide = 'right'
 
 const codec: Codec<TitlebarAppActionsSide> = {
@@ -22,16 +22,16 @@ export function setTitlebarAppActionsSide(side: TitlebarAppActionsSide) {
   $titlebarAppActionsSide.set(side)
 }
 
-/** Button counts for the two titlebar clusters. Sidebar is always left; flip and
- *  the right-sidebar toggle are always right; the three app actions follow `side`. */
+/** Button counts for the two titlebar clusters. Sidebar is always left; the
+ *  right-sidebar toggle is always right; Settings and HUD follow `side`. */
 export function titlebarAppActionsClusterCounts(
   side: TitlebarAppActionsSide,
   leftExtras = 0,
   rightExtras = 0
 ): { left: number; right: number } {
   const sidebar = 1
-  const appActions = 3
-  const rightFixed = 2
+  const appActions = 2
+  const rightFixed = 1
 
   if (side === 'left') {
     return { left: sidebar + appActions + leftExtras, right: rightFixed + rightExtras }

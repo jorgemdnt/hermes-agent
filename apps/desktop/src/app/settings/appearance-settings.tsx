@@ -1,9 +1,13 @@
 import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
 
 import { useDebounced } from '@/app/hooks/use-debounced'
 import { LanguageSwitcher } from '@/components/language-switcher'
+import { toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
+import { LayoutPicker } from '@/components/pane-shell/tree/renderer/layout-picker'
+import { resetLayoutTree } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import type { DesktopMarketplaceSearchItem } from '@/global'
@@ -18,8 +22,10 @@ import { $backdrop, setBackdrop } from '@/store/backdrop'
 import { $composerPopoutGesturesEnabled, setComposerPopoutGesturesEnabled } from '@/store/composer-popout'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
 import { $introSplash, setIntroSplash } from '@/store/intro-splash'
+import { $panesFlipped, togglePanesFlipped } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/profile'
+import { $profileRailVisible } from '@/store/profile-rail-prefs'
 import { $reactionsEnabled, setReactionsEnabled } from '@/store/reactions-enabled'
 import { $reasoningCollapsedByDefault, setReasoningCollapsedByDefault } from '@/store/reasoning-disclosure'
 import { $sessionListDensity, type SessionListDensity, setSessionListDensity } from '@/store/session-list-density'
@@ -405,6 +411,7 @@ interface AppearanceSettingsProps {
 
 export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
   const { t, isSavingLocale } = useI18n()
+  const navigate = useNavigate()
   const { themeName, mode, resolvedMode, availableThemes, setTheme, setMode } = useTheme()
   const toolViewMode = useStore($toolViewMode)
   const hideCodeDiffs = useStore($hideCodeDiffs)
@@ -413,6 +420,8 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
   const sessionListDensity = useStore($sessionListDensity)
   const tabStripDefault = useStore($tabStripDefault)
   const titlebarAppActionsSide = useStore($titlebarAppActionsSide)
+  const panesFlipped = useStore($panesFlipped)
+  const profileRailVisible = useStore($profileRailVisible)
   const zoomPercent = useStore($zoomPercent)
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
@@ -723,6 +732,62 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
               description={a.appActionsDesc}
               id={appearanceSettingElementId(APPEARANCE_SETTING_IDS.appActions)}
               title={a.appActionsTitle}
+            />
+          )}
+
+          {show('window-layout') && (
+            <ListRow
+              action={
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    onClick={() => {
+                      triggerHaptic('warning')
+                      resetLayoutTree()
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {t.zones.reset}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      triggerHaptic('open')
+                      navigate('/')
+                      toggleLayoutEditMode()
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {t.titlebar.layoutEditor}
+                  </Button>
+                </div>
+              }
+              below={<LayoutPicker />}
+              description={t.zones.editHint}
+              title={t.zones.editTitle}
+              wide
+            />
+          )}
+
+          {show('window-layout') && (
+            <ToggleRow
+              checked={panesFlipped}
+              description={t.keybinds.actions['view.flipPanes']}
+              label={t.titlebar.swapSidebarSides}
+              onChange={on => {
+                if (on !== $panesFlipped.get()) {
+                  togglePanesFlipped()
+                }
+              }}
+            />
+          )}
+
+          {show('window-layout') && (
+            <ToggleRow
+              checked={profileRailVisible}
+              description={t.keybinds.actions['view.toggleProfileRail']}
+              label={t.sidebar.profileRail}
+              onChange={on => $profileRailVisible.set(on)}
             />
           )}
 
