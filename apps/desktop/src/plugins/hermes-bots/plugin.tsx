@@ -18,6 +18,8 @@
 import { CHAT_EMPTY_AREA, COMPOSER_AREAS, host, LocalizedTabTitle, PALETTE_AREA, translateNow } from '@hermes/plugin-sdk'
 import type { ChatEmptyProps, PluginContext } from '@hermes/plugin-sdk'
 
+import { pinChatToLatest } from '@/store/thread-scroll'
+
 import { startFaceClock, stopFaceClock } from './avatar'
 import {
   $botChatFocused,
@@ -500,7 +502,11 @@ export default {
             )
           } else if (selected) {
             setBotsWorkspaceOwner(botWorkspaceOwnerKey(selected), selected)
-            void openBotCanonicalChat(selected)
+            const chatId = String(selected.canonical_session?.id || '')
+            pinChatToLatest(chatId)
+            void Promise.resolve(openBotCanonicalChat(selected)).then(opened => {
+              pinChatToLatest(opened?.openedId || opened?.registryId || chatId)
+            })
           }
         } else {
           // Strand any owner wake still dialing. Its SDK open will fail the
@@ -510,6 +516,7 @@ export default {
           bumpBotOpenGeneration()
           host.setWorkspaceScope?.('sessions')
           if (lastSessionsStoredId && typeof host.openSession === 'function') {
+            pinChatToLatest(lastSessionsStoredId)
             void host.openSession(lastSessionsStoredId)
           }
         }

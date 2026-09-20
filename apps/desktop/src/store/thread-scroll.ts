@@ -108,6 +108,19 @@ export const requestScrollToBottom = (sessionId: string | null = null) => {
   handlers.get(sessionId)?.forEach(handler => handler())
 }
 
+/** Sessions | Bots tab switch: land on the newest messages, not a stale
+ *  keep-alive offset recorded while the pane was hidden. */
+export function pinChatToLatest(sessionId: string | null | undefined) {
+  const id = String(sessionId || '').trim()
+
+  if (!id) {
+    return
+  }
+
+  saveThreadScrollPosition(id, THREAD_SCROLL_BOTTOM)
+  requestScrollToBottom(id)
+}
+
 // Inline edit grows a sticky human bubble. Fire on pointerdown so the viewport
 // escapes stick-to-bottom before focus/layout; close clears the edit flag when
 // the inline composer unmounts.

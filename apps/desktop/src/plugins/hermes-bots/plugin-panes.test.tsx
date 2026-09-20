@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   openBotCanonicalChat: vi.fn(),
   openSession: vi.fn(),
   paneVisibility: vi.fn(),
+  pinChatToLatest: vi.fn(),
   selectedRosterBot: vi.fn(() => null),
   sessionOwnsWorkspace: vi.fn(() => false),
   setWorkspaceScope: vi.fn(),
@@ -103,6 +104,11 @@ vi.mock('./routing', async importOriginal => {
   const original = await importOriginal<typeof RoutingModule>()
 
   return { ...original, setBotsWorkspaceOwner: vi.fn() }
+})
+vi.mock('@/store/thread-scroll', async importOriginal => {
+  const original = await importOriginal<typeof import('@/store/thread-scroll')>()
+
+  return { ...original, pinChatToLatest: mocks.pinChatToLatest }
 })
 
 const plugin = (await import('./plugin')).default
@@ -269,6 +275,7 @@ describe('Sessions | Bots tab focus', () => {
     await settle()
 
     expect(mocks.openBotCanonicalChat).toHaveBeenCalledWith(bot)
+    expect(mocks.pinChatToLatest).toHaveBeenCalledWith('bot-chat')
 
     harness.dispose()
   })
@@ -288,6 +295,7 @@ describe('Sessions | Bots tab focus', () => {
 
     expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
     expect(mocks.openSession).toHaveBeenCalledWith('sess-sessions')
+    expect(mocks.pinChatToLatest).toHaveBeenCalledWith('sess-sessions')
 
     harness.dispose()
   })

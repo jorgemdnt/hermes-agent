@@ -4,13 +4,17 @@ import {
   $threadJumpButtonVisibleBySession,
   $threadMessagesBelowBySession,
   $threadScrolledUpBySession,
+  getThreadScrollPosition,
   onScrollToBottomRequest,
+  pinChatToLatest,
   publishThreadAtBottom,
   publishThreadMessagesBelow,
   requestScrollToBottom,
   resetPublishedThreadScroll,
   resetThreadScroll,
-  setThreadAtBottom
+  saveThreadScrollPosition,
+  setThreadAtBottom,
+  THREAD_SCROLL_BOTTOM
 } from './thread-scroll'
 
 afterEach(() => {
@@ -128,5 +132,29 @@ describe('requestScrollToBottom', () => {
     expect(first).not.toHaveBeenCalled()
     expect(second).toHaveBeenCalledOnce()
     stopSecond()
+  })
+})
+
+describe('pinChatToLatest', () => {
+  it('forgets a saved reading offset and asks the thread to jump to the latest', () => {
+    saveThreadScrollPosition('session-a', { fromBottom: 1400, kind: 'offset' })
+    const jump = vi.fn()
+    const stop = onScrollToBottomRequest(jump, 'session-a')
+
+    pinChatToLatest('session-a')
+
+    expect(getThreadScrollPosition('session-a')).toEqual(THREAD_SCROLL_BOTTOM)
+    expect(jump).toHaveBeenCalledOnce()
+    stop()
+  })
+
+  it('ignores a blank id', () => {
+    const jump = vi.fn()
+    const stop = onScrollToBottomRequest(jump, '')
+
+    pinChatToLatest('  ')
+
+    expect(jump).not.toHaveBeenCalled()
+    stop()
   })
 })
