@@ -34,7 +34,11 @@ describe('DEFAULT_TREE', () => {
 
 describe('work slot sizing', () => {
   it('is a growable preview split, not a 20rem file-tree rail', () => {
-    expect(workSlotSizing).not.toHaveProperty('maxWidth')
+    expect(workSlotSizing.maxWidth).not.toBe('20rem')
     expect(workSlotSizing).not.toHaveProperty('width')
+  })
+
+  it('cannot sash the chat column away', () => {
+    expect(workSlotSizing.maxWidth).toBe('50vw')
   })
 })

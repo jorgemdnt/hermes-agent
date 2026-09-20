@@ -590,14 +590,23 @@ export function setSplitWeights(root: LayoutNode, splitId: string, weights: numb
 // Validation (persisted trees are untrusted)
 // ---------------------------------------------------------------------------
 
-function mapFilesPaneToWork(panes: string[]): string[] {
+function mapRetiredPanes(panes: string[]): string[] {
   const next: string[] = []
 
   for (const id of panes) {
-    const mapped = id === 'files' ? 'work' : id
+    if (id === 'files') {
+      if (!next.includes('work')) next.push('work')
+      continue
+    }
 
-    if (!next.includes(mapped)) {
-      next.push(mapped)
+    // Scheduled jobs is ⌘K only. A leftover tile next to chat was placement
+    // 'main', so Hide/⌘J treated the right column as the transcript.
+    if (id === 'hermes-bots:routines' || id === 'routines') {
+      continue
+    }
+
+    if (!next.includes(id)) {
+      next.push(id)
     }
   }
 
@@ -624,9 +633,9 @@ export function migratePersistedTree(node: LayoutNode): LayoutNode {
   if (node.type === 'group') {
     const { headerHidden, ...rest } = node as GroupNode & { headerHidden?: unknown }
     const tabStrip = rest.tabStrip === 'always' || rest.tabStrip === 'never' ? rest.tabStrip : undefined
-    const panes = mapFilesPaneToWork(rest.panes)
-    const active =
-      rest.active === 'files' ? (panes.includes('work') ? 'work' : (panes[0] ?? rest.active)) : rest.active
+    const panes = mapRetiredPanes(rest.panes)
+    const retiredActive = rest.active === 'hermes-bots:routines' || rest.active === 'routines' || rest.active === 'files'
+    const active = retiredActive ? (panes.includes('work') ? 'work' : (panes[0] ?? rest.active)) : rest.active
     const panesChanged = panes.length !== rest.panes.length || panes.some((id, i) => id !== rest.panes[i])
     const unchanged = headerHidden === undefined && rest.tabStrip === tabStrip && !panesChanged && active === rest.active
 

@@ -81,4 +81,16 @@ describe('migratePersistedTree', () => {
     expect(migrated.panes).toEqual(['work'])
     expect(migrated.active).toBe('work')
   })
+
+  it('drops a leftover Scheduled jobs tile so it cannot sit in the work slot', () => {
+    const migrated = persisted({
+      active: 'hermes-bots:routines',
+      id: 'g',
+      panes: ['work', 'hermes-bots:routines'],
+      type: 'group'
+    })
+
+    expect(migrated.panes).toEqual(['work'])
+    expect(migrated.active).toBe('work')
+  })
 })

@@ -26,10 +26,12 @@ export const FILE_BROWSER_DEFAULT_WIDTH = `${SIDEBAR_DEFAULT_WIDTH}px`
 export const FILE_BROWSER_MIN_WIDTH = '10rem'
 export const FILE_BROWSER_MAX_WIDTH = '20rem'
 /** Work slot (browser / file / preview). A declared `width` makes the zone a
- *  fixed 237px track; `maxWidth: 20rem` is the file-tree rail cap. Neither
- *  belongs on a Codex-style preview split — min only, sash grows from there. */
+ *  fixed 237px track; `maxWidth: 20rem` is the file-tree rail cap. Floor is
+ *  22rem so it opens like a side panel; `50vw` keeps a double-⌘J from
+ *  swallowing the transcript. */
 export const workSlotSizing = {
-  minWidth: '22rem'
+  minWidth: '22rem',
+  maxWidth: '50vw'
 }
 
 export const SIDEBAR_SESSIONS_PAGE_SIZE = 50

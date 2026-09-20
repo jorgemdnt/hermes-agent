@@ -31,7 +31,7 @@ import {
 } from './bot-state'
 import { isCanonicalChatOnScreen, openBotCanonicalChat } from './canonical-chat'
 import { BotChatEmpty } from './chat-empty'
-import { bindProfileSync, RoutinesPane } from './cron'
+import { bindProfileSync } from './cron'
 import {
   $botMeta,
   $lastRoster,
@@ -453,95 +453,29 @@ export default {
       render: () => <BotsPane />
     })
 
-    // Routines — its OWN tiling pane splitting the workspace's right edge
-    // (NOT the collapsible right sidebar; placement 'right' is that sidebar's
-    // role and hides the pane until "Show Right Sidebar").
-    //
-    // Registered ONLY while Bot Mode is on screen: the pane exists while the
-    // Bots pane is visible (its zone's active tab, or a lone pane in a
-    // stacked pre-heal layout) and unregisters when the user tabs back to
-    // Sessions — no Cronjobs tile squatting beside the chat outside Bot Mode.
-    // `ctx.register` returns the disposer that makes this cheap; the tree
-    // keeps the pane's spot, so re-registering re-adopts it where it was.
-    // host.paneVisibility is feature-detected: older desktops without the SDK
-    // export keep the always-registered behavior.
-    const registerRoutinesPane = (restoreDismissed: boolean) => {
-      const dispose = ctx.register({
-        id: 'routines',
-        area: 'panes',
-        // The app's noun for these, so the tab agrees with the pane header and
-        // with the core Scheduled jobs surface. `translateNow`, not `useI18n`:
-        // a pane title is read at registration, outside React.
-        title: translateNow('cron.title'),
-        data: {
-          tabTitle: () => <LocalizedTabTitle select={t => t.cron.title} />,
-          tabTitleText: () => translateNow('cron.title'),
-          placement: 'main',
-          // Repair persisted layouts that stranded Cronjobs in the Bots tab strip.
-          dock: {
-            pane: 'workspace',
-            pos: 'right',
-            enforce: true
-          },
-          // A bot's schedule is glanceable, not something you sit in — it
-          // arrives as the right edge's vertical tab and takes no width off the
-          // chat until the user opens it.
-          defaultCollapsed: true,
-          width: '250px'
-        },
-        render: () => <RoutinesPane />
-      })
-
-      // The pane's ✕ remembers a Close across launches, and nothing else ever
-      // shows this pane again — it only comes back by being registered here.
-      // Entering Bot Mode is the user asking for their bot's chrome, so a
-      // remembered Close is dropped and the pane returns the way it first
-      // arrived: as the collapsed right-edge tab (#102224). Only on ENTRY:
-      // the pane also re-registers whenever a bot chat regains the workspace
-      // inside one Bots session (a group room and back), and a ✕ from that
-      // same session must survive those.
-      if (restoreDismissed && typeof host.undismissPane === 'function') {
-        host.undismissPane(`${ID}:routines`)
-      }
-
-      return dispose
-    }
-
+    // Scheduled jobs stay on ⌘K (`nav.cron`). Docking them as a main-placement
+    // tile next to chat made the right column count as chat and let it swallow
+    // the transcript.
     if (typeof host.paneVisibility === 'function') {
       // The contribution-scoped pane id (`register` prefixes `${ID}:`).
       const $sidebarVisible = host.paneVisibility(`${ID}:pane`)
-      let unregisterRoutines: null | (() => void) = null
-      // Armed by each Bots-tab entry, spent by the first registration after it.
-      let restoreDismissedOnRegister = true
-
-      const syncRoutinesPane = () => {
-        if (botChatOwnsWorkspace()) {
-          if (!unregisterRoutines) {
-            unregisterRoutines = registerRoutinesPane(restoreDismissedOnRegister)
-            restoreDismissedOnRegister = false
-          }
-        } else if (unregisterRoutines) {
-          // Clicking the Cronjobs tile moves focus onto the tile itself, which
-          // drops bot-chat workspace ownership for a beat. While Bot Mode is
-          // still on screen and the tile is the one holding focus, keep it —
-          // a pane must never unregister itself out from under its own click.
-          // Leaving Bot Mode ($botsPaneVisible false) still unregisters.
-          const $self = host.paneVisibility(`${ID}:routines`)
-
-          if ($botsPaneVisible.get() && $self && typeof $self.get === 'function' && $self.get()) {
-            return
-          }
-
-          unregisterRoutines()
-          unregisterRoutines = null
-        }
-      }
+      let lastSessionsStoredId = ''
 
       const stopSidebarSync = $sidebarVisible.listen(visible => {
         $botsPaneVisible.set(Boolean(visible))
 
         if (visible) {
-          restoreDismissedOnRegister = true
+          const focused = String(
+            (typeof host.state.focusedStoredSessionId?.get === 'function'
+              ? host.state.focusedStoredSessionId.get()
+              : '') ||
+              (typeof host.state.activeSessionId?.get === 'function' ? host.state.activeSessionId.get() : '') ||
+              ''
+          )
+
+          if (focused) {
+            lastSessionsStoredId = focused
+          }
 
           const group = $groupChatWorkspace.get()
           const selected = selectedRosterBot($lastRoster.get(), $selectedRosterKey.get())
@@ -566,6 +500,7 @@ export default {
             )
           } else if (selected) {
             setBotsWorkspaceOwner(botWorkspaceOwnerKey(selected), selected)
+            void openBotCanonicalChat(selected)
           }
         } else {
           // Strand any owner wake still dialing. Its SDK open will fail the
@@ -574,23 +509,11 @@ export default {
           // returned to Sessions.
           bumpBotOpenGeneration()
           host.setWorkspaceScope?.('sessions')
+          if (lastSessionsStoredId && typeof host.openSession === 'function') {
+            void host.openSession(lastSessionsStoredId)
+          }
         }
-
-        syncRoutinesPane()
       })
-
-      const stopGroupSync = $groupChatWorkspace.listen(syncRoutinesPane)
-
-      // React on the NEXT tick — a layout notification arrives mid-mutation,
-      // and registering/unregistering panes from inside it would re-enter the
-      // tree store.
-      const scheduleRoutinesSync = () => {
-        try {
-          setTimeout(syncRoutinesPane, 0)
-        } catch {
-          syncRoutinesPane()
-        }
-      }
 
       // Tab focus moves without swapping the gateway socket, so the focused
       // STORED session is the truth about session focus; older shells fall
@@ -602,7 +525,6 @@ export default {
           ? focusStore.listen(id => {
               $botChatFocused.set(Boolean(id))
               releaseStaleOpenBotChat(id)
-              syncRoutinesPane()
             })
           : null
 
@@ -668,23 +590,16 @@ export default {
 
       $botsPaneVisible.set(Boolean($sidebarVisible.get()))
       $botChatFocused.set(sessionOwnsWorkspace())
-      // A persisted layout can boot directly into Bot Mode. Reconcile now,
-      // then once more after the layout mutation finishes.
-      syncRoutinesPane()
-      scheduleRoutinesSync()
 
       if (typeof ctx.onDispose === 'function') {
         // The registration disposer is already tracked by ctx.register; only
         // the listeners need explicit teardown or they survive plugin disable.
         ctx.onDispose(() => {
           stopSidebarSync()
-          stopGroupSync()
           stopFocusSync?.()
           stopReclaimSync?.()
         })
       }
-    } else {
-      registerRoutinesPane(true)
     }
 
     // A bot's chat before it has spoken: core's splash is Hermes' wordmark and

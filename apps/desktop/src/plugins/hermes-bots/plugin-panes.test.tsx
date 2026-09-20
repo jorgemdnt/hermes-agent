@@ -8,12 +8,9 @@
  *    exemption — the retired one-shot heal burned its token even when its
  *    guards skipped the move, so exactly the users who had dragged their panes
  *    stayed stacked forever;
- *  - the Scheduled jobs (internally `routines`) pane only exists while a BOT
- *    CHAT owns the main workspace and the Bots pane is on screen. It is
- *    registered and unregistered through the contribution disposer, driven by
- *    the feature-detected `host.paneVisibility` export, with the
- *    always-registered fallback kept for older desktops. Cron jobs are
- *    bot-scoped, so the tile must not sit beside a group chat.
+ *  - the Scheduled jobs (internally `routines`) pane is never registered.
+ *    Jobs stay on ⌘K (`nav.cron`). A leftover tile is stripped from persisted
+ *    trees because its `placement: 'main'` made the right column count as chat.
  */
 
 import type * as HermesSdk from '@hermes/plugin-sdk'
@@ -32,7 +29,11 @@ import type * as RoutingModule from './routing'
 
 const mocks = vi.hoisted(() => ({
   botChatOwnsWorkspace: vi.fn(() => false),
+  focusedId: 'sess-sessions',
+  openBotCanonicalChat: vi.fn(),
+  openSession: vi.fn(),
   paneVisibility: vi.fn(),
+  selectedRosterBot: vi.fn(() => null),
   sessionOwnsWorkspace: vi.fn(() => false),
   setWorkspaceScope: vi.fn(),
   undismissPane: vi.fn()
@@ -46,9 +47,17 @@ vi.mock('@hermes/plugin-sdk', async importOriginal => {
     host: {
       ...original.host,
       onEvent: undefined,
+      openSession: mocks.openSession,
       paneVisibility: mocks.paneVisibility,
       setWorkspaceScope: mocks.setWorkspaceScope,
-      undismissPane: mocks.undismissPane
+      undismissPane: mocks.undismissPane,
+      state: {
+        ...original.host.state,
+        focusedStoredSessionId: {
+          get: () => mocks.focusedId,
+          listen: () => () => undefined
+        }
+      }
     }
   }
 })
@@ -58,7 +67,7 @@ vi.mock('@hermes/plugin-sdk', async importOriginal => {
 vi.mock('./avatar', () => ({ startFaceClock: vi.fn(), stopFaceClock: vi.fn() }))
 vi.mock('./relay', () => ({ startBotRelay: vi.fn(), stopBotRelay: vi.fn() }))
 vi.mock('./session-sweep', () => ({ startHideSweepScheduler: vi.fn() }))
-vi.mock('./canonical-chat', () => ({ openBotCanonicalChat: vi.fn() }))
+vi.mock('./canonical-chat', () => ({ openBotCanonicalChat: mocks.openBotCanonicalChat }))
 vi.mock('./chat-empty', () => ({ BotChatEmpty: () => null }))
 vi.mock('./hygiene', () => ({ annotateOrphanedGroupChatMembers: () => ({ changed: false, rooms: {} }) }))
 vi.mock('./cron', () => ({ bindProfileSync: () => () => undefined, RoutinesPane: () => null }))
@@ -66,7 +75,7 @@ vi.mock('./roster-pane', () => ({
   botChatOwnsWorkspace: mocks.botChatOwnsWorkspace,
   BotsPane: () => null,
   releaseStaleOpenBotChat: vi.fn(),
-  selectedRosterBot: () => null,
+  selectedRosterBot: mocks.selectedRosterBot,
   sessionOwnsWorkspace: mocks.sessionOwnsWorkspace
 }))
 vi.mock('./group-chat', async () => {
@@ -212,127 +221,24 @@ describe('the Bots pane dock', () => {
 })
 
 describe('the Scheduled jobs pane', () => {
-  it('stays unregistered until a bot chat owns the workspace', async () => {
+  it('is never registered — scheduled jobs stay on ⌘K', async () => {
     const store = paneStores()
     const harness = recordingContext()
 
+    mocks.botChatOwnsWorkspace.mockReturnValue(true)
     plugin.register(harness.ctx)
+    await settle()
+    store(`hermes-bots:pane`).set(true)
     await settle()
 
     expect(harness.find('routines')).toBeUndefined()
 
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    store(`hermes-bots:pane`).set(true)
-
-    const routines = harness.find('routines')!
-
-    expect(routines.data).toMatchObject({
-      // Repairs persisted layouts that stranded the tile in the Bots tab strip.
-      dock: { enforce: true, pane: 'workspace', pos: 'right' },
-      placement: 'main'
-    })
-    // Glanceable, not something you sit in: it arrives as the right edge's
-    // vertical tab and takes no width off the chat until the user opens it.
-    expect(routines.data!.defaultCollapsed).toBe(true)
-
     harness.dispose()
-  })
-
-  it('unregisters when Bot Mode leaves the screen', async () => {
-    const store = paneStores()
-    const harness = recordingContext()
-
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    plugin.register(harness.ctx)
-    await settle()
-
-    expect(harness.find('routines')).toBeTruthy()
-
-    mocks.botChatOwnsWorkspace.mockReturnValue(false)
-    store(`hermes-bots:pane`).set(true)
-    store(`hermes-bots:pane`).set(false)
-
-    expect(harness.unregisters.get('routines')).toHaveBeenCalled()
-    expect(harness.find('routines')).toBeUndefined()
-
-    harness.dispose()
-  })
-
-  it('keeps the tile alive while the tile itself holds focus', async () => {
-    const store = paneStores()
-    const harness = recordingContext()
-
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    plugin.register(harness.ctx)
-    await settle()
-
-    // Clicking the tile drops bot-chat workspace ownership for a beat. A pane
-    // must never unregister itself out from under its own click.
-    store(`hermes-bots:routines`).set(true)
-    mocks.botChatOwnsWorkspace.mockReturnValue(false)
-    store(`hermes-bots:pane`).set(true)
-
-    expect(harness.unregisters.get('routines')).not.toHaveBeenCalled()
-    expect(harness.find('routines')).toBeTruthy()
-
-    harness.dispose()
-  })
-
-  it('drops a remembered Close only on entering Bot Mode, not on every ownership regain', async () => {
-    const store = paneStores()
-    const harness = recordingContext()
-
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    store(`hermes-bots:pane`).set(true)
-    plugin.register(harness.ctx)
-    await settle()
-
-    // Boot straight into a bot chat: the pane arrives and a Close from a past
-    // launch is dropped once (#102224).
-    expect(mocks.undismissPane).toHaveBeenCalledTimes(1)
-    expect(mocks.undismissPane).toHaveBeenCalledWith('hermes-bots:routines')
-
-    // The user ✕-es the pane, opens a group room (the tile must not sit
-    // beside a group chat) and comes back to the bot chat — all inside one
-    // Bots session. Re-registration must not undo their Close.
-    const { $groupChatWorkspace } = await import('./group-chat')
-    mocks.botChatOwnsWorkspace.mockReturnValue(false)
-    $groupChatWorkspace.set({ id: 'room' } as never)
-    expect(harness.find('routines')).toBeUndefined()
-
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    $groupChatWorkspace.set(null)
-    expect(harness.find('routines')).toBeTruthy()
-    expect(mocks.undismissPane).toHaveBeenCalledTimes(1)
-
-    // Leaving Bot Mode and coming back is the ask for the bot's chrome again.
-    mocks.botChatOwnsWorkspace.mockReturnValue(false)
-    store(`hermes-bots:pane`).set(false)
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    store(`hermes-bots:pane`).set(true)
-    expect(mocks.undismissPane).toHaveBeenCalledTimes(2)
-
-    harness.dispose()
-  })
-
-  it('stops every lifecycle listener when the plugin is disabled', async () => {
-    const store = paneStores()
-    const harness = recordingContext()
-
-    plugin.register(harness.ctx)
-    await settle()
-    harness.dispose()
-
-    // A disable → re-enable cycle used to stack a duplicate listener per cycle.
-    mocks.botChatOwnsWorkspace.mockReturnValue(true)
-    store(`hermes-bots:pane`).set(true)
-
-    expect(harness.find('routines')).toBeUndefined()
   })
 })
 
 describe('a desktop without host.paneVisibility', () => {
-  it('keeps the always-registered pane', async () => {
+  it('still does not register Scheduled jobs', async () => {
     const { host } = await import('@hermes/plugin-sdk')
     const restore = host.paneVisibility
 
@@ -343,9 +249,46 @@ describe('a desktop without host.paneVisibility', () => {
 
     plugin.register(harness.ctx)
 
-    expect(harness.find('routines')).toBeTruthy()
+    expect(harness.find('routines')).toBeUndefined()
 
     harness.dispose()
     host.paneVisibility = restore
+  })
+})
+
+describe('Sessions | Bots tab focus', () => {
+  it('opens the selected bot chat when the Bots tab is shown', async () => {
+    const bot = { name: 'coder', canonical_session: { id: 'bot-chat' } }
+    mocks.selectedRosterBot.mockReturnValue(bot)
+    const store = paneStores()
+    const harness = recordingContext()
+
+    plugin.register(harness.ctx)
+    await settle()
+    store('hermes-bots:pane').set(true)
+    await settle()
+
+    expect(mocks.openBotCanonicalChat).toHaveBeenCalledWith(bot)
+
+    harness.dispose()
+  })
+
+  it('reopens the Sessions chat when leaving Bots', async () => {
+    mocks.focusedId = 'sess-sessions'
+    mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
+    const store = paneStores()
+    const harness = recordingContext()
+
+    plugin.register(harness.ctx)
+    await settle()
+    store('hermes-bots:pane').set(true)
+    await settle()
+    store('hermes-bots:pane').set(false)
+    await settle()
+
+    expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
+    expect(mocks.openSession).toHaveBeenCalledWith('sess-sessions')
+
+    harness.dispose()
   })
 })
