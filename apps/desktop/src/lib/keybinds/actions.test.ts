@@ -45,3 +45,10 @@ describe('view.cycleSidebarGrouping keybind action', () => {
     expect(KEYBIND_ACTIONS.filter(action => action.id === 'view.cycleSidebarGrouping')).toHaveLength(1)
   })
 })
+
+describe('⌘J', () => {
+  it('toggles the terminal, not the right sidebar', () => {
+    expect(defaultBindings()['view.showTerminal']).toEqual(['mod+j'])
+    expect(defaultBindings()['view.toggleRightSidebar']).toEqual(['mod+alt+b'])
+  })
+})
