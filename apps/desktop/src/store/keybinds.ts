@@ -36,6 +36,47 @@ function readStoredOverrides(): Record<string, string[]> {
 
 const storedOverrides = readStoredOverrides()
 
+const MOD_J = 'mod+j'
+
+/** ⌘J is the terminal. A stale override (stock used to put it on the rail)
+ *  must not win — first-wins in the combo index lists the rail first. */
+export function withoutRailOnModJ(bindings: KeybindBindings): KeybindBindings {
+  const next: KeybindBindings = { ...bindings }
+  const rail = [...(next['view.toggleRightSidebar'] ?? [])]
+  const stripped = rail.filter(combo => canonicalizeCombo(combo) !== MOD_J)
+
+  if (stripped.length !== rail.length) {
+    next['view.toggleRightSidebar'] = stripped.length > 0 ? stripped : ['mod+alt+b']
+  }
+
+  const term = [...(next['view.showTerminal'] ?? [])]
+
+  if (!term.some(combo => canonicalizeCombo(combo) === MOD_J)) {
+    next['view.showTerminal'] = [MOD_J, ...term]
+  }
+
+  return next
+}
+
+export function buildComboIndex(bindings: KeybindBindings): Map<string, string> {
+  const index = new Map<string, string>()
+  const resolved = withoutRailOnModJ(bindings)
+
+  for (const action of allKeybindActions()) {
+    for (const combo of resolved[action.id] ?? bindingsFor(action.id, resolved)) {
+      const key = canonicalizeCombo(combo)
+
+      if (!index.has(key)) {
+        index.set(key, action.id)
+      }
+    }
+  }
+
+  index.set(canonicalizeCombo(MOD_J), 'view.showTerminal')
+
+  return index
+}
+
 // Defaults overlaid with the user's stored overrides. Unknown / stale action
 // ids are dropped; actions added in a later release pick up their shipped
 // default; late-registered contributed actions resolve via `bindingsFor`.
@@ -48,7 +89,7 @@ function loadBindings(): KeybindBindings {
     }
   }
 
-  return base
+  return withoutRailOnModJ(base)
 }
 
 // Persist only the actions whose combos differ from their shipped default, so
@@ -93,21 +134,7 @@ export function bindingsFor(id: string, bindings: KeybindBindings = $bindings.ge
 // the panel/edit overlay surface conflicts so users can resolve them. Keys go
 // through `canonicalizeCombo` so a `ctrl+…` binding resolves everywhere.
 // Recomputes on registry mutations so contributed actions dispatch live.
-export const $comboIndex = computed([$bindings, $registryVersion], bindings => {
-  const index = new Map<string, string>()
-
-  for (const action of allKeybindActions()) {
-    for (const combo of bindingsFor(action.id, bindings)) {
-      const key = canonicalizeCombo(combo)
-
-      if (!index.has(key)) {
-        index.set(key, action.id)
-      }
-    }
-  }
-
-  return index
-})
+export const $comboIndex = computed([$bindings, $registryVersion], bindings => buildComboIndex(bindings))
 
 export function setBinding(actionId: string, combos: string[]): void {
   if (!keybindAction(actionId)) {
