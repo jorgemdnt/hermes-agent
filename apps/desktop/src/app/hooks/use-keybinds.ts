@@ -379,6 +379,16 @@ export function useKeybinds(deps: KeybindRuntimeDeps): void {
         return
       }
 
+      // ⌘J is the terminal. Never let a stale rail binding or thread-chrome
+      // leftover turn this chord into "show the work slot".
+      if (combo === 'mod+j') {
+        event.preventDefault()
+        event.stopPropagation()
+        togglePaneVisible('terminal')
+
+        return
+      }
+
       // The open find bar owns ⌘G / ⌘⇧G / Escape. Its own capture-phase
       // listener runs those actions; bail here so the registry doesn't ALSO
       // fire the action bound to the same combo (⌘G = view.toggleReview,

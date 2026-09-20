@@ -7,9 +7,9 @@ import { $fileBrowserOpen, setFileBrowserOpen } from './layout'
 import { $focusedStoredSessionId } from './session-states'
 
 /**
- * Preview-rail and terminal open/closed follow the focused thread. Switching
- * to a chat that never opened them must not leave an empty preview (or a
- * terminal) hanging from the previous chat.
+ * Preview-rail and terminal open/closed follow the focused thread independently.
+ * The terminal is a bottom split under chat; opening it must not unhide the
+ * work slot.
  */
 
 const STORAGE_KEY = 'hermes.desktop.threadChrome.v1'
@@ -86,7 +86,9 @@ export function applyThreadChrome(owner = ownerKey()) {
   const terminal = chrome.terminalOpen[owner] ?? false
 
   applying = true
-  setFileBrowserOpen(preview || terminal)
+  // Terminal is a bottom split under chat. The work slot is preview only —
+  // opening the terminal must not unhide "Nothing open" on the right.
+  setFileBrowserOpen(preview)
   setTerminalTakeover(terminal)
   applying = false
 }
@@ -105,12 +107,6 @@ $terminalTakeover.listen(open => {
   }
 
   patch(ownerKey(), 'terminalOpen', open)
-
-  if (open && !$fileBrowserOpen.get()) {
-    applying = true
-    setFileBrowserOpen(true)
-    applying = false
-  }
 })
 
 $focusedStoredSessionId.listen(() => {

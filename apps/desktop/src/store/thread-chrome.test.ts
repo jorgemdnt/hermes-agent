@@ -25,12 +25,10 @@ describe('thread chrome', () => {
     expect($terminalTakeover.get()).toBe(true)
   })
 
-  it('does not leave the right rail open for a thread that never used it', () => {
+  it('does not open the work slot when the terminal opens', () => {
     $selectedStoredSessionId.set('session-a')
     setTerminalTakeover(true)
-    expect($fileBrowserOpen.get()).toBe(true)
-
-    $selectedStoredSessionId.set('session-b')
     expect($fileBrowserOpen.get()).toBe(false)
+    expect($terminalTakeover.get()).toBe(true)
   })
 })
