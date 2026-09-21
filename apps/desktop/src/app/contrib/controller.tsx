@@ -12,8 +12,10 @@ import { IdleMount } from '@/components/idle-mount'
 import { OnboardingChatDirective } from '@/components/onboarding-chat/directive'
 import { $layoutEditMode, toggleLayoutEditMode } from '@/components/pane-shell/edit-mode'
 import { allPaneIds } from '@/components/pane-shell/tree/model'
+import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { LayoutTreeRoot } from '@/components/pane-shell/tree/renderer'
 import {
+  $activePresetId,
   $layoutTree,
   bindPaneVisibility,
   bindToolPaneCollapse,
@@ -21,6 +23,7 @@ import {
   declareDefaultTree,
   dismissTreePane,
   isPaneVisible,
+  markActivePreset,
   markCollapsePane,
   mirrorLayoutTree,
   paneRootSide,
@@ -34,6 +37,7 @@ import {
   targetZoneTabStripVisible,
   togglePaneVisible,
   toggleTargetZoneTabStrip,
+  treeLooksLikeWork,
   watchContributedPanes
 } from '@/components/pane-shell/tree/store'
 import { $workspaceOwnerLabels, workspaceOwnerTitle } from '@/components/pane-shell/workspace-scope'
@@ -101,7 +105,7 @@ import { HudShell } from '../hud/hud-shell'
 import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
 import { $workspaceIsPage, WORKSPACE_PAGE_HEADER_AREA } from '../routes'
 
-import { DEFAULT_TREE, registerLayoutPresets } from './layout-presets'
+import { DEFAULT_TREE, registerLayoutPresets, WORK_LAYOUT_ID, WORK_TREE } from './layout-presets'
 import { FilesPane, LogsPane, ReviewPaneContent, WorkPane } from './panes'
 import { ContribWiring, WiredPane } from './wiring'
 
@@ -432,7 +436,13 @@ registry.registerMany([
 
 registerLayoutPresets()
 
+const hadPersistedLayout = $layoutTree.get() !== null
 declareDefaultTree(DEFAULT_TREE)
+if (!hadPersistedLayout) {
+  applyLayoutPreset(WORK_LAYOUT_ID, WORK_TREE)
+} else if (treeLooksLikeWork($layoutTree.get()) && $activePresetId.get() === 'default') {
+  markActivePreset(WORK_LAYOUT_ID)
+}
 
 // Bundled plugins load AFTER core, so a same-id contribution from a plugin
 // deliberately overrides the core default (last writer wins). Third-party

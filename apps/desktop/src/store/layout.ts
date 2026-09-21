@@ -3,6 +3,7 @@ import { atom, computed, type ReadableAtom, type WritableAtom } from 'nanostores
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { PANE_TOGGLE_REVEAL_EVENT } from '@/components/pane-shell'
 import {
+  isWorkLayout,
   restoreHiddenTreeSideTabs,
   restoreMinimizedTreeSide,
   setTreeSideCollapsed
@@ -53,7 +54,7 @@ export function clampWorkSlotWidth(px: number, viewportPx: number): number {
 }
 
 function snapWorkSlotIfOversized() {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !isWorkLayout()) {
     return
   }
 

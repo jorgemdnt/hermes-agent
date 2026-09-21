@@ -52,6 +52,7 @@ import {
   $narrowViewport,
   $newSessionTabAction,
   $panesWithCloser,
+  $activePresetId,
   $treeDragging,
   $treePaneEpochs,
   activateTreePane,
@@ -64,6 +65,7 @@ import {
   hostsSessionDropTarget,
   isCollapsePane,
   isSessionStripPane,
+  isWorkLayout,
   NEW_SESSION_DRAG,
   noteActiveTreeGroup,
   reloadTreePane,
@@ -237,6 +239,7 @@ export function TreeGroup({
   rightEdge?: boolean
 }) {
   const { t } = useI18n()
+  useStore($activePresetId)
   const ref = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   // The scrolling tab list inside the header (the strip also holds the
@@ -393,7 +396,7 @@ export function TreeGroup({
   // Every minimized row group becomes a vertical restore rail. A horizontal
   // multi-tab strip cannot fit in the collapsed 28px track.
   const verticalCollapse = Boolean(node.minimized) && parentAxis === 'row' && !isEmpty
-  const hideCollapsedChrome = Boolean(node.minimized) && parentAxis === 'column'
+  const hideCollapsedChrome = Boolean(node.minimized) && parentAxis === 'column' && isWorkLayout()
 
   // A minimized group IS its header, so it shows one regardless — except a
   // column-collapsed tool zone (terminal): that strip is clutter, ⌘J restores.

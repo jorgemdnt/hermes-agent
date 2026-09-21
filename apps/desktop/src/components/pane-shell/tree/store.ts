@@ -43,6 +43,9 @@ import {
 } from './model'
 import { FLOATING_PLACEMENT } from './renderer/floating-rect'
 import { tabStripVisibleForZone } from './renderer/strip-visibility'
+import { treeLooksLikeWork, WORK_LAYOUT_ID } from './work-layout'
+
+export { treeLooksLikeWork, WORK_LAYOUT_ID }
 
 // v2: v1 trees were saved against placeholder panes with index-order zone
 // assignment (chat could land in a corner cell). Retire them wholesale.
@@ -86,6 +89,11 @@ export const $activePresetId = atom<string>(readKey('hermes.desktop.layoutPreset
 export function markActivePreset(id: string) {
   $activePresetId.set(id)
   writeKey('hermes.desktop.layoutPreset.active', id)
+}
+
+/** Work layout (or a sash-edited copy of it). Stock Default/Focus stay off. */
+export function isWorkLayout(): boolean {
+  return $activePresetId.get() === WORK_LAYOUT_ID || treeLooksLikeWork($layoutTree.get())
 }
 
 /** Pane id being dragged (tree drag session), null when idle. Also set to the
@@ -1294,6 +1302,11 @@ export function declareDefaultTree(tree: LayoutNode) {
     return
   }
 
+  // Don't inject stock files/review into a Work tree on boot.
+  if (treeLooksLikeWork(current)) {
+    return
+  }
+
   const next = adoptMissingPanes(current, tree)
 
   if (next !== current) {
@@ -1459,7 +1472,11 @@ export function adoptContributedPanes(): void {
   // turn it into a track that steals width from a zone, which is the whole
   // thing floating exists to avoid.
   const missing = panes.filter(
-    c => !inTree.has(c.id) && !dismissed.has(c.id) && placementOf(c.id) !== FLOATING_PLACEMENT
+    c =>
+      !inTree.has(c.id) &&
+      !dismissed.has(c.id) &&
+      placementOf(c.id) !== FLOATING_PLACEMENT &&
+      (c.id !== 'work' || isWorkLayout())
   )
 
   if (missing.length === 0) {

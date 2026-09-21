@@ -7,7 +7,7 @@ import { $tabStripDefault, setTabStripDefault } from '@/store/tabstrip-prefs'
 import { stubResizeObserver } from '@/test/jsdom'
 
 import type { GroupNode } from '../model'
-import { $treeDragging, NEW_SESSION_DRAG, SESSION_TILE_DRAG, setTreePaneHidden } from '../store'
+import { $treeDragging, markActivePreset, NEW_SESSION_DRAG, SESSION_TILE_DRAG, setTreePaneHidden, WORK_LAYOUT_ID } from '../store'
 
 import { TreeGroup } from './tree-group'
 
@@ -307,6 +307,7 @@ describe('TreeGroup', () => {
   })
 
   it('hides a column-collapsed terminal instead of leaving a TERMINAL strip', () => {
+    markActivePreset(WORK_LAYOUT_ID)
     disposePane = registry.register({
       area: 'panes',
       data: { height: '12rem' },

@@ -28,7 +28,8 @@ import {
   persistTree,
   presetSplitWeights,
   setTreeGroupMinimized,
-  setTreeSplitWeights
+  setTreeSplitWeights,
+  isWorkLayout
 } from '../store'
 
 import {
@@ -703,8 +704,8 @@ export function TreeSplit({
                 ? { display: 'none' }
                 : minimized
                   ? {
-                      flex: `0 0 ${horizontal ? MINIMIZED_TRACK : '0px'}`,
-                      overflow: 'hidden'
+                      flex: `0 0 ${horizontal ? MINIMIZED_TRACK : isWorkLayout() ? '0px' : 'auto'}`,
+                      overflow: !horizontal && isWorkLayout() ? 'hidden' : undefined
                     }
                   : {
                       // One flexbox formula for everything: a sized zone is

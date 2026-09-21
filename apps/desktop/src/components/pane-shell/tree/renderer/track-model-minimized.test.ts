@@ -11,10 +11,10 @@ const ctx: TrackContext = {
 }
 
 describe('minimized track size', () => {
-  it('gives a column-minimized terminal no track, not a title strip', () => {
+  it('gives a column-minimized terminal the stock strip track', () => {
     const node = group(['terminal'], { id: 'grp-terminal', minimized: true })
 
-    expect(fixedTrackSize(node, 'column', ctx)).toBe('0px')
+    expect(fixedTrackSize(node, 'column', ctx)).toBe(MINIMIZED_TRACK)
   })
 
   it('keeps a row-minimized rail as a strip', () => {
