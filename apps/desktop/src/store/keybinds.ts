@@ -72,6 +72,17 @@ export function buildComboIndex(bindings: KeybindBindings): Map<string, string> 
     }
   }
 
+  // ⌘1–9 are sidebar rows (active Sessions or Bots tab). Profile slots ship
+  // `mod+N` first in KEYBIND_ACTIONS, so first-wins would keep ⌘1 on
+  // profile.switch.1 — a no-op when only `default` exists. Same pattern as ⌘J.
+  for (let slot = 1; slot <= 9; slot += 1) {
+    const id = `sidebar.row.${slot}`
+
+    if (allKeybindActions().some(action => action.id === id)) {
+      index.set(canonicalizeCombo(`mod+${slot}`), id)
+    }
+  }
+
   index.set(canonicalizeCombo(MOD_J), 'view.showTerminal')
 
   return index
