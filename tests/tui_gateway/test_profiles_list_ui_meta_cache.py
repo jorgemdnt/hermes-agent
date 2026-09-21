@@ -59,6 +59,11 @@ def test_the_cas_writer_round_trips_through_the_listing(home):
     assert row["ui_meta_revisions"]["hermes-bots"] == before + 1
 
 
+def test_profiles_list_accepts_previous_names(home):
+    """Roster rows carry rename history; the wire contract must not reject it."""
+    assert _row()["previous_names"] == []
+
+
 def test_an_avatar_added_without_touching_profile_yaml_is_still_seen(home):
     """``has_avatar`` stays live — that is why it is not part of the cached value."""
     assert _row()["has_avatar"] is False

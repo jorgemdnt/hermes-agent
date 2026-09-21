@@ -36,7 +36,14 @@ import { stableArray } from '@/lib/stable-array'
 import { readJson, writeJson } from '@/lib/storage'
 import type { SessionInfo } from '@/types/hermes'
 
-import { dropPreviewTabsForProfile, migratePreviewTabsForProfile, setPreviewScope } from './preview'
+import {
+  applyPreviewFocus,
+  bindPreviewSession,
+  dropPreviewTabsForProfile,
+  migratePreviewTabsForProfile,
+  PREVIEW_DRAFT_OWNER,
+  setPreviewScope
+} from './preview'
 import { dropPreviewArtifactsForProfile, migratePreviewArtifactsForProfile } from './preview-status'
 import { $activeGatewayProfile, normalizeProfileKey } from './profile'
 import { clearAllProviderWaits, clearSessionProviderWait } from './provider-wait'
@@ -71,6 +78,7 @@ import {
   type SessionProfileRoute
 } from './session-request-router'
 import { ackStoredSessionId, markSessionUnreadFinished } from './session-unread'
+import { applyThreadChrome } from './thread-chrome'
 import { migrateTranscriptTailsForProfile } from './transcript-tail-cache'
 import { isBrowserWindow, isSecondaryWindow } from './windows'
 
@@ -2274,10 +2282,30 @@ export const $focusedStoredSessionId = computed([$focusedTreePaneId, $selectedSt
  *  every tile's stored id. The sidebar highlights all of them (the focused one
  *  at full strength, the rest dimmed) so a multi-pane workspace shows which
  *  chats are on screen, not just the one being typed into. */
-export const $openStoredSessionIds = computed(
-  [$selectedStoredSessionId, $sessionTiles],
-  (selected, tiles) => new Set([...(selected ? [selected] : []), ...tiles.map(t => t.storedSessionId)])
-)
+let openStoredSessionIdsCache = new Set<string>()
+
+export const $openStoredSessionIds = computed([$selectedStoredSessionId, $sessionTiles], (selected, tiles) => {
+  const next = new Set([...(selected ? [selected] : []), ...tiles.map(t => t.storedSessionId)])
+
+  if (next.size === openStoredSessionIdsCache.size) {
+    let same = true
+
+    for (const id of next) {
+      if (!openStoredSessionIdsCache.has(id)) {
+        same = false
+        break
+      }
+    }
+
+    if (same) {
+      return openStoredSessionIdsCache
+    }
+  }
+
+  openStoredSessionIdsCache = next
+
+  return next
+})
 
 /** Live runtime id of the focused session (a tile's bound runtime, else the
  *  primary's active session). */
@@ -2291,6 +2319,23 @@ export const $focusedRuntimeId = computed(
     return primaryRuntime
   }
 )
+
+bindPreviewSession({
+  lookupStoredIdFromRuntime: runtimeId => {
+    const cached = $sessionStates.get()[runtimeId]?.storedSessionId?.trim()
+
+    if (cached) {
+      return cached
+    }
+
+    return $sessionTiles.get().find(tile => tile.runtimeId === runtimeId)?.storedSessionId?.trim() || null
+  }
+})
+
+function syncFocusedChrome(focused: null | string) {
+  applyPreviewFocus({ runtimeId: $focusedRuntimeId.get(), storedId: focused })
+  applyThreadChrome(focused?.trim() || PREVIEW_DRAFT_OWNER)
+}
 
 /** The focused session's state slice (undefined while unresolved/unbound). */
 export const $focusedSessionState = computed([$focusedRuntimeId, $sessionStates], (runtimeId, states) =>
@@ -2316,7 +2361,11 @@ $focusedStoredSessionId.listen(focused => {
     markSessionRead(focused)
     ackStoredSessionId(focused)
   }
+
+  syncFocusedChrome(focused)
 })
+
+syncFocusedChrome($focusedStoredSessionId.get())
 
 // Cold-start restore is the one selection change that is NOT a navigation: the
 // route already pointed at the primary session before the window loaded, and

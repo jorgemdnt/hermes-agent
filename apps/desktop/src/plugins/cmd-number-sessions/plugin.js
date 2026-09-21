@@ -1,7 +1,7 @@
 /**
  * Standing Desktop keybind overlay:
- *   ⌘1–9     Nth visible chat in the sessions sidebar (stock: recent-session slots)
- *   ⌃1 / ⌃2  Sessions / Bots tabs (no sidebar click required)
+ *   ⌘1–9     Nth visible row in the ACTIVE sidebar tab (sessions or bots)
+ *   ⌃1–2     sidebar tabs in visual order (not hardcoded Sessions/Bots)
  *   ⌃3–9     named profiles 3–9
  *   ⌘J       toggle terminal      (stock: ⌃`)
  *   ⌘⌥B      toggle right sidebar (stock: ⌘J)
@@ -14,8 +14,9 @@ import { KEYBINDS_AREA, PALETTE_AREA, host } from '@hermes/plugin-sdk'
 const ID = 'cmd-number-sessions'
 const STORAGE_KEY = 'hermes.desktop.keybinds'
 const APPLIED_KEY = 'hermes.desktop.keybinds.cmd-number-sessions'
-const SESSIONS_PANE = 'sessions'
-const BOTS_PANE = 'hermes-bots:pane'
+export const SESSIONS_PANE = 'sessions'
+export const BOTS_PANE = 'hermes-bots:pane'
+const SIDEBAR_TAB_PANES = new Set([SESSIONS_PANE, BOTS_PANE])
 
 function readOverrides() {
   try {
@@ -76,22 +77,65 @@ function writeMap() {
   localStorage.setItem(APPLIED_KEY, '1')
 }
 
-function revealPane(id) {
+export function shown(el) {
+  return el.getClientRects().length > 0
+}
+
+function clickWithoutModifiers(el) {
+  el.dispatchEvent(
+    new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false
+    })
+  )
+}
+
+export function sidebarTabsInOrder(root = document) {
+  const markers = [...root.querySelectorAll('[data-tree-tab]')].filter(el => {
+    const id = el.getAttribute('data-tree-tab')
+    return id && SIDEBAR_TAB_PANES.has(id) && shown(el)
+  })
+  const strip = markers[0]?.closest('[role="tablist"]') ?? markers[0]?.parentElement
+  if (!strip) return []
+  return [...strip.querySelectorAll('[data-tree-tab]')].filter(shown)
+}
+
+export function activateSidebarTab(slot, reveal, root = document) {
+  const tab = sidebarTabsInOrder(root)[slot - 1]
+  const id = tab?.getAttribute('data-tree-tab')
+  if (!id) return false
+  if (typeof reveal === 'function') {
+    reveal(id)
+    return true
+  }
   if (typeof host.revealPane === 'function') {
     host.revealPane(id)
     return true
   }
-  return false
+  clickWithoutModifiers(tab)
+  return true
 }
 
-function shown(el) {
-  return el.getClientRects().length > 0
+export function rosterVisible(root = document) {
+  const roster = root.querySelector('[data-slot="bots-roster"]')
+  return Boolean(roster && shown(roster))
 }
 
-function sessionResumeButtons() {
-  const root = document.querySelector('[data-sessions-mode]')
-  if (!root) return []
-  const projects = [...root.querySelectorAll('[data-sessions-project]')]
+export function rosterRowButtons(root = document) {
+  const roster = root.querySelector('[data-slot="bots-roster"]')
+  if (!roster) return []
+  return [...roster.querySelectorAll('[data-slot="row-button"]')].filter(shown)
+}
+
+function sessionResumeButtons(root = document) {
+  const sessionsRoot = root.querySelector('[data-sessions-mode]')
+  if (!sessionsRoot) return []
+  const projects = [...sessionsRoot.querySelectorAll('[data-sessions-project]')]
   if (projects.length) {
     const buttons = []
     for (const project of projects) {
@@ -100,29 +144,18 @@ function sessionResumeButtons() {
     }
     return buttons
   }
-  return [...root.querySelectorAll('[data-slot="row-button"]')].filter(shown)
+  return [...sessionsRoot.querySelectorAll('[data-slot="row-button"]')].filter(shown)
 }
 
-function resumeNthVisibleSession(slot) {
-  const btn = sessionResumeButtons()[slot - 1]
+function resumeNthVisibleSession(slot, root = document) {
+  const btn = sessionResumeButtons(root)[slot - 1]
   if (!btn) return false
   // This runs from the ⌘1–9 keydown — Cmd is still down. `element.click()`
   // inherits metaKey in Chromium, and the session row treats ⌘-click as
   // "open tab" (`openSession(..., 'tab')`), which never writes
   // `$selectedStoredSessionId`. Archive (⌘⇧A) then hits the previous primary.
   // A modifier-free click takes the resume path (same as a plain mouse click).
-  btn.dispatchEvent(
-    new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      button: 0,
-      altKey: false,
-      ctrlKey: false,
-      metaKey: false,
-      shiftKey: false
-    })
-  )
+  clickWithoutModifiers(btn)
   return true
 }
 
@@ -141,8 +174,14 @@ async function treePreviewIds() {
   }
 }
 
-async function openSidebarSlot(slot) {
-  if (resumeNthVisibleSession(slot)) return
+export async function openSidebarSlot(slot, root = document) {
+  if (rosterVisible(root)) {
+    const btn = rosterRowButtons(root)[slot - 1]
+    if (!btn) return
+    clickWithoutModifiers(btn)
+    return
+  }
+  if (resumeNthVisibleSession(slot, root)) return
   const id = (await treePreviewIds())[slot - 1]
   if (id) host.navigate(`/${encodeURIComponent(id)}`)
 }
@@ -155,14 +194,14 @@ function applyAndReload() {
 export default {
   id: ID,
   name: '⌘1–9 conversations',
-  description: '⌘1–9 sidebar chats. ⌃1/⌃2 Sessions/Bots. ⌃3–9 profiles. ⌘J terminal. ⌘⌥B work slot.',
+  description: '⌘1–9 rows in the active sidebar tab. ⌃1/⌃2 tabs in visual order. ⌃3–9 profiles. ⌘J terminal. ⌘⌥B work slot.',
   register(ctx) {
     ctx.register({
       id: 'reapply',
       area: PALETTE_AREA,
       data: {
         id: `${ID}.reapply`,
-        label: 'Re-apply ⌘1–9 / ⌃1–2 Sessions-Bots / ⌘J terminal / ⌘⌥B work',
+        label: 'Re-apply ⌘1–9 / ⌃1–2 sidebar-tab-order / ⌘J terminal / ⌘⌥B work',
         keywords: ['keybind', 'shortcut', 'cmd', 'ctrl', 'session', 'profile', 'terminal', 'sidebar'],
         run: () => applyAndReload()
       }
@@ -177,7 +216,7 @@ export default {
           id: `sidebar.row.${slot}`,
           category: 'session',
           defaults: [`mod+${slot}`],
-          label: `Switch to sidebar chat ${slot}`,
+          label: `Switch to sidebar row ${slot}`,
           run: () => void openSidebarSlot(slot)
         }
       })
@@ -190,8 +229,8 @@ export default {
         id: 'sidebar.sessionsTab',
         category: 'view',
         defaults: ['ctrl+1'],
-        label: 'Show Sessions',
-        run: () => revealPane(SESSIONS_PANE)
+        label: 'Switch to sidebar tab 1 (visual order)',
+        run: () => activateSidebarTab(1)
       }
     })
 
@@ -202,8 +241,8 @@ export default {
         id: 'sidebar.botsTab',
         category: 'view',
         defaults: ['ctrl+2'],
-        label: 'Show Bots',
-        run: () => revealPane(BOTS_PANE)
+        label: 'Switch to sidebar tab 2 (visual order)',
+        run: () => activateSidebarTab(2)
       }
     })
 

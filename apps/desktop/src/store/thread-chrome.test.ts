@@ -31,4 +31,14 @@ describe('thread chrome', () => {
     expect($fileBrowserOpen.get()).toBe(false)
     expect($terminalTakeover.get()).toBe(true)
   })
+
+  it('does not reopen the work slot when chrome is already applied', () => {
+    $selectedStoredSessionId.set('session-a')
+    expect($fileBrowserOpen.get()).toBe(false)
+
+    applyThreadChrome('session-a')
+    applyThreadChrome('session-a')
+    expect($fileBrowserOpen.get()).toBe(false)
+    expect($terminalTakeover.get()).toBe(false)
+  })
 })

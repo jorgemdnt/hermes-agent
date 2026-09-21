@@ -4,12 +4,17 @@ import { $terminalTakeover, setTerminalTakeover } from '@/app/right-sidebar/stor
 import { readKey, writeKey } from '@/lib/storage'
 
 import { $fileBrowserOpen, setFileBrowserOpen } from './layout'
-import { $focusedStoredSessionId } from './session-states'
+import { $selectedStoredSessionId } from './session'
 
 /**
  * Preview-rail and terminal open/closed follow the focused thread independently.
  * The terminal is a bottom split under chat; opening it must not unhide the
  * work slot.
+ *
+ * Do not import session-states from this file. session-states already imports
+ * preview, and preview used to pull this module in — that cycle left
+ * `$focusedStoredSessionId` undefined in the packed bundle, so `.listen` threw
+ * on boot and the window rendered blank.
  */
 
 const STORAGE_KEY = 'hermes.desktop.threadChrome.v1'
@@ -20,8 +25,10 @@ export interface ThreadChrome {
   terminalOpen: Record<string, boolean>
 }
 
+let chromeOwner = DRAFT_OWNER
+
 function ownerKey(): string {
-  return $focusedStoredSessionId.get()?.trim() || DRAFT_OWNER
+  return chromeOwner
 }
 
 function load(): ThreadChrome {
@@ -80,10 +87,21 @@ export function threadPreviewOpen(owner = ownerKey()): boolean {
   return $threadChrome.get().previewOpen[owner] ?? false
 }
 
-export function applyThreadChrome(owner = ownerKey()) {
+export function applyThreadChrome(owner = $selectedStoredSessionId.get()?.trim() || chromeOwner) {
+  const nextOwner = owner.trim() || DRAFT_OWNER
   const chrome = $threadChrome.get()
-  const preview = chrome.previewOpen[owner] ?? false
-  const terminal = chrome.terminalOpen[owner] ?? false
+  const preview = chrome.previewOpen[nextOwner] ?? false
+  const terminal = chrome.terminalOpen[nextOwner] ?? false
+
+  chromeOwner = nextOwner
+
+  // Focus/selection both push chrome. Re-applying the same flags still called
+  // setFileBrowserOpen, which restores hidden right-rail tabs and can retrigger
+  // layout → focus → apply in a loop (packed boot: getSnapshot "Maximum update
+  // depth exceeded").
+  if ($fileBrowserOpen.get() === preview && $terminalTakeover.get() === terminal) {
+    return
+  }
 
   applying = true
   // Terminal is a bottom split under chat. The work slot is preview only —
@@ -109,6 +127,6 @@ $terminalTakeover.listen(open => {
   patch(ownerKey(), 'terminalOpen', open)
 })
 
-$focusedStoredSessionId.listen(() => {
-  applyThreadChrome()
+$selectedStoredSessionId.listen(selected => {
+  applyThreadChrome(selected?.trim() || DRAFT_OWNER)
 })

@@ -1,14 +1,12 @@
 import { atom, computed } from 'nanostores'
 
+import { stableArray } from '@/lib/stable-array'
 import { readKey, writeKey } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, setFileBrowserOpen } from './layout'
 import { $activeSessionId, $selectedStoredSessionId } from './session'
-import { $focusedRuntimeId, $focusedStoredSessionId, $sessionStates, $sessionTiles } from './session-states'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
-
-import './thread-chrome'
 
 /**
  * PREVIEW RAIL — one list of tabs, one way in.
@@ -77,18 +75,28 @@ const LEGACY_SESSION_REGISTRY_KEY = 'hermes.desktop.sessionPreviews.v1'
 export const PREVIEW_DRAFT_OWNER = '__draft__'
 const PREVIEW_WINDOW_OWNER = '__window__'
 
-export function previewOwnerKey(focusedStoredId: null | string | undefined = $focusedStoredSessionId.get()): string {
-  return focusedStoredId?.trim() || PREVIEW_DRAFT_OWNER
+let focusedStoredId: null | string = null
+let focusedRuntimeId: null | string = null
+let lookupStoredIdFromRuntime: (runtimeId: string) => null | string = () => null
+
+export function previewOwnerKey(id: null | string | undefined = focusedStoredId): string {
+  return id?.trim() || PREVIEW_DRAFT_OWNER
+}
+
+/** session-states pushes focus here after `$focusedStoredSessionId` exists.
+ *  preview must not import session-states — that cycle blanks the packed app. */
+export function bindPreviewSession(opts: { lookupStoredIdFromRuntime: (runtimeId: string) => null | string }): void {
+  lookupStoredIdFromRuntime = opts.lookupStoredIdFromRuntime
+}
+
+export function applyPreviewFocus(opts: { runtimeId: null | string; storedId: null | string }): void {
+  focusedStoredId = opts.storedId
+  focusedRuntimeId = opts.runtimeId
+  applyPreviewOwner(previewOwnerKey())
 }
 
 function storedIdFromRuntime(runtimeId: string): null | string {
-  const cached = $sessionStates.get()[runtimeId]?.storedSessionId?.trim()
-
-  if (cached) {
-    return cached
-  }
-
-  return $sessionTiles.get().find(tile => tile.runtimeId === runtimeId)?.storedSessionId?.trim() || null
+  return lookupStoredIdFromRuntime(runtimeId)
 }
 
 /** Bucket a preview belongs in. A runtime/stored id from another thread stays
@@ -101,12 +109,7 @@ function previewBucketOwner(sessionId?: null | string): string {
     return focused
   }
 
-  if (
-    raw === focused ||
-    raw === $focusedStoredSessionId.get() ||
-    raw === $focusedRuntimeId.get() ||
-    raw === $activeSessionId.get()
-  ) {
+  if (raw === focused || raw === focusedStoredId || raw === focusedRuntimeId || raw === $activeSessionId.get()) {
     return focused
   }
 
@@ -259,8 +262,10 @@ export const $previewTabsBySession = atom<PreviewTabsBySession>(loadPreviewTabsB
 
 let applyingPreviewBucket = false
 
+const EMPTY_PREVIEW_TABS: PreviewTab[] = []
+
 function visibleTabsForOwner(owner: string): PreviewTab[] {
-  return $previewTabsBySession.get().tabs[owner] ?? []
+  return $previewTabsBySession.get().tabs[owner] ?? EMPTY_PREVIEW_TABS
 }
 
 export const $previewTabs = atom<PreviewTab[]>(visibleTabsForOwner(previewOwnerKey()))
@@ -297,43 +302,43 @@ function writeVisiblePreviewTabs(tabs: PreviewTab[]) {
 
 function applyPreviewOwner(owner: string) {
   const state = $previewTabsBySession.get()
-  const tabs = state.tabs[owner] ?? []
+  const tabs = state.tabs[owner] ?? EMPTY_PREVIEW_TABS
+  const nextActive = (state.activeBySession[owner] as RightRailTabId | null) ?? tabs[0]?.id ?? null
+
+  if ($previewTabs.get() === tabs && $rightRailActiveTabId.get() === nextActive) {
+    return
+  }
 
   applyingPreviewBucket = true
   $previewTabs.set(tabs)
-  selectRightRailTab((state.activeBySession[owner] as RightRailTabId | null) ?? tabs[0]?.id ?? null)
+  selectRightRailTab(nextActive)
   applyingPreviewBucket = false
 }
 
-$focusedStoredSessionId.listen(() => {
-  applyPreviewOwner(previewOwnerKey())
-})
-
 $selectedStoredSessionId.listen(id => {
-  if (!id) {
-    return
+  focusedStoredId = id
+
+  if (id) {
+    const state = $previewTabsBySession.get()
+    const draft = state.tabs[PREVIEW_DRAFT_OWNER]
+
+    if (draft?.length && !(state.tabs[id] ?? []).length) {
+      const existing = state.tabs[id] ?? []
+      const merged = [...draft, ...existing.filter(tab => !draft.some(item => item.id === tab.id))]
+      const next: PreviewTabsBySession = {
+        activeBySession: {
+          ...state.activeBySession,
+          [id]: state.activeBySession[PREVIEW_DRAFT_OWNER] ?? state.activeBySession[id] ?? merged[0]?.id ?? null,
+          [PREVIEW_DRAFT_OWNER]: null
+        },
+        tabs: { ...state.tabs, [id]: merged, [PREVIEW_DRAFT_OWNER]: [] }
+      }
+
+      $previewTabsBySession.set(next)
+      persistPreviewTabsBySession(next)
+    }
   }
 
-  const state = $previewTabsBySession.get()
-  const draft = state.tabs[PREVIEW_DRAFT_OWNER]
-
-  if (!draft?.length || (state.tabs[id] ?? []).length) {
-    return
-  }
-
-  const existing = state.tabs[id] ?? []
-  const merged = [...draft, ...existing.filter(tab => !draft.some(item => item.id === tab.id))]
-  const next: PreviewTabsBySession = {
-    activeBySession: {
-      ...state.activeBySession,
-      [id]: state.activeBySession[PREVIEW_DRAFT_OWNER] ?? state.activeBySession[id] ?? merged[0]?.id ?? null,
-      [PREVIEW_DRAFT_OWNER]: null
-    },
-    tabs: { ...state.tabs, [id]: merged, [PREVIEW_DRAFT_OWNER]: [] }
-  }
-
-  $previewTabsBySession.set(next)
-  persistPreviewTabsBySession(next)
   applyPreviewOwner(previewOwnerKey())
 })
 
@@ -516,12 +521,16 @@ export function markBrowserTabPopped(tabId: string, popped: boolean) {
 }
 
 /** Preview tabs that still belong in the layout tree (not popped out). */
-export const $dockedPreviewTabs = computed([$previewTabs, $poppedBrowserTabIds], (tabs, popped) =>
-  popped.size === 0 ? tabs : tabs.filter(tab => !popped.has(tab.id))
-)
+let dockedPreviewTabsCache: readonly PreviewTab[] = []
+export const $dockedPreviewTabs = computed([$previewTabs, $poppedBrowserTabIds], (tabs, popped) => {
+  const next = popped.size === 0 ? tabs : tabs.filter(tab => !popped.has(tab.id))
+
+  return (dockedPreviewTabsCache = stableArray(dockedPreviewTabsCache, next) as PreviewTab[])
+})
 
 /** Every session's docked preview tabs. Browser tiles stay registered (and
  *  mounted) when you switch chats so the owning thread does not reload. */
+let allDockedPreviewTabsCache: readonly PreviewTab[] = []
 export const $allDockedPreviewTabs = computed([$previewTabsBySession, $poppedBrowserTabIds], (state, popped) => {
   const seen = new Set<string>()
   const tabs: PreviewTab[] = []
@@ -537,7 +546,11 @@ export const $allDockedPreviewTabs = computed([$previewTabsBySession, $poppedBro
     }
   }
 
-  return tabs
+  // A rewritten session map with the same tab objects used to return a fresh
+  // array every time. `$allDockedPreviewTabs.listen` then re-hid work-slot
+  // panes, which re-rendered workspace and tripped assistant-ui's getSnapshot
+  // depth guard ("workspace failed to render").
+  return (allDockedPreviewTabsCache = stableArray(allDockedPreviewTabsCache, tabs) as PreviewTab[])
 })
 
 /** The target behind a tile id, even when that tab belongs to a background

@@ -3,25 +3,20 @@
 // one agent's chat appeared in every other agent's chat — Tess's model showed up
 // in VEXA's rail and vice versa.
 //
-// Contract under test: the rail follows THE CHAT ON SCREEN. That is deliberately
-// NOT the window's gateway socket — a focused tab does not swap the socket, and
-// every bot chat is served by one pooled backend, so a socket-keyed rail shows
-// one agent's previews in every agent's chat. That is the same trap
-// `bot-row.tsx` documents for the roster highlight, and it is why the first cut
-// of this fix did not work. `session-states.ts` resolves the focused session's
-// owner and pushes it in via `setPreviewScope`.
+// Contract under test: the rail follows THE CHAT ON SCREEN (stored session id).
+// session-states pushes that owner via applyPreviewFocus after
+// `$focusedStoredSessionId` exists — preview must not import session-states.
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { $selectedStoredSessionId } from './session'
 import {
+  $allDockedPreviewTabs,
   $previewTabs,
-  migratePreviewTabsForProfile,
+  $previewTabsBySession,
+  applyPreviewFocus,
   openPreview,
-  type PreviewTarget,
-  setPreviewScope
-} from '@/store/preview'
-import { normalizeProfileKey } from '@/store/profile'
-
-const TABS_KEY = 'hermes.desktop.previewTabs.v2'
+  type PreviewTarget
+} from './preview'
 
 function fileTarget(path: string): PreviewTarget {
   return {
@@ -35,46 +30,43 @@ function fileTarget(path: string): PreviewTarget {
 
 const paths = () => $previewTabs.get().map(tab => tab.target.path)
 
-function storedBuckets(): Record<string, { target: { path?: string } }[]> {
-  const raw = window.localStorage.getItem(TABS_KEY)
-
-  return raw ? (JSON.parse(raw) as Record<string, { target: { path?: string } }[]>) : {}
-}
-
 describe('right rail follows the chat on screen', () => {
   beforeEach(() => {
     window.localStorage.clear()
-    setPreviewScope('default')
+    $selectedStoredSessionId.set(null)
+    $previewTabsBySession.set({ activeBySession: {}, tabs: {} })
+    applyPreviewFocus({ runtimeId: null, storedId: null })
     $previewTabs.set([])
   })
 
-  it('does not show one agent the tabs another agent opened', () => {
-    setPreviewScope('tess')
+  it('does not show one thread the tabs another thread opened', () => {
+    applyPreviewFocus({ runtimeId: null, storedId: 'sess-tess' })
     openPreview(fileTarget('/work/tess-model.html'))
 
     expect(paths()).toEqual(['/work/tess-model.html'])
 
-    // Reading another agent's chat re-homes the rail.
-    setPreviewScope('default')
+    applyPreviewFocus({ runtimeId: null, storedId: 'sess-default' })
 
     expect($previewTabs.get()).toEqual([])
 
-    // ...and comes back, unchanged, on the way in.
-    setPreviewScope('tess')
+    applyPreviewFocus({ runtimeId: null, storedId: 'sess-tess' })
 
     expect(paths()).toEqual(['/work/tess-model.html'])
-    expect(Object.keys(storedBuckets())).toEqual([normalizeProfileKey('tess')])
+    expect(Object.keys($previewTabsBySession.get().tabs)).toContain('sess-tess')
   })
 
-  it('moves the rail with a rename instead of stranding it under the old name', () => {
-    setPreviewScope('tess')
+  it('keeps the docked-tab list identity when the session map is rewritten with the same tabs', () => {
+    applyPreviewFocus({ runtimeId: null, storedId: 'sess-tess' })
     openPreview(fileTarget('/work/tess-model.html'))
 
-    migratePreviewTabsForProfile('tess', 'tess-renamed')
+    const first = $allDockedPreviewTabs.get()
+    const state = $previewTabsBySession.get()
 
-    const buckets = storedBuckets()
+    $previewTabsBySession.set({
+      activeBySession: { ...state.activeBySession },
+      tabs: { ...state.tabs }
+    })
 
-    expect(buckets[normalizeProfileKey('tess')]).toBeUndefined()
-    expect(buckets[normalizeProfileKey('tess-renamed')]?.map(tab => tab.target.path)).toEqual(['/work/tess-model.html'])
+    expect($allDockedPreviewTabs.get()).toBe(first)
   })
 })

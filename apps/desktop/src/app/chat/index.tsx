@@ -1,4 +1,9 @@
-import { type AppendMessage, AssistantRuntimeProvider, type ThreadMessage } from '@assistant-ui/react'
+import {
+  type AppendMessage,
+  AssistantRuntimeProvider,
+  type ExternalStoreAdapter,
+  type ThreadMessage
+} from '@assistant-ui/react'
 import type { ModelOptionsResult } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
@@ -200,6 +205,29 @@ interface ChatRuntimeBoundaryProps {
 }
 
 const NO_MESSAGES: ChatMessage[] = []
+const IGNORE_RUNTIME_SUBMIT = async () => {}
+const adapterOf = (
+  messageRepository: ExternalStoreAdapter<ThreadMessage>['messageRepository'],
+  isRunning: boolean,
+  isHistorical: boolean,
+  onThreadMessagesChange: ChatRuntimeBoundaryProps['onThreadMessagesChange'],
+  onEdit: ChatRuntimeBoundaryProps['onEdit'],
+  onCancel: ChatRuntimeBoundaryProps['onCancel'],
+  onReload: ChatRuntimeBoundaryProps['onReload']
+): ExternalStoreAdapter<ThreadMessage> => ({
+  messageRepository,
+  isRunning,
+  isDisabled: isHistorical,
+  setMessages: isHistorical ? undefined : onThreadMessagesChange,
+  onNew: IGNORE_RUNTIME_SUBMIT,
+  onEdit,
+  onCancel: isHistorical
+    ? undefined
+    : async () => {
+        await onCancel()
+      },
+  onReload: isHistorical ? undefined : onReload
+})
 
 /**
  * The view's $messages, live only while this surface is the VISIBLE tab.
@@ -410,28 +438,34 @@ export function ChatRuntimeBoundary({
     olderAvailable, expandWindow, revealRow, returnToLatest, currentMessages, isHistorical, newerAvailable
   }), [expandWindow, olderAvailable, revealRow, returnToLatest, currentMessages, isHistorical, newerAvailable])
 
-  const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>({
-    messageRepository: runtimeMessageRepository,
-    isRunning: !isHistorical && busy,
-    isDisabled: isHistorical,
-    setMessages: isHistorical ? undefined : onThreadMessagesChange,
-    onNew: async () => {
-      // Submission is handled explicitly by ChatBar.
-      // Keeping this no-op avoids duplicate prompt.submit calls.
-    },
-    // Editing stays AVAILABLE on a history page. `isDisabled` above blocks
-    // submit/reload/branch and keeps the page static, but the rail jump is
-    // the only way into that page and it has no in-thread exit — so dropping
-    // `onEdit` left the inline composer unopenable after ANY far rail jump
-    // (the throw "Runtime does not support editing", infectious downward,
-    // healed only by the floating jump button's returnToLatest). `editMessage`
-    // already resolves its target against the live session store
-    // (use-prompt-actions), never the display page, so the edit is correct;
-    // sending one rewinds the live transcript and drops the page.
-    onEdit,
-    onCancel: isHistorical ? undefined : async () => onCancel(),
-    onReload: isHistorical ? undefined : onReload
-  })
+  // Editing stays AVAILABLE on a history page. `isDisabled` below blocks
+  // submit/reload/branch and keeps the page static, but the rail jump is
+  // the only way into that page and it has no in-thread exit — so dropping
+  // `onEdit` left the inline composer unopenable after ANY far rail jump
+  // (the throw "Runtime does not support editing", infectious downward,
+  // healed only by the floating jump button's returnToLatest). `editMessage`
+  // already resolves its target against the live session store
+  // (use-prompt-actions), never the display page, so the edit is correct;
+  // sending one rewinds the live transcript and drops the page.
+  //
+  // Memoize the adapter: an inline literal here re-ran setAdapter every
+  // workspace render. Combined with a notifying runtime that re-renders
+  // UseTapEffects, assistant-ui's getSnapshot depth guard takes the
+  // workspace pane down ("workspace failed to render").
+  const adapter = useMemo(
+    () =>
+      adapterOf(
+        runtimeMessageRepository,
+        !isHistorical && busy,
+        isHistorical,
+        onThreadMessagesChange,
+        onEdit,
+        onCancel,
+        onReload
+      ),
+    [runtimeMessageRepository, isHistorical, busy, onThreadMessagesChange, onEdit, onCancel, onReload]
+  )
+  const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>(adapter)
 
   return (
     <ComposerScopeProvider value={composerScope}>
