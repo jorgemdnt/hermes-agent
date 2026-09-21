@@ -28,9 +28,10 @@
  */
 import { fromThreadMessageLike, getAutoStatus } from '@assistant-ui/core/internal'
 import type { ExportedMessageRepository, ExternalStoreAdapter, ThreadMessage } from '@assistant-ui/react'
+import { renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { IncrementalExternalStoreRuntimeCore } from './incremental-external-store-runtime'
+import { IncrementalExternalStoreRuntimeCore, useIncrementalExternalStoreRuntime } from './incremental-external-store-runtime'
 
 const STATUS = getAutoStatus(false, false, false, false, undefined)
 
@@ -81,6 +82,26 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
 
     // The live bug: this was 5 — one notify per render, each notify able to
     // schedule the next render. Silent no-op swaps break the feedback loop.
+    expect(notifications).toBe(0)
+  })
+
+  it('does NOT notify when a new repository wrapper carries the same messages', () => {
+    const messages = [message('a', 'one'), message('b', 'two')]
+    const core = new IncrementalExternalStoreRuntimeCore(adapterWith(repositoryOf(messages)))
+    const thread = core.threads.getMainThreadRuntimeCore()
+
+    let notifications = 0
+    thread.subscribe(() => {
+      notifications += 1
+    })
+
+    // useRuntimeMessageRepository memoizes on the ChatMessage[] identity. A
+    // window/tail rewrite that keeps the same ThreadMessage objects still
+    // allocates a new { headId, messages } wrapper. Object-identity on the
+    // wrapper used to skip the no-op path, notify, re-render, allocate again,
+    // and trip assistant-ui's getSnapshot depth guard ("workspace failed to render").
+    core.setAdapter(adapterWith(repositoryOf(messages)))
+
     expect(notifications).toBe(0)
   })
 
@@ -166,5 +187,13 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
     core.setAdapter(adapterWith(repo))
 
     expect(depth).toBe(0)
+  })
+
+  it('keeps the thread-list snapshot referentially stable while idle', () => {
+    const { result } = renderHook(() =>
+      useIncrementalExternalStoreRuntime(adapterWith(repositoryOf([message('a', 'one')])))
+    )
+
+    expect(result.current.threads.getState()).toBe(result.current.threads.getState())
   })
 })

@@ -33,7 +33,42 @@ const shallowEqual = (a: object, b: object): boolean => {
   return true
 }
 
-const getThreadListAdapter = (store: ExternalStoreAdapter) => store.adapters?.threadList ?? {}
+const EMPTY_THREAD_LIST_ADAPTER = Object.freeze({})
+const getThreadListAdapter = (store: ExternalStoreAdapter) => store.adapters?.threadList ?? EMPTY_THREAD_LIST_ADAPTER
+
+function stabilizeThreadListGetState(threads: AssistantRuntime['threads']): void {
+  const read = threads.getState.bind(threads)
+  let cached = read()
+
+  ;(threads as { getState: typeof read }).getState = () => {
+    const next = read()
+
+    if (shallowEqual(cached, next)) {
+      return cached
+    }
+
+    cached = next
+
+    return next
+  }
+}
+
+function sameMessageRepository(
+  a: ExternalStoreAdapter['messageRepository'] | undefined,
+  b: ExternalStoreAdapter['messageRepository'] | undefined
+): boolean {
+  if (a === b) {
+    return true
+  }
+
+  if (!a || !b || a.headId !== b.headId || a.messages.length !== b.messages.length) {
+    return false
+  }
+
+  return a.messages.every(
+    (item, index) => item.message === b.messages[index]?.message && item.parentId === b.messages[index]?.parentId
+  )
+}
 
 /**
  * Write only the items whose (message, parentId) pair actually moved.
@@ -194,7 +229,7 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
       changed = true
     }
 
-    if (oldStore && oldStore.isRunning === store.isRunning && oldStore.messageRepository === store.messageRepository) {
+    if (oldStore && oldStore.isRunning === store.isRunning && sameMessageRepository(oldStore.messageRepository, store.messageRepository)) {
       // Same transcript, same run state: notify only if extras/suggestions/
       // capabilities actually moved. A silent no-op swap here is what breaks
       // the render feedback loop — see the render-loop guard test.
@@ -280,5 +315,15 @@ export function useIncrementalExternalStoreRuntime<T extends ThreadMessage>(
     return runtime.registerModelContextProvider(modelContext)
   }, [modelContext, runtime])
 
-  return useMemo(() => new AssistantRuntimeImpl(runtime), [runtime])
+  return useMemo(() => {
+    const impl = new AssistantRuntimeImpl(runtime)
+
+    // ThreadListRuntimeImpl.getState goes through LazyMemoizeSubject, which is
+    // never "connected" (subscribe is forwarded to the core). That returns a
+    // new object on every read, so tap's useSyncExternalStore force-updates
+    // past the getSnapshot depth guard and the workspace pane dies.
+    stabilizeThreadListGetState(impl.threads)
+
+    return impl
+  }, [runtime])
 }

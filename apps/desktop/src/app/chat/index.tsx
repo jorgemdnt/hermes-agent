@@ -9,7 +9,7 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import type { ReadableAtom } from 'nanostores'
 import type * as React from 'react'
-import { memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createContext, memo, Suspense, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 
 import type { SubmitTextOptions } from '@/app/session/hooks/use-prompt-actions/utils'
@@ -206,6 +206,12 @@ interface ChatRuntimeBoundaryProps {
 
 const NO_MESSAGES: ChatMessage[] = []
 const IGNORE_RUNTIME_SUBMIT = async () => {}
+const RuntimeChildrenContext = createContext<React.ReactNode>(null)
+
+function RuntimeChildrenSink() {
+  return useContext(RuntimeChildrenContext)
+}
+
 const adapterOf = (
   messageRepository: ExternalStoreAdapter<ThreadMessage>['messageRepository'],
   isRunning: boolean,
@@ -466,13 +472,21 @@ export function ChatRuntimeBoundary({
     [runtimeMessageRepository, isHistorical, busy, onThreadMessagesChange, onEdit, onCancel, onReload]
   )
   const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>(adapter)
+  // AssistantRuntimeProvider is memo'd on `children`. ChatView re-renders on
+  // many non-transcript stores and would pass a new Thread element each time,
+  // which re-renders the tap host and trips getSnapshot's update-depth guard
+  // ("workspace failed to render"). Keep one sink element per boundary and
+  // push latest children through context so the provider can bail out.
+  const childrenSink = useRef(<RuntimeChildrenSink />).current
 
   return (
-    <ComposerScopeProvider value={composerScope}>
-      <TranscriptWindowProvider value={transcriptWindow}>
-        <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>
-      </TranscriptWindowProvider>
-    </ComposerScopeProvider>
+    <RuntimeChildrenContext.Provider value={children}>
+      <ComposerScopeProvider value={composerScope}>
+        <TranscriptWindowProvider value={transcriptWindow}>
+          <AssistantRuntimeProvider runtime={runtime}>{childrenSink}</AssistantRuntimeProvider>
+        </TranscriptWindowProvider>
+      </ComposerScopeProvider>
+    </RuntimeChildrenContext.Provider>
   )
 }
 
