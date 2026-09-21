@@ -30,6 +30,7 @@ export interface PaneMirror<T> {
   /** Center docks: the strip slot (stack before this pane id). */
   before?: (tile: T) => null | string | undefined
   minWidth: string
+  maxWidth?: string
   title: (key: string) => string
   /** Custom lead NODE for the tile's tab (rendered before the label). A live,
    *  self-subscribing component (e.g. a session's status dot) so the strip needn't
@@ -97,6 +98,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           },
           lifecycleKeepAlive: cfg.lifecycleKeepAlive?.(key),
           minWidth: cfg.minWidth,
+          maxWidth: cfg.maxWidth,
           newTab: cfg.newTab?.(key),
           collapsible: typeof cfg.collapsible === 'function' ? cfg.collapsible(tile) : cfg.collapsible,
           // Session tiles are main. Preview tiles in the work slot are not —

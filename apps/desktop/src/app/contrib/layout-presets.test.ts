@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { allPaneIds } from '@/components/pane-shell/tree/model'
-import { workSlotSizing } from '@/store/layout'
+import { clampWorkSlotWidth, FILE_BROWSER_DEFAULT_WIDTH, workSlotSizing } from '@/store/layout'
 
 import { DEFAULT_TREE } from './layout-presets'
 
@@ -33,12 +33,16 @@ describe('DEFAULT_TREE', () => {
 })
 
 describe('work slot sizing', () => {
-  it('is a growable preview split, not a 20rem file-tree rail', () => {
+  it('opens as a capped side panel, not a leftover flex column', () => {
+    expect(workSlotSizing.width).toBeTruthy()
+    expect(workSlotSizing.width).not.toBe(FILE_BROWSER_DEFAULT_WIDTH)
     expect(workSlotSizing.maxWidth).not.toBe('20rem')
-    expect(workSlotSizing).not.toHaveProperty('width')
+    expect(workSlotSizing.maxWidth).toBe('50vw')
+    expect(workSlotSizing.minWidth).toBe('22rem')
   })
 
-  it('cannot sash the chat column away', () => {
-    expect(workSlotSizing.maxWidth).toBe('50vw')
+  it('snaps a transcript-eating sash back to a side panel', () => {
+    expect(clampWorkSlotWidth(1800, 1440)).toBe(Math.round(1440 * 0.36))
+    expect(clampWorkSlotWidth(400, 1440)).toBe(400)
   })
 })

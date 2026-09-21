@@ -702,7 +702,10 @@ export function TreeSplit({
               collapsed
                 ? { display: 'none' }
                 : minimized
-                  ? { flex: `0 0 ${horizontal ? MINIMIZED_TRACK : 'auto'}` }
+                  ? {
+                      flex: `0 0 ${horizontal ? MINIMIZED_TRACK : '0px'}`,
+                      overflow: 'hidden'
+                    }
                   : {
                       // One flexbox formula for everything: a sized zone is
                       // grow-0 shrink-1 from its preferred basis (it yields

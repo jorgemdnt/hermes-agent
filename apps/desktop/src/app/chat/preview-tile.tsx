@@ -303,6 +303,7 @@ const watchPreviewTileMirror = paneMirror<{ id: string }>({
   dir: tab => (existingPreviewAnchor(tab.id) || workSlotId() ? 'center' : 'right'),
   anchor: tab => existingPreviewAnchor(tab.id) ?? workSlotId(),
   minWidth: '22rem',
+  maxWidth: '50vw',
   placement: 'right',
   title: previewTitle,
   tabLead: tabId => <PreviewTabLead tabId={tabId} />,

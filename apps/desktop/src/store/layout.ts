@@ -26,12 +26,55 @@ export const FILE_BROWSER_DEFAULT_WIDTH = `${SIDEBAR_DEFAULT_WIDTH}px`
 export const FILE_BROWSER_MIN_WIDTH = '10rem'
 export const FILE_BROWSER_MAX_WIDTH = '20rem'
 /** Work slot (browser / file / preview). A declared `width` makes the zone a
- *  fixed 237px track; `maxWidth: 20rem` is the file-tree rail cap. Floor is
- *  22rem so it opens like a side panel; `50vw` keeps a double-⌘J from
- *  swallowing the transcript. */
+ *  fixed track so it cannot flex-eat the transcript. Not the file-tree 237px /
+ *  20rem rail — 36vw opens like a Codex side panel; 50vw is the sash cap. */
+export const WORK_SLOT_DEFAULT_WIDTH = '36vw'
+
 export const workSlotSizing = {
+  width: WORK_SLOT_DEFAULT_WIDTH,
   minWidth: '22rem',
   maxWidth: '50vw'
+}
+
+/** A sash-remembered width past half the window already ate chat — snap back
+ *  to the default panel instead of leaving ⌘⌥B stuck full-bleed. */
+export function clampWorkSlotWidth(px: number, viewportPx: number): number {
+  if (!Number.isFinite(px) || px <= 0 || !Number.isFinite(viewportPx) || viewportPx <= 0) {
+    return px
+  }
+
+  const max = viewportPx * 0.5
+
+  if (px <= max) {
+    return px
+  }
+
+  return Math.round(viewportPx * 0.36)
+}
+
+function snapWorkSlotIfOversized() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const viewport = window.innerWidth
+  const states = $paneStates.get()
+
+  for (const [id, state] of Object.entries(states)) {
+    if (state.widthOverride === undefined) {
+      continue
+    }
+
+    if (id !== WORK_PANE_ID && !id.startsWith('preview-tile:')) {
+      continue
+    }
+
+    const next = clampWorkSlotWidth(state.widthOverride, viewport)
+
+    if (next !== state.widthOverride) {
+      setPaneWidthOverride(id, next)
+    }
+  }
 }
 
 export const SIDEBAR_SESSIONS_PAGE_SIZE = 50
@@ -583,6 +626,7 @@ export function toggleFileBrowserOpen() {
     return
   }
 
+  snapWorkSlotIfOversized()
   restoreMinimizedTreeSide('right')
   setPaneOpen(FILE_BROWSER_PANE_ID, true)
   setTreeSideCollapsed('right', false)
@@ -593,6 +637,7 @@ export function setFileBrowserOpen(open: boolean) {
   setTreeSideCollapsed('right', !open)
 
   if (open) {
+    snapWorkSlotIfOversized()
     restoreMinimizedTreeSide('right')
     restoreHiddenTreeSideTabs('right')
   }

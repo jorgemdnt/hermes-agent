@@ -306,7 +306,7 @@ describe('TreeGroup', () => {
     expect(strip.style).toHaveProperty('WebkitAppRegion', '')
   })
 
-  it('points the docked-zone chevron in the collapse or restore action direction', () => {
+  it('hides a column-collapsed terminal instead of leaving a TERMINAL strip', () => {
     disposePane = registry.register({
       area: 'panes',
       data: { height: '12rem' },
@@ -323,7 +323,8 @@ describe('TreeGroup', () => {
 
     render(<TreeGroup node={terminalGroup(true)} parentAxis="column" />)
 
-    expect(toggle('Restore').querySelector('i')!.className).toContain('codicon-chevron-up')
+    expect(container!.querySelector('[data-panel-header]')).toBeNull()
+    expect(container!.textContent ?? '').not.toMatch(/terminal/i)
   })
 
   // The invariant behind the shared eligibility predicate

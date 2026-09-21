@@ -393,10 +393,15 @@ export function TreeGroup({
   // Every minimized row group becomes a vertical restore rail. A horizontal
   // multi-tab strip cannot fit in the collapsed 28px track.
   const verticalCollapse = Boolean(node.minimized) && parentAxis === 'row' && !isEmpty
+  const hideCollapsedChrome = Boolean(node.minimized) && parentAxis === 'column'
 
-  // A minimized group IS its header, so it shows one regardless.
+  // A minimized group IS its header, so it shows one regardless — except a
+  // column-collapsed tool zone (terminal): that strip is clutter, ⌘J restores.
   const headerVisible =
-    !isEmpty && !verticalCollapse && (Boolean(node.minimized) || stripVisible || Boolean(pageHeader))
+    !isEmpty &&
+    !verticalCollapse &&
+    !hideCollapsedChrome &&
+    (Boolean(node.minimized) || stripVisible || Boolean(pageHeader))
 
   // Keep the activated tab — and, on the last one, the trailing "+" — inside
   // the strip's scroll window. Opening a tab past the right edge otherwise

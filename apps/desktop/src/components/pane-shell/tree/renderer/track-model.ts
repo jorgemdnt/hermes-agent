@@ -234,7 +234,7 @@ export function fixedTrackSize(node: LayoutNode, axis: 'row' | 'column', ctx: Tr
     // panes' declared widths — otherwise the outer track keeps reserving the
     // full sidebar width and the collapsed rail floats in a dead column.
     if (node.minimized) {
-      return MINIMIZED_TRACK
+      return axis === 'row' ? MINIMIZED_TRACK : '0px'
     }
 
     const overrideKey = axis === 'row' ? 'widthOverride' : 'heightOverride'
