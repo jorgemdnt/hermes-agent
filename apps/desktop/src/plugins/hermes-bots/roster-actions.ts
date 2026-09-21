@@ -11,6 +11,7 @@
 import { ackStoredSessionId, atom, haptic, host, markSessionUnreadFinished } from '@hermes/plugin-sdk'
 
 import { $openBotChat, $selectedBot, lastToastedPreview, rosterWatermarks, saveSelectedRosterBot } from './bot-state'
+import { paintCachedLocalBotChat } from './cached-bot-paint'
 import { CANONICAL_CHAT_TITLE, notifyBotOpenFailure, openBotCanonicalChat, prepareBotSource } from './canonical-chat'
 import { $botMeta, botActivitySession, botRosterKey, botSelectionKey, newBotChat } from './data'
 import { $groupChats, $groupChatWorkspace } from './group-chat'
@@ -273,6 +274,10 @@ export async function openRosterBot(bot: RosterRow): Promise<boolean> {
 
     return true
   }
+
+  // Same frame as the click, before any backend wait. Local bots already have
+  // their last transcript in the tail cache; reconcile rides the warm primary.
+  paintCachedLocalBotChat(bot)
 
   try {
     // Activation selects this row's source only. Canonical identity is resolved

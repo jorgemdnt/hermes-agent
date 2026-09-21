@@ -11428,7 +11428,7 @@ async function ensureBackend(profile, opts: { passive?: boolean; spawnPriority?:
 
   profileDeletionGate.assertCanStart(key)
 
-  const route = resolveProfileBackendRoute(key, profileRouteOptions(key))
+  const route = resolveProfileBackendRoute(key, { ...profileRouteOptions(key), pathlessDial: true })
 
   if (route.backend === 'primary') {
     const connection = await startHermes()

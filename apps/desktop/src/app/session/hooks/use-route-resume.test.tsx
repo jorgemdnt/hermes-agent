@@ -2,7 +2,7 @@ import { cleanup, render } from '@testing-library/react'
 import type { MutableRefObject } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { $resumeExhaustedSessionId, setResumeExhaustedSessionId } from '@/store/session'
+import { $resumeExhaustedSessionId, setResumeExhaustedSessionId, setSessionOwnerHint } from '@/store/session'
 import type { SessionProfileRoute } from '@/store/session-request-router'
 import { markSelectionRestore } from '@/store/session-states'
 
@@ -427,6 +427,41 @@ describe('useRouteResume', () => {
 
     expect(resumeSession).toHaveBeenCalledTimes(1)
     expect(resumeSession).toHaveBeenCalledWith('session-2', true)
+  })
+
+  it('resumes a bare hash change on the open-time owner hint', () => {
+    const resumeSession = vi.fn(async () => undefined)
+    const startFreshSessionDraft = vi.fn()
+    const activeSessionIdRef: MutableRefObject<null | string> = { current: 'runtime-gandalf' }
+    const creatingSessionRef = { current: false }
+    const runtimeIdByStoredSessionIdRef = { current: new Map<string, string>() }
+    const selectedStoredSessionIdRef: MutableRefObject<null | string> = { current: 'gandalf-chat' }
+
+    setSessionOwnerHint('frodo-chat', { connectionId: 'local', mode: 'local', profile: 'frodo' })
+
+    render(
+      <RouteResumeHarness
+        activeSessionId="runtime-gandalf"
+        activeSessionIdRef={activeSessionIdRef}
+        creatingSessionRef={creatingSessionRef}
+        currentView="chat"
+        freshDraftReady={false}
+        gatewayState="open"
+        locationPathname="/frodo-chat"
+        resumeSession={resumeSession}
+        routedSessionId="frodo-chat"
+        runtimeIdByStoredSessionIdRef={runtimeIdByStoredSessionIdRef}
+        selectedStoredSessionId="gandalf-chat"
+        selectedStoredSessionIdRef={selectedStoredSessionIdRef}
+        startFreshSessionDraft={startFreshSessionDraft}
+      />
+    )
+
+    expect(resumeSession).toHaveBeenCalledWith('frodo-chat', true, {
+      connectionId: 'local',
+      mode: 'local',
+      profile: 'frodo'
+    })
   })
 
   it('does not re-resume the old session when the new profile gateway opens before /new commits (#68594)', () => {

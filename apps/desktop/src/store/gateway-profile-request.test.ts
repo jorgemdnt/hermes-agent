@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { deferred } from '../test/deferred'
+import { clearLocalPrimaryMultiplexCache } from './local-primary-multiplex'
 
 const secondaryGateways: Array<{
   close: ReturnType<typeof vi.fn>
@@ -56,6 +57,7 @@ const {
   gatewayActivationEpoch,
   disposeSecondariesForConnection,
   openGatewayForAgent,
+  openGatewayForProfile,
   pruneSecondaryGateways,
   requestGatewayForAgent,
   requestGatewayForProfile,
@@ -677,18 +679,84 @@ describe('attached shared-remote group turns (#96493)', () => {
     expect(primary.request).toHaveBeenCalledOnce()
   })
 
-  it('never collapses a pooled LOCAL profile onto the primary when its pool probe fails', async () => {
-    // A local Desktop primary is one `hermes serve --profile <primary>` child;
-    // pooled profiles get their own child. Sending `session.create` with
-    // `profile: sean` to the primary still succeeds (profile_home
-    // multiplexing), but the lease then belongs to the primary's pid while
-    // every later resume — after a renderer reload or a pool respawn — dials
-    // sean's pool backend and is refused with SESSION_NOT_OWNED.
+  it('a local profile without a remote override rides the primary socket and does not dial a child', async () => {
+    clearLocalPrimaryMultiplexCache()
+    // Chat RPCs for author/frodo/gandalf/gimli used to cold-start a pooled
+    // `hermes serve`. The warm primary already multiplexes those homes.
+    // Dialing the pool is what logged "Starting Hermes backend for profile"
+    // and SIGTERMed a sibling once the cap of 3 was full.
+    const primary = makePrimary()
+    setPrimaryGateway(primary as never, 'default')
+    setPrimaryGatewayConnection({ connectionId: 'local', mode: 'local' })
+    const getConnectionFor = vi.fn(async () => {
+      throw new Error('pooled dial')
+    })
+    ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
+      getConnection: vi.fn(async () => {
+        throw new Error('pooled dial')
+      }),
+      getConnectionConfig: vi.fn(async () => ({ mode: 'local' })),
+      getConnectionFor,
+      touchBackend: vi.fn(async () => undefined)
+    }
+    await ensureGatewayForProfile('default')
+
+    for (const profile of ['author', 'frodo', 'gandalf', 'gimli']) {
+      await requestGatewayForAgent('local', profile, 'session.list', { title: 'Bot Chat' })
+      await requestGatewayForProfile(profile, 'session.resume', { session_id: `${profile}-chat` })
+      await requestGatewayForAgent('local', profile, 'prompt.submit', { session_id: `${profile}-chat`, text: 'hi' })
+      await openGatewayForAgent('local', profile)
+      await openGatewayForProfile(profile)
+      expect(await ensureGatewayForAgent('local', profile)).toBe(true)
+      await ensureGatewayForProfile(profile)
+    }
+
+    expect(getConnectionFor).not.toHaveBeenCalled()
+    expect(secondaryGateways).toHaveLength(0)
+    expect(primary.request).toHaveBeenCalled()
+    expect(primary.request).toHaveBeenCalledWith(
+      'session.list',
+      expect.objectContaining({ profile: 'author', title: 'Bot Chat' })
+    )
+    expect(primary.request).toHaveBeenCalledWith('session.list', expect.objectContaining({ profile: 'gimli' }))
+  })
+
+  it('a dial before primaryMode is published rides the primary once the local source is up', async () => {
+    clearLocalPrimaryMultiplexCache()
+    const primary = makePrimary()
+    setPrimaryGateway(primary as never, 'default')
+    setPrimaryGatewayConnection({ connectionId: 'local', mode: null } as never)
+    const getConnection = vi.fn(async () => {
+      throw new Error('pooled dial')
+    })
+    const getConnectionFor = vi.fn(async () => {
+      throw new Error('pooled dial')
+    })
+    ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
+      getConnection,
+      getConnectionConfig: vi.fn(async () => ({ mode: 'local' })),
+      getConnectionFor,
+      touchBackend: vi.fn(async () => undefined)
+    }
+
+    await requestGatewayForAgent('local', 'gandalf', 'session.list', {})
+    await requestGatewayForProfile('frodo', 'prompt.submit', { text: 'hi' })
+
+    expect(getConnection).not.toHaveBeenCalled()
+    expect(getConnectionFor).not.toHaveBeenCalled()
+    expect(secondaryGateways).toHaveLength(0)
+    expect(primary.request).toHaveBeenCalledWith('session.list', expect.objectContaining({ profile: 'gandalf' }))
+    expect(primary.request).toHaveBeenCalledWith('prompt.submit', expect.objectContaining({ profile: 'frodo' }))
+  })
+
+  it('a per-profile remote override still dials its own backend', async () => {
+    clearLocalPrimaryMultiplexCache()
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     setPrimaryGatewayConnection({ connectionId: 'local', mode: 'local' })
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
-      getConnection: vi.fn(async (profile: null | string) => ({ mode: 'local', port: 4242, profile, token: 't' })),
+      getConnection: vi.fn(async () => ({ mode: 'local', port: 4242, token: 't' })),
+      getConnectionConfig: vi.fn(async () => ({ mode: 'ssh' })),
       getConnectionFor: vi.fn(async () => {
         throw new Error('Timed out connecting to profile "sean"')
       }),
@@ -702,6 +770,35 @@ describe('attached shared-remote group turns (#96493)', () => {
     )
 
     expect(primary.request).not.toHaveBeenCalled()
+  })
+
+  it('a local profile with no config bridge still rides the primary instead of spawning', async () => {
+    // Missing getConnectionConfig is not permission to cold-start a child.
+    // The old contract refused this so a later pool resume would not 4001;
+    // chat RPCs now stay on the primary, so there is no second pid to disagree.
+    clearLocalPrimaryMultiplexCache()
+    const primary = makePrimary()
+    setPrimaryGateway(primary as never, 'default')
+    setPrimaryGatewayConnection({ connectionId: 'local', mode: 'local' })
+    const getConnectionFor = vi.fn(async () => {
+      throw new Error('Timed out connecting to profile "sean"')
+    })
+    ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
+      getConnection: vi.fn(async () => ({ mode: 'local', port: 4242, profile: 'sean', token: 't' })),
+      getConnectionFor,
+      getGatewayWsUrlFor: vi.fn(async () => ({ ok: true as const, wsUrl: 'ws://local/sean' })),
+      touchBackend: vi.fn(async () => undefined)
+    }
+    await ensureGatewayForProfile('default')
+
+    await expect(requestGatewayForAgent('local', 'sean', 'session.create', { title: 'g' })).resolves.toEqual({
+      method: 'session.create',
+      params: { profile: 'sean', title: 'g' }
+    })
+
+    expect(getConnectionFor).not.toHaveBeenCalled()
+    expect(primary.request).toHaveBeenCalledOnce()
+    expect(secondaryGateways).toHaveLength(0)
   })
 
   it('returning to an attached shared remote activates its socket without closing the other source', async () => {

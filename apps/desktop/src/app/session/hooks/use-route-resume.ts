@@ -1,7 +1,7 @@
 import { type MutableRefObject, useEffect, useRef } from 'react'
 
 import { isNewChatRoute } from '@/app/routes'
-import { type SessionResumeRequest, setResumeExhaustedSessionId } from '@/store/session'
+import { getSessionOwnerHint, type SessionResumeRequest, setResumeExhaustedSessionId } from '@/store/session'
 import type { SessionProfileRoute } from '@/store/session-request-router'
 import { markSelectionRestore } from '@/store/session-states'
 
@@ -180,8 +180,12 @@ export function useRouteResume({
 
         bootResumeRef.current = false
 
-        const ownerRoute =
+        const requested =
           sessionResumeRequest?.sessionId === routedSessionId ? sessionResumeRequest.ownerRoute : undefined
+        // A bare hash change has no request route. The open-time hint is the
+        // only owner a hidden Bot Chat has. Without it the resume asks the
+        // pane you are leaving (Hermes, Gandalf) and the click looks dead.
+        const ownerRoute = requested ?? getSessionOwnerHint(routedSessionId)
 
         if (ownerRoute) {
           void resumeSession(routedSessionId, true, ownerRoute)

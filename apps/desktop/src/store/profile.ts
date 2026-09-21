@@ -427,6 +427,17 @@ export function requestFreshSession(): void {
   $freshSessionRequest.set($freshSessionRequest.get() + 1)
 }
 
+/** Named-profile hotkeys and the rail call selectProfile. A bot open must
+ *  land on that bot's Bot Chat, not a blank draft and not a pooled spawn.
+ *  The bots plugin registers the opener; null keeps the legacy fresh draft. */
+type BotProfileOpener = (name: string) => boolean
+
+let openBotProfile: BotProfileOpener | null = null
+
+export function registerBotProfileOpen(opener: BotProfileOpener | null): void {
+  openBotProfile = opener
+}
+
 // Route profile-scoped REST settings (config/env/skills/tools/model/…) to the
 // profile the live gateway is currently on, and drop cached settings from the
 // previous profile so pages refetch against the right backend. Fires once
@@ -946,6 +957,16 @@ export const $profileScope = computed([$showAllProfiles, $activeGatewayProfile],
 // $activeGatewayProfile → name, so $profileScope follows).
 export function selectProfile(name: string): void {
   const target = normalizeProfileKey(name)
+
+  // Opening a bot is a tab swap onto its Bot Chat. A fresh draft here is the
+  // blank pane ⌃1–9 used to land on, and the activation below is the spawn.
+  if (openBotProfile?.(target)) {
+    $showAllProfiles.set(false)
+    $newChatProfile.set(target)
+
+    return
+  }
+
   // Switching profiles (or coming back from the all-profiles browse view) starts
   // fresh; re-tapping the profile you're already in leaves your session be.
   const switching = $showAllProfiles.get() || target !== normalizeProfileKey($activeGatewayProfile.get())

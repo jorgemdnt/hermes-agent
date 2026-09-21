@@ -123,10 +123,10 @@ describe('the registry row wins, always', () => {
       workspaceMode: 'bots',
       workspaceOwnerKey: 'bot:ops'
     })
-    // Same intent a session row click uses. `tab` stacked a fresh tile on every
-    // miss, so bot chats piled up beside each other and beside the untouched
-    // "New session" draft.
-    expect(options.intent).toBe('in-place')
+    // `stack` fronts an existing tab, spends a blank draft, and otherwise
+    // opens Frodo's own tab. `in-place` only moved the hidden main route, so
+    // a click from an occupied chat (Gandalf, Hermes) looked dead.
+    expect(options.intent).toBe('stack')
 
     const list = calls.find(call => call.method === 'session.list')
 

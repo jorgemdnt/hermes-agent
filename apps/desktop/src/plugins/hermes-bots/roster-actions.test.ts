@@ -58,6 +58,7 @@ vi.mock('./canonical-chat', () => ({
   openBotCanonicalChat: vi.fn(),
   prepareBotSource: vi.fn()
 }))
+vi.mock('./cached-bot-paint', () => ({ paintCachedLocalBotChat: vi.fn() }))
 vi.mock('./group-chat', async () => {
   const { atom } = await import('nanostores')
 
@@ -235,5 +236,44 @@ describe('the toast preference', () => {
     })
     expect(() => setActivityToasts(false)).not.toThrow()
     expect($activityToasts.get()).toBe(false)
+  })
+})
+
+describe('openRosterBot paints before it waits', () => {
+  it('paints the cached chat before prepareBotSource settles', async () => {
+    const { openRosterBot } = await loadActions()
+    const paint = (await import('./cached-bot-paint')).paintCachedLocalBotChat as ReturnType<typeof vi.fn>
+    const prepare = (await import('./canonical-chat')).prepareBotSource as ReturnType<typeof vi.fn>
+    const order: string[] = []
+    let release: () => void = () => undefined
+
+    paint.mockImplementation(() => {
+      order.push('paint')
+
+      return true
+    })
+    prepare.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          release = () => {
+            order.push('prepare')
+            resolve()
+          }
+        })
+    )
+
+    const bot = {
+      canonical_session: { id: 'frodo-chat' },
+      connectionId: 'local',
+      name: 'frodo',
+      sourceScoped: true
+    } as RosterRow
+    const opened = openRosterBot(bot)
+    await Promise.resolve()
+
+    expect(order).toEqual(['paint'])
+    release()
+    await opened
+    expect(order).toEqual(['paint', 'prepare'])
   })
 })

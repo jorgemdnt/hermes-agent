@@ -563,6 +563,8 @@ export interface ProfileRouteOptions {
   ownEntry?: boolean
   requestMethod?: null | string
   requestPath?: null | string
+  /** ensureBackend has no REST path. Do not spawn a local child. */
+  pathlessDial?: boolean
 }
 
 export interface ProfileBackendRoute {
@@ -687,8 +689,12 @@ function localPrimaryRequestScope(opts: ProfileRouteOptions): boolean | null {
  *     A stored local profile remains isolated in its own backend.
  *  5. A local profile REST request that the primary backend can safely scope
  *     reuses that backend, with `?profile=` when the handler accepts it.
- *  6. Any other local profile gets its own pooled backend, spawned with
- *     `--profile`, so its `HERMES_HOME` scopes it.
+ *  6. A path-less local dial (hermes:connection, ensureRegistryBackend) reuses
+ *     the warm primary, scoped per request. Spawning a pooled `--profile`
+ *     child here is what logged `Starting Hermes backend for profile` on a
+ *     fleet switch. Unclassified REST still pools so process-level writes
+ *     keep their own home. A per-profile remote override and a stored local
+ *     profile under a remote primary still pool.
  *
  * Routing used to be spread across three overlapping predicates that each
  * re-derived part of this table, which is how case 3 ended up registering
@@ -742,6 +748,13 @@ function resolveProfileBackendRoute(profile, opts: ProfileRouteOptions = {}): Pr
       descriptorProfile: localScope ? scopedProfile : null,
       scopePath: localScope
     }
+  }
+
+  // ensureBackend (hermes:connection, ensureRegistryBackend) has no REST path.
+  // Missing requestPath is also how pathWithGlobalRemoteProfile asks this
+  // table, so absence alone must not change the route. The dial sets the flag.
+  if (opts.pathlessDial) {
+    return { backend: 'primary', descriptorProfile: scopedProfile, scopePath: true }
   }
 
   return { backend: 'pool', descriptorProfile: null, scopePath: false }
@@ -867,6 +880,7 @@ function pathWithProfileScope(path, profile) {
 
 export interface RegistryBackendRequestScope {
   remoteProfile?: null | string
+  sharedPrimary?: boolean
   sharedRemote?: boolean
 }
 
@@ -877,7 +891,10 @@ export interface RegistryBackendRequestScope {
  * alias in an existing self-profile filter.
  */
 function pathForRegistryBackendRequest(path, profile, backend: RegistryBackendRequestScope) {
-  return backend.sharedRemote
+  // A local primary multiplexes homes the same way a shared remote does.
+  // hermes:api reaches that process through ensureRegistryBackend; without
+  // this scope the request lands on the launch home.
+  return backend.sharedRemote || backend.sharedPrimary
     ? pathWithProfileScope(path, profile)
     : translateSelfProfileQuery(path, profile, backend.remoteProfile)
 }

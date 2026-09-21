@@ -16,6 +16,12 @@ describe('primary-remote descriptor reuse keeps profile scope', () => {
     )
   })
 
+  it('scopes a local primary multiplex request the same way', () => {
+    expect(pathForRegistryBackendRequest('/api/cron/jobs', 'gandalf', { sharedPrimary: true })).toBe(
+      '/api/cron/jobs?profile=gandalf'
+    )
+  })
+
   it('does not add a profile query when the backend is not shared-remote', () => {
     // An isolated backend owns one profile; the router must not invent a scope.
     expect(pathForRegistryBackendRequest('/api/skills', 'acme', { sharedRemote: false, remoteProfile: null })).toBe(

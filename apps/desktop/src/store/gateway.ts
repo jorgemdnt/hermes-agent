@@ -20,6 +20,7 @@ import {
 } from '@/lib/gateway-liveness-policy'
 import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { isTimeoutError, RECONNECT_ATTEMPT_TIMEOUT_MS, withTimeout } from '@/lib/with-timeout'
+import { profileRidesLocalPrimary } from '@/store/local-primary-multiplex'
 import { notifyError, RECOVERY_ACTIONS } from '@/store/notifications'
 import { markNativeNotifyBaseline } from '@/store/notify-baseline'
 import { setConnection, setGatewayState } from '@/store/session'
@@ -454,9 +455,10 @@ async function isAttachedSharedRemote(
     return false
   }
 
-  // A local primary is one `hermes serve --profile <primary>` child; every other
-  // local profile has its own pooled child and `sharedRemote` is a remote-only
-  // answer, so the probe below can only cost the pooled dial a 20 s timeout.
+  // A local primary multiplexes other local homes on this same socket
+  // (localPrimaryMultiplex, checked before any dial). `sharedRemote` is a
+  // remote-only answer, so the probe below can only cost a pooled dial a
+  // 20 s timeout. Remote-override profiles still take that pooled path.
   if (g.primaryConnectionMode === 'local') {
     return false
   }
@@ -506,6 +508,27 @@ async function requestOnPrimaryGateway<T>(
   return timeoutMs === undefined && signal === undefined
     ? gateway.request<T>(method, params)
     : gateway.request<T>(method, params, timeoutMs, signal)
+}
+
+/** Local named profile, no remote override: the warm primary already hosts
+ *  that home. Callers send `profile` on this socket and do not dial. */
+export async function localPrimaryMultiplex(connectionId: null | string, profile: string): Promise<boolean> {
+  return profileRidesLocalPrimary({
+    connectionId,
+    primaryConnectionId: g.primaryConnectionId,
+    primaryMode: g.primaryConnectionMode,
+    primaryOpen: isOpen(g.primaryGateway),
+    primaryProfile: g.primaryProfile,
+    profile
+  })
+}
+
+function withProfileParam(params: Record<string, unknown>, profile: string): Record<string, unknown> {
+  if (typeof params.profile === 'string' && params.profile.trim()) {
+    return params
+  }
+
+  return { ...params, profile }
 }
 
 export function isActivePrimary(): boolean {
@@ -1045,8 +1068,10 @@ async function sharedPrimaryRoute(profile: string, spawnPriority: SpawnPriority 
 }
 
 // Resolve and open `profile`'s socket WITHOUT changing the active gateway.
-// Shared global-remote profiles intentionally return the primary socket plus a
-// request-scope flag; dedicated local/remote profiles use their pooled socket.
+// A local named profile with no remote override rides the already-warm primary
+// and a `profile` param — never a pooled child. Shared global-remote profiles
+// also return the primary socket plus a request-scope flag. A per-profile
+// remote override still uses its own backend.
 async function gatewayForProfile(
   profile: string,
   leaseRequest = false,
@@ -1054,14 +1079,21 @@ async function gatewayForProfile(
 ): Promise<{ gateway: HermesGateway | null; key: string; release: () => void; scopeProfile: boolean }> {
   const key = normKey(profile)
   const noRelease = () => undefined
+
+  if (key === g.primaryProfile) {
+    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: false }
+  }
+
+  // Before any rearm. A retired pooled child must not be marked wanted just
+  // because a chat RPC named this profile — that rearm is the respawn.
+  if (await localPrimaryMultiplex(null, key)) {
+    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: true }
+  }
+
   const parked = g.secondaries.get(key)
 
   if (parked?.retiredByPool) {
     rearmSecondary(parked, spawnPriority)
-  }
-
-  if (key === g.primaryProfile) {
-    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: false }
   }
 
   if (await sharedPrimaryRoute(key, spawnPriority)) {
@@ -1198,6 +1230,10 @@ export async function requestGatewayForAgent<T>(
   // different source or profile must retain its isolated secondary.
   if (isPrimaryRegistryRoute(connectionId, key)) {
     return requestGatewayForProfile<T>(key, method, params, timeoutMs, signal, { spawnPriority })
+  }
+
+  if (await localPrimaryMultiplex(connectionId, key)) {
+    return requestOnPrimaryGateway<T>(method, withProfileParam(params, key), timeoutMs, signal)
   }
 
   if (await isAttachedSharedRemote(connectionId, key, spawnPriority)) {
@@ -1417,7 +1453,11 @@ export async function retainGatewayForAgent(
     return route.release
   }
 
-  if (isPrimaryRegistryRoute(connectionId, key) || (await isAttachedSharedRemote(connectionId, key, spawnPriority))) {
+  if (
+    isPrimaryRegistryRoute(connectionId, key) ||
+    (await localPrimaryMultiplex(connectionId, key)) ||
+    (await isAttachedSharedRemote(connectionId, key, spawnPriority))
+  ) {
     // Primary socket stays open for the window lifetime — no secondary to hold.
     return () => undefined
   }
@@ -1697,6 +1737,14 @@ export async function openGatewayForAgent(
     return openGatewayForProfile(profile, { spawnPriority })
   }
 
+  if (await localPrimaryMultiplex(connectionId, profile)) {
+    if (!isOpen(g.primaryGateway)) {
+      throw new Error('Hermes gateway unavailable')
+    }
+
+    return
+  }
+
   if (await isAttachedSharedRemote(connectionId, profile, spawnPriority)) {
     if (!isOpen(g.primaryGateway)) {
       throw new Error('Hermes gateway unavailable')
@@ -1749,6 +1797,16 @@ export async function ensureGatewayForAgent(
     await ensureGatewayForProfile(profile)
 
     return !signal?.aborted
+  }
+
+  if (signal?.aborted) {
+    return false
+  }
+
+  // The primary already hosts this home. Do not activate a second socket and
+  // do not move the foreground — a bot open is a tab swap, not a reboot.
+  if (await localPrimaryMultiplex(connectionId, profile)) {
+    return isOpen(g.primaryGateway)
   }
 
   const activationEpoch = beginGatewayActivation()
@@ -1827,6 +1885,10 @@ export async function ensureGatewayForProfile(profile: string): Promise<void> {
   if (key === g.primaryProfile) {
     applyActive(key, activationEpoch)
 
+    return
+  }
+
+  if (await localPrimaryMultiplex(null, key)) {
     return
   }
 

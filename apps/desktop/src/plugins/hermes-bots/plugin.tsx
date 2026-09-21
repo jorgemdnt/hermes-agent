@@ -21,6 +21,7 @@ import type { ChatEmptyProps, PluginContext } from '@hermes/plugin-sdk'
 import { pinChatToLatest } from '@/store/thread-scroll'
 
 import { startFaceClock, stopFaceClock } from './avatar'
+import { installBotProfileSwitch } from './bot-profile-switch'
 import {
   $botChatFocused,
   $botsPaneVisible,
@@ -39,6 +40,7 @@ import {
   $lastRoster,
   botHandle,
   botMentionTag,
+  botRosterKey,
   botSelectionKey,
   cachedUnionRoster,
   isActiveRosterBot,
@@ -64,7 +66,7 @@ import { annotateOrphanedGroupChatMembers } from './hygiene'
 import { BOTS_LOCALES } from './i18n'
 import { displayName } from './labels'
 import { startBotRelay, stopBotRelay } from './relay'
-import { $activityToasts } from './roster-actions'
+import { $activityToasts, openRosterBot } from './roster-actions'
 import {
   botChatOwnsWorkspace,
   BotsPane,
@@ -110,6 +112,7 @@ export default {
     // The cross-connection relay rides every gateway socket this Desktop
     // holds: roster sync + envelope drain/deliver/reply loops.
     startBotRelay()
+    const disposeBotProfileSwitch = installBotProfileSwitch()
 
     // Disabling the plugin (or a hot reload) must actually stop the clock —
     // before this, the rAF loop + 1Hz document scan ran until app restart.
@@ -117,6 +120,7 @@ export default {
       ctx.onDispose(disposeLocales)
       ctx.onDispose(stopFaceClock)
       ctx.onDispose(stopBotRelay)
+      ctx.onDispose(disposeBotProfileSwitch)
     }
 
     // @-mention autocomplete: typing "@rese…" in ANY composer offers the
@@ -410,6 +414,39 @@ export default {
     // the meta/room storage hydrates above have landed; idempotent after that.
     // (Feature-guarded: bare vm test harnesses have no setTimeout global.)
     startHideSweepScheduler(ctx)
+
+    const onRosterSlot = (event: Event) => {
+      const slot = Number((event as CustomEvent<{ slot?: number }>).detail?.slot)
+
+      if (!Number.isFinite(slot) || slot < 1) {
+        return
+      }
+
+      const roster = [...document.querySelectorAll('[data-slot="bots-roster"]')].find(
+        el => el.getClientRects().length > 0 && !el.closest('[data-pane-hidden]')
+      )
+      const key = roster
+        ? [...roster.querySelectorAll('[data-roster-key]')]
+            .filter(el => el.getClientRects().length > 0 && !el.closest('[data-pane-hidden]'))
+            .map(el => el.getAttribute('data-roster-key') || '')
+            .filter(Boolean)[slot - 1]
+        : ''
+      const bot = key ? ($lastRoster.get() || []).find(row => botRosterKey(row) === key) : null
+
+      if (!bot) {
+        return
+      }
+
+      event.preventDefault()
+      void openRosterBot(bot)
+    }
+
+    window.addEventListener('hermes:sidebar-roster-slot', onRosterSlot)
+
+    if (typeof ctx.onDispose === 'function') {
+      ctx.onDispose(() => window.removeEventListener('hermes:sidebar-roster-slot', onRosterSlot))
+    }
+
     ctx.register({
       id: 'pane',
       area: 'panes',
@@ -494,18 +531,28 @@ export default {
           // itself still stands for the cases that remain — a group room, and
           // a selected row too orphaned to route (setBotsWorkspaceOwner's
           // blocked target).
+          const roster = $lastRoster.get()
+          const bot = selected || (Array.isArray(roster) ? roster.find(Boolean) : null)
+
           if (group) {
             setBotsWorkspaceOwner(
               groupWorkspaceOwnerKey(group),
               null,
               'New group conversations start in the group composer.'
             )
-          } else if (selected) {
-            setBotsWorkspaceOwner(botWorkspaceOwnerKey(selected), selected)
-            const chatId = String(selected.canonical_session?.id || '')
+          } else if (bot) {
+            // Last selected bot, or the first roster row when nothing was
+            // selected. Switching to Bots must front that thread, not leave
+            // the center on whatever Sessions had open.
+            setBotsWorkspaceOwner(botWorkspaceOwnerKey(bot), bot)
+            const chatId = String(bot.canonical_session?.id || '')
             pinChatToLatest(chatId)
-            void Promise.resolve(openBotCanonicalChat(selected)).then(opened => {
-              pinChatToLatest(opened?.openedId || opened?.registryId || chatId)
+            void openRosterBot(bot).then(opened => {
+              if (!opened) {
+                void Promise.resolve(openBotCanonicalChat(bot)).then(chat => {
+                  pinChatToLatest(chat?.openedId || chat?.registryId || chatId)
+                })
+              }
             })
           }
         } else {
@@ -518,6 +565,18 @@ export default {
           if (lastSessionsStoredId && typeof host.openSession === 'function') {
             pinChatToLatest(lastSessionsStoredId)
             void host.openSession(lastSessionsStoredId)
+          } else if (typeof host.openSession === 'function' && typeof host.request === 'function') {
+            void host.request('projects.tree', { preview_limit: 1 }).then(tree => {
+              const projects = (
+                tree as { projects?: Array<{ previewSessions?: Array<{ id?: string }> }> } | null
+              )?.projects
+              const id = projects?.flatMap(project => project.previewSessions || []).find(session => session?.id)?.id
+
+              if (id) {
+                pinChatToLatest(String(id))
+                void host.openSession(String(id))
+              }
+            })
           }
         }
       })

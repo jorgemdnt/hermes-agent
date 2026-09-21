@@ -388,6 +388,12 @@ const ROUTES = [
     expected: { backend: 'pool', descriptorProfile: null, scopePath: false }
   },
   {
+    name: 'a path-less local dial rides the primary instead of spawning',
+    profile: 'gandalf',
+    opts: { primaryProfile: 'default', globalRemote: false, profileRemoteOverride: false, pathlessDial: true },
+    expected: { backend: 'primary', descriptorProfile: 'gandalf', scopePath: true }
+  },
+  {
     name: 'a remote sub-profile without a local entry routes through the primary remote gateway',
     profile: 'pm',
     opts: {

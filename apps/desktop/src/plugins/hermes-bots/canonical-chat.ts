@@ -120,14 +120,15 @@ async function openStoredBotChat(
         }
       : {}),
     profile: name,
-    // Same intent a session row click uses. `tab` stacked a fresh tile every
-    // time focusOpenSession missed, so bot chats piled up beside each other and
-    // beside the untouched "New session" draft, which then kept focus —
-    // clicking a bot appeared to do nothing. `in-place` still fronts an
-    // already-open tile first, so Bot tabs survive owner lifecycles (#a81854a2,
-    // the reason this stopped being `main`); it just loads into main instead of
-    // minting a second tab when there is nothing to front.
-    intent: 'in-place',
+    // `stack`, not `in-place`. An occupied main chat (Gandalf, Hermes) must
+    // not be the only place Frodo can land: in-place loads the hidden main
+    // route, a miss is not allowed to take that pane, and the click looks
+    // dead. An empty chat has nothing to protect, which is why the same click
+    // works from an empty Gimli. `stack` fronts an existing tab, spends a
+    // blank draft, and otherwise opens Frodo's own tab. Raw `tab` left the
+    // untouched New session draft focused, which is the other way a click
+    // looks dead.
+    intent: 'stack',
     awaitHydration: true,
     expectHistory,
     forceResume: true,

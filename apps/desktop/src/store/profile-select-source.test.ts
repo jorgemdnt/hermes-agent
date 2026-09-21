@@ -33,7 +33,8 @@ vi.mock('@/hermes', () => ({
 vi.mock('@/lib/query-client', () => ({ invalidateProfileScopedQueries: vi.fn() }))
 vi.mock('@/store/starmap', () => ({ resetStarmapGraph }))
 
-const { $activeGatewayProfile, newSessionInProfile, selectProfile } = await import('./profile')
+const { $activeGatewayProfile, $freshSessionRequest, newSessionInProfile, registerBotProfileOpen, selectProfile } =
+  await import('./profile')
 
 beforeEach(() => {
   ensureGatewayForProfile.mockClear()
@@ -42,6 +43,7 @@ beforeEach(() => {
   activeGatewayConnectionId.mockReturnValue(null)
   $gateway.set({ id: 'live-socket' })
   $activeGatewayProfile.set('default')
+  registerBotProfileOpen(null)
   // resolveConnectionForAgent is best-effort; without a bridge it resolves
   // null and the previous descriptor stays, which is fine here.
   ;(globalThis as { window?: unknown }).window = {}
@@ -82,6 +84,19 @@ describe('selectProfile', () => {
 
     await vi.waitFor(() => expect(ensureGatewayForAgent).toHaveBeenCalledWith('local', 'default'))
     expect(ensureGatewayForProfile).not.toHaveBeenCalled()
+  })
+
+  it('does not start a blank draft or dial when a bot opener claims the profile', () => {
+    const open = vi.fn(() => true)
+    registerBotProfileOpen(open)
+    const drafts = $freshSessionRequest.get()
+
+    selectProfile('frodo')
+
+    expect(open).toHaveBeenCalledWith('frodo')
+    expect($freshSessionRequest.get()).toBe(drafts)
+    expect(ensureGatewayForProfile).not.toHaveBeenCalled()
+    expect(ensureGatewayForAgent).not.toHaveBeenCalled()
   })
 })
 
