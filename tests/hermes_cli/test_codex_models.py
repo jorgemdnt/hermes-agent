@@ -286,15 +286,26 @@ class TestNormalizeModelForProvider:
         assert cli.model == "gpt-5.5"
 
 
-def test_catalog_requests_use_ungated_client_version(monkeypatch):
-    """Both catalog request sites send the backend's ungated ``0.0.0`` sentinel: the endpoint
-    hides models whose ``minimal_client_version`` is newer than ``client_version``, so a
-    made-up version silently drops future models."""
+def test_catalog_requests_use_newest_visible_client_version(monkeypatch, tmp_path):
+    """Both catalog sites send the newest real Codex client version we can see.
+
+    OpenAI hides a model whose ``minimal_client_version`` is newer than the
+    requested ``client_version``. ``0.0.0`` used to bypass that. It does not.
+    The models-cache version wins over an older ``codex --version``.
+    """
     import sys
     from urllib.parse import parse_qs, urlparse
 
     from agent import model_metadata
+    from agent import codex_catalog
     from hermes_cli import codex_models
+
+    (tmp_path / "models_cache.json").write_text(
+        json.dumps({"client_version": "2.4.0", "models": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr(codex_catalog, "_cli_client_version", lambda: "1.9.0-alpha.1")
 
     seen_urls = []
 
@@ -302,7 +313,7 @@ def test_catalog_requests_use_ungated_client_version(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"models": []}
+            return {"models": [{"slug": "gpt-6-sol", "priority": 1}]}
 
     class _FakeHttpx:
         @staticmethod
@@ -327,4 +338,60 @@ def test_catalog_requests_use_ungated_client_version(monkeypatch):
     for url in seen_urls:
         parsed = urlparse(url)
         assert parsed.netloc == "chatgpt.com" and parsed.path == "/backend-api/codex/models"
-        assert parse_qs(parsed.query)["client_version"] == ["0.0.0"]
+        assert parse_qs(parsed.query)["client_version"] == ["2.4.0"]
+
+
+def test_empty_catalog_falls_back_to_ungated_client_version(monkeypatch, tmp_path):
+    """An empty body is the bad-version failure. Retry once with ``0.0.0``."""
+    import sys
+    from urllib.parse import parse_qs, urlparse
+
+    from agent import model_metadata
+    from agent import codex_catalog
+    from hermes_cli import codex_models
+
+    (tmp_path / "models_cache.json").write_text(
+        json.dumps({"client_version": "2.4.0"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr(codex_catalog, "_cli_client_version", lambda: None)
+
+    seen_urls = []
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"models": []}
+
+    class _FakeHttpx:
+        @staticmethod
+        def get(url, headers=None, timeout=None):
+            seen_urls.append(url)
+            return _FakeResp()
+
+    class _FakeRequests:
+        @staticmethod
+        def get(url, headers=None, timeout=None, verify=None):
+            seen_urls.append(url)
+            return _FakeResp()
+
+    monkeypatch.setitem(sys.modules, "httpx", _FakeHttpx)
+    assert codex_models._fetch_models_from_api(access_token="tok") == []
+    monkeypatch.setattr(model_metadata, "requests", _FakeRequests)
+    monkeypatch.setattr(model_metadata, "_ensure_requests", lambda: None)
+    monkeypatch.setattr(model_metadata, "_codex_oauth_context_cache", {})
+    model_metadata._fetch_codex_oauth_context_lengths_with_source("tok")
+
+    versions = [parse_qs(urlparse(url).query)["client_version"][0] for url in seen_urls]
+    assert versions == ["2.4.0", "0.0.0", "2.4.0", "0.0.0"]
+
+
+def test_newest_codex_client_version_picks_the_newer_real_one():
+    from agent.codex_catalog import newest_codex_client_version
+
+    assert newest_codex_client_version("0.155.0", "0.147.0-alpha.1.1") == "0.155.0"
+    assert newest_codex_client_version("0.147.0", "0.160.0") == "0.160.0"
+    assert newest_codex_client_version(None, None) == "0.0.0"
+    assert newest_codex_client_version("not-a-version", "") == "0.0.0"

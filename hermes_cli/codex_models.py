@@ -128,10 +128,10 @@ def _fetch_models_from_api(access_token: str) -> List[str]:
         import httpx
         # The per-account catalog needs ChatGPT-Account-ID (else ``{"models":[]}`` with HTTP 200
         # masquerades as "no models") and, for residency-enforced workspaces, the residency header.
+        from agent.codex_catalog import fetch_codex_catalog
         from agent.codex_headers import codex_account_headers
         headers = {"Authorization": f"Bearer {access_token}", **codex_account_headers(access_token)}
-        from agent.model_metadata import CODEX_MODELS_CATALOG_URL
-        resp = httpx.get(CODEX_MODELS_CATALOG_URL, headers=headers, timeout=10)
+        resp = fetch_codex_catalog(lambda url: httpx.get(url, headers=headers, timeout=10))
         if resp.status_code != 200:
             return []
         data = resp.json()
