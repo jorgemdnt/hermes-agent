@@ -157,7 +157,10 @@ describe('new activity after the seed', () => {
     // but the preview is identical — must not produce a second toast.
     trackInboundActivity([chatting('researcher', 7000, 'same message')])
 
-    const toasts = hostMock.notify.mock.calls.filter((c) => c[0].title.includes('has new activity') || c[0].title.includes('New message for'))
+    const toasts = hostMock.notify.mock.calls.filter(
+      c => c[0].title.includes('has new activity') || c[0].title.includes('New message for')
+    )
+
     expect(toasts.length).toBe(1)
   })
 
@@ -169,7 +172,10 @@ describe('new activity after the seed', () => {
     trackInboundActivity([chatting('researcher', 6000, 'first message')])
     trackInboundActivity([chatting('researcher', 7000, 'second message')])
 
-    const toasts = hostMock.notify.mock.calls.filter((c) => c[0].title.includes('has new activity') || c[0].title.includes('New message for'))
+    const toasts = hostMock.notify.mock.calls.filter(
+      c => c[0].title.includes('has new activity') || c[0].title.includes('New message for')
+    )
+
     expect(toasts.length).toBe(2)
   })
 

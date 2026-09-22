@@ -36,6 +36,7 @@ import { stableArray } from '@/lib/stable-array'
 import { readJson, writeJson } from '@/lib/storage'
 import type { SessionInfo } from '@/types/hermes'
 
+import { dropStatusDrawersForProfile, migrateStatusDrawersForProfile } from './composer-status-drawer'
 import {
   applyPreviewFocus,
   bindPreviewSession,
@@ -2088,6 +2089,7 @@ export function dropTilesForProfile(
 
   const name = normalizeProfileKey(profile)
   dropPreviewArtifactsForProfile(name, route)
+  dropStatusDrawersForProfile(name, route)
   // Route fields go through the SAME canonicalization as `name` below — a
   // source-scoped delete must not be defeated by stray whitespace around a
   // profile name that a non-route delete trims away.
@@ -2206,7 +2208,10 @@ export function migrateTilesForProfile(oldProfile: string, newProfile: string): 
 
   if (moved) {
     delete tilesByProfile[from]
-    tilesByProfile[to] = [...(tilesByProfile[to] ?? []), ...moved.map(tile => ({ ...tile, ownerRoute: renamedOwner(tile.ownerRoute) }))]
+    tilesByProfile[to] = [
+      ...(tilesByProfile[to] ?? []),
+      ...moved.map(tile => ({ ...tile, ownerRoute: renamedOwner(tile.ownerRoute) }))
+    ]
   }
 
   const botTiles = tilesByProfile[BOTS_TILE_BUCKET]
@@ -2227,6 +2232,7 @@ export function migrateTilesForProfile(oldProfile: string, newProfile: string): 
   migrateRememberedNavigationForProfile(from, to)
   migrateSessionOwnerHintsForProfile(from, to)
   migratePreviewArtifactsForProfile(from, to)
+  migrateStatusDrawersForProfile(from, to)
   // Sibling family: the rail's profile-keyed buckets move with the rename, or
   // the renamed profile opens with an empty rail and the old name keeps them.
   migratePreviewTabsForProfile(from, to)
