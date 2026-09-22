@@ -31,6 +31,9 @@ export interface PaneMirror<T> {
   before?: (tile: T) => null | string | undefined
   minWidth: string
   maxWidth?: string
+  /** Declared track size. Required for a right rail that hides its sized
+   *  sibling: fixedTrackSize only sees shown panes. */
+  width?: string
   title: (key: string) => string
   /** Custom lead NODE for the tile's tab (rendered before the label). A live,
    *  self-subscribing component (e.g. a session's status dot) so the strip needn't
@@ -99,6 +102,7 @@ export function paneMirror<T>(cfg: PaneMirror<T>): () => void {
           lifecycleKeepAlive: cfg.lifecycleKeepAlive?.(key),
           minWidth: cfg.minWidth,
           maxWidth: cfg.maxWidth,
+          width: cfg.width,
           newTab: cfg.newTab?.(key),
           collapsible: typeof cfg.collapsible === 'function' ? cfg.collapsible(tile) : cfg.collapsible,
           // Session tiles are main. Preview tiles in the work slot are not —

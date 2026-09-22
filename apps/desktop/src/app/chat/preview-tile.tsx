@@ -19,7 +19,7 @@ import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { ToolIcon } from '@/components/ui/tool-icon'
 import { translateNow } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
-import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID } from '@/store/layout'
+import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID, WORK_SLOT_DEFAULT_WIDTH } from '@/store/layout'
 import { $threadChrome, threadPreviewOpen } from '@/store/thread-chrome'
 import {
   $allDockedPreviewTabs,
@@ -304,6 +304,9 @@ const watchPreviewTileMirror = paneMirror<{ id: string }>({
   anchor: tab => existingPreviewAnchor(tab.id) ?? workSlotId(),
   minWidth: '22rem',
   maxWidth: '50vw',
+  // The work pane hides while a preview is showing. Without a declared width
+  // the slot becomes a flex track and eats the chat.
+  width: WORK_SLOT_DEFAULT_WIDTH,
   placement: 'right',
   title: previewTitle,
   tabLead: tabId => <PreviewTabLead tabId={tabId} />,

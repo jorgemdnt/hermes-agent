@@ -200,6 +200,19 @@ describe('preview tiles stay a right rail', () => {
     expect(paneDataOf(`preview-tile:${tabId}`)).toMatchObject({ placement: 'right' })
   })
 
+  // The work pane hides while a preview is showing. fixedTrackSize only sees
+  // shown panes, so a tile with a cap and no width turns the slot into a flex
+  // track and it eats the chat.
+  it('declares the work-slot width so a preview does not flex-eat the chat', () => {
+    openPreview(fileTarget('/tmp/plan.html'), 'tool-result')
+
+    expect(paneDataOf('preview-tile:file:/tmp/plan.html')).toMatchObject({
+      maxWidth: '50vw',
+      placement: 'right',
+      width: '36vw'
+    })
+  })
+
   it('keeps the work column on the right after a Browser opens into it', async () => {
     const tree = await import('@/components/pane-shell/tree/store')
     const model = await import('@/components/pane-shell/tree/model')
