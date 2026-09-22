@@ -3,9 +3,9 @@
  *
  * ⌘N stays stock session.new (a draft — never session.create/openSession).
  * First send homes the session with session.workspace.move (project folder
- * or a new worktree). Core then drills the sidebar into the entered-project
- * worktree list (followActiveSessionCwd); we click "Show projects" so the
- * PROJECTS + threads overview never stays on screen.
+ * or a new worktree). Core then drills the sidebar into that project
+ * (followActiveSessionCwd). Stay on the PROJECTS overview by exiting that
+ * scope through the project store — never by clicking "Show projects".
  *
  * Never persist hermes.desktop.projectScope. Never click "New session in …"
  * (that path also enterProject). Never return null from middleware.
@@ -22,6 +22,7 @@ import {
   host,
   useValue
 } from '@hermes/plugin-sdk'
+import { $projectScope, ALL_PROJECTS, exitProjectScope } from '@/store/projects'
 
 const PREFS = 'prefs'
 const NONE_ID = ''
@@ -31,7 +32,26 @@ const $projectId = atom(NONE_ID)
 const $worktree = atom(false)
 const $pendingCwd = atom('')
 
-let overviewGuardTimer = 0
+let stopScopeGuard = null
+
+function startOverviewGuard() {
+  stopOverviewGuard()
+  exitProjectScope()
+  // followActiveSessionCwd drills in after the move. Exit again when it does,
+  // instead of polling the DOM for the "Show projects" button.
+  stopScopeGuard = $projectScope.subscribe(scope => {
+    if (scope !== ALL_PROJECTS) {
+      exitProjectScope()
+    }
+  })
+}
+
+function stopOverviewGuard() {
+  if (typeof stopScopeGuard === 'function') {
+    stopScopeGuard()
+    stopScopeGuard = null
+  }
+}
 
 function h(type, props, ...children) {
   return React.createElement(type, props, ...children)
@@ -125,37 +145,6 @@ async function loadTree() {
   } catch {
     $projects.set([])
     return { projects: [], activeId: '' }
-  }
-}
-
-function exitEnteredProject() {
-  const show = document.querySelector('button[aria-label="Show projects"]')
-  if (show instanceof HTMLElement) {
-    show.click()
-    return true
-  }
-  for (const el of document.querySelectorAll('button, [role="button"]')) {
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
-    if ((text === 'All projects' || text.endsWith('All projects')) && el instanceof HTMLElement) {
-      el.click()
-      return true
-    }
-  }
-  return false
-}
-
-function startOverviewGuard() {
-  stopOverviewGuard()
-  overviewGuardTimer = window.setInterval(() => {
-    exitEnteredProject()
-  }, 250)
-  exitEnteredProject()
-}
-
-function stopOverviewGuard() {
-  if (overviewGuardTimer) {
-    clearInterval(overviewGuardTimer)
-    overviewGuardTimer = 0
   }
 }
 

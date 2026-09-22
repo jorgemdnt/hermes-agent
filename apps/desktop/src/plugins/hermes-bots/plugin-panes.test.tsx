@@ -311,6 +311,35 @@ describe('Sessions | Bots tab focus', () => {
     harness.dispose()
   })
 
+  it('does not restore a bot chat when returning to Sessions', async () => {
+    const { $freshSessionRequest, $newChatProfile } = await import('@/store/profile')
+    const { $lastRoster } = await import('./data')
+    const drafts = $freshSessionRequest.get()
+
+    $lastRoster.set([{ canonical_session: { id: 'bot-chat' }, name: 'gandalf' } as never])
+    mocks.focusedId = 'bot-chat'
+    mocks.request.mockResolvedValue({ sessions: [{ id: 'bot-chat' }] })
+    mocks.selectedRosterBot.mockReturnValue({ canonical_session: { id: 'bot-chat' }, name: 'gandalf' } as never)
+    const store = paneStores()
+    const harness = recordingContext()
+
+    plugin.register(harness.ctx)
+    await settle()
+    store('hermes-bots:pane').set(true)
+    await settle()
+    store('hermes-bots:pane').set(false)
+    await settle()
+
+    expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
+    expect(mocks.openSession).not.toHaveBeenCalled()
+    expect(mocks.newChat).not.toHaveBeenCalled()
+    expect($newChatProfile.get()).toBeNull()
+    expect($freshSessionRequest.get()).toBe(drafts + 1)
+
+    $lastRoster.set([])
+    harness.dispose()
+  })
+
   it('opens a new chat when every Sessions row is archived', async () => {
     const { $freshSessionRequest, $newChatProfile } = await import('@/store/profile')
     const drafts = $freshSessionRequest.get()

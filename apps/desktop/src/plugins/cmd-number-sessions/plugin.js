@@ -11,10 +11,10 @@
  * register sidebar.row.N so the chord follows PROJECTS / recents row order.
  */
 import { KEYBINDS_AREA, PALETTE_AREA, host } from '@hermes/plugin-sdk'
+import { resetBinding, setBinding } from '@/store/keybinds'
 
 const ID = 'cmd-number-sessions'
 const STORAGE_KEY = 'hermes.desktop.keybinds'
-const APPLIED_KEY = 'hermes.desktop.keybinds.cmd-number-sessions'
 export const SESSIONS_PANE = 'sessions'
 export const BOTS_PANE = 'hermes-bots:pane'
 const SIDEBAR_TAB_PANES = new Set([SESSIONS_PANE, BOTS_PANE])
@@ -62,22 +62,19 @@ function isDesired(overrides) {
   return true
 }
 
-function writeMap() {
-  const next = { ...readOverrides() }
+function applyMap() {
   for (let i = 1; i <= 9; i++) {
-    next[`session.slot.${i}`] = []
+    setBinding(`session.slot.${i}`, [])
   }
-  next['profile.switch.1'] = []
-  next['profile.switch.2'] = []
+  setBinding('profile.switch.1', [])
+  setBinding('profile.switch.2', [])
   for (let i = 3; i <= 9; i++) {
-    next[`profile.switch.${i}`] = [`ctrl+${i}`]
+    setBinding(`profile.switch.${i}`, [`ctrl+${i}`])
   }
-  next['view.showTerminal'] = ['mod+j']
-  next['view.toggleRightSidebar'] = ['mod+alt+b']
-  next['session.archive'] = ['mod+shift+a']
-  delete next['session.new']
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-  localStorage.setItem(APPLIED_KEY, '1')
+  setBinding('view.showTerminal', ['mod+j'])
+  setBinding('view.toggleRightSidebar', ['mod+alt+b'])
+  setBinding('session.archive', ['mod+shift+a'])
+  resetBinding('session.new')
 }
 
 export function shown(el) {
@@ -217,9 +214,11 @@ export async function openSidebarSlot(slot, root = document) {
   if (id) host.navigate(`/${encodeURIComponent(id)}`)
 }
 
-function applyAndReload() {
-  writeMap()
-  location.reload()
+function applyIfNeeded() {
+  if (isDesired(readOverrides())) {
+    return
+  }
+  applyMap()
 }
 
 export default {
@@ -234,7 +233,7 @@ export default {
         id: `${ID}.reapply`,
         label: 'Re-apply ⌘1–9 / ⌃1–2 sidebar-tab-order / ⌘J terminal / ⌘⌥B work',
         keywords: ['keybind', 'shortcut', 'cmd', 'ctrl', 'session', 'profile', 'terminal', 'sidebar'],
-        run: () => applyAndReload()
+        run: () => applyMap()
       }
     })
 
@@ -277,11 +276,6 @@ export default {
       }
     })
 
-    if (isDesired(readOverrides())) {
-      localStorage.setItem(APPLIED_KEY, '1')
-      return
-    }
-
-    applyAndReload()
+    applyIfNeeded()
   }
 }

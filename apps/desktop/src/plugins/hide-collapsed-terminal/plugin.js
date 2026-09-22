@@ -12,22 +12,19 @@
  *     ⌘K → Show Bots / Show Sessions.
  */
 import { PALETTE_AREA, host } from '@hermes/plugin-sdk'
+import { $layoutTree, isStripTabHidden, setStripTabHidden, setTreeGroupTabStrip } from '@/components/pane-shell/tree/store'
+import { $profileRailVisible } from '@/store/profile-rail-prefs'
+import { $tabStripDefault, setTabStripDefault } from '@/store/tabstrip-prefs'
 
 const BOTS_PANE = 'hermes-bots:pane'
 const SESSIONS_PANE = 'sessions'
-const LAYOUT_KEY = 'hermes.desktop.layoutTree.v2'
-const TAB_STRIP_DEFAULT_KEY = 'hermes.desktop.tabStripDefault'
-const HIDDEN_STRIP_TABS_KEY = 'hermes.desktop.hiddenStripTabs.v1'
-const BOTS_STRIP_RELOAD = 'hermes.plugin.hide-collapsed-terminal.botsStripReload'
+const HIDE_INTRO_KEY = 'hideIntroSubtitle'
+const HIDE_PAGES_KEY = 'hideSidebarPages'
+const RAIL_HID = 'hidProfileRail'
 
 function showPane(id) {
   if (typeof host.revealPane === 'function') {
     host.revealPane(id)
-    return true
-  }
-  const tab = document.querySelector(`[data-tree-tab="${id}"]`)
-  if (tab instanceof HTMLElement) {
-    tab.click()
     return true
   }
   return false
@@ -49,43 +46,22 @@ function walkGroups(node, visit) {
 }
 
 function ensureSessionBotsTabs() {
-  let changed = false
-  try {
-    const hidden = JSON.parse(localStorage.getItem(HIDDEN_STRIP_TABS_KEY) || 'null')
-    if (Array.isArray(hidden) && hidden.includes(BOTS_PANE)) {
-      const next = hidden.filter(id => id !== BOTS_PANE)
-      if (next.length) localStorage.setItem(HIDDEN_STRIP_TABS_KEY, JSON.stringify(next))
-      else localStorage.removeItem(HIDDEN_STRIP_TABS_KEY)
-      changed = true
+  if ($tabStripDefault.get() === 'never') {
+    setTabStripDefault('auto')
+  }
+  if (isStripTabHidden(BOTS_PANE)) {
+    setStripTabHidden(BOTS_PANE, false)
+  }
+  const tree = $layoutTree.get()
+  if (!tree) return
+  walkGroups(tree, group => {
+    const panes = Array.isArray(group.panes) ? group.panes : []
+    const stacked =
+      panes.includes(SESSIONS_PANE) && panes.some(id => id === BOTS_PANE || String(id).startsWith('hermes-bots'))
+    if (stacked && group.tabStrip !== 'always' && group.id) {
+      setTreeGroupTabStrip(group.id, 'always')
     }
-  } catch {
-    /* ignore */
-  }
-  if (localStorage.getItem(TAB_STRIP_DEFAULT_KEY) === 'never') {
-    localStorage.removeItem(TAB_STRIP_DEFAULT_KEY)
-    changed = true
-  }
-  try {
-    const tree = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null')
-    if (tree) {
-      walkGroups(tree, group => {
-        const panes = Array.isArray(group.panes) ? group.panes : []
-        const stacked =
-          panes.includes('sessions') && panes.some(id => id === BOTS_PANE || String(id).startsWith('hermes-bots'))
-        if (stacked && group.tabStrip !== 'always') {
-          group.tabStrip = 'always'
-          changed = true
-        }
-      })
-      if (changed) localStorage.setItem(LAYOUT_KEY, JSON.stringify(tree))
-    }
-  } catch {
-    /* ignore */
-  }
-  if (!changed) return
-  if (sessionStorage.getItem(BOTS_STRIP_RELOAD)) return
-  sessionStorage.setItem(BOTS_STRIP_RELOAD, '1')
-  location.reload()
+  })
 }
 
 const INTRO_CSS = `
@@ -135,19 +111,10 @@ const STICKY_PROMPT_CSS = `
 }
 `
 
-const HIDE_INTRO_KEY = 'hideIntroSubtitle'
-const HIDE_PAGES_KEY = 'hideSidebarPages'
-const RAIL_KEY = 'hermes.desktop.profileRailVisible'
-const RAIL_HID = 'hermes.plugin.hide-collapsed-terminal.hidProfileRail.v1'
-
-function hideProfileRailOnce() {
-  try {
-    if (localStorage.getItem(RAIL_HID)) return
-    localStorage.setItem(RAIL_KEY, 'false')
-    localStorage.setItem(RAIL_HID, '1')
-  } catch {
-    /* ignore */
-  }
+function hideProfileRailOnce(storage) {
+  if (storage.get(RAIL_HID, false)) return
+  $profileRailVisible.set(false)
+  storage.set(RAIL_HID, true)
 }
 
 export default {
@@ -155,7 +122,7 @@ export default {
   name: 'Hide collapsed terminal rail',
   description: 'Quiet chrome: collapsed terminal, intro subtitle, focused composer, sidebar pages, empty Pinned.',
   register(ctx) {
-    hideProfileRailOnce()
+    hideProfileRailOnce(ctx.storage)
     const style = document.createElement('style')
     style.setAttribute('data-plugin', 'hide-collapsed-terminal')
 

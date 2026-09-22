@@ -105,6 +105,33 @@ interface ComposerDraftPayload {
   text: string
 }
 
+/** Canonical Bot Chat ids. Those rows are hidden from the Sessions sidebar, so
+ *  restoring one paints a chat the list does not show. */
+function botCanonicalIds(): Set<string> {
+  const roster = $lastRoster.get()
+  const ids = new Set<string>()
+
+  if (!Array.isArray(roster)) {
+    return ids
+  }
+
+  for (const bot of roster) {
+    const canonical = bot?.canonical_session
+    const id = String(canonical?.id ?? '')
+    const resolved = String(canonical?.resolved_id ?? '')
+
+    if (id) {
+      ids.add(id)
+    }
+
+    if (resolved) {
+      ids.add(resolved)
+    }
+  }
+
+  return ids
+}
+
 /** Sessions sidebar rows. Archived and hidden chats are omitted, same as the list. */
 async function visibleSessionIds(): Promise<string[]> {
   if (typeof host.request !== 'function') {
@@ -128,12 +155,11 @@ async function restoreSessionsChat(rememberedId: string): Promise<void> {
     visible = null
   }
 
+  const bots = botCanonicalIds()
+  const listed = visible === null ? null : visible.filter(id => !bots.has(id))
+  const remembered = rememberedId && !bots.has(rememberedId) ? rememberedId : ''
   const target =
-    visible === null
-      ? rememberedId
-      : rememberedId && visible.includes(rememberedId)
-        ? rememberedId
-        : visible[0] || ''
+    listed === null ? remembered : remembered && listed.includes(remembered) ? remembered : listed[0] || ''
 
   if (target && typeof host.openSession === 'function') {
     pinChatToLatest(target)
@@ -144,7 +170,10 @@ async function restoreSessionsChat(rememberedId: string): Promise<void> {
 
   // Same door as ⌘N. host.newChat() pins the live bot and leaves a session id,
   // so the composer stays on a follow-up and the wordmark never paints.
+  // Front the workspace now: the bot tile is still the active tab until the
+  // draft effect runs, and that tile is what was painting the bot splash.
   $newChatProfile.set(null)
+  revealTreePane('workspace')
   requestFreshSession()
 }
 
@@ -610,11 +639,24 @@ export default {
             const chatId = String(bot.canonical_session?.id || '')
             pinChatToLatest(chatId)
             void openRosterBot(bot).then(opened => {
-              if (!opened) {
-                void Promise.resolve(openBotCanonicalChat(bot)).then(chat => {
-                  pinChatToLatest(chat?.openedId || chat?.registryId || chatId)
-                })
+              // A false return includes "the user already left" (generation
+              // bumped). Opening again here put the bot chat back on the
+              // Sessions tab after the fresh draft had cleared it.
+              if (opened || !$botsPaneVisible.get()) {
+                return
               }
+
+              const generation = getBotOpenGeneration()
+
+              void Promise.resolve(
+                openBotCanonicalChat(bot, () => generation === getBotOpenGeneration() && $botsPaneVisible.get())
+              ).then(chat => {
+                if (!$botsPaneVisible.get() || generation !== getBotOpenGeneration()) {
+                  return
+                }
+
+                pinChatToLatest(chat?.openedId || chat?.registryId || chatId)
+              })
             })
           }
         } else {

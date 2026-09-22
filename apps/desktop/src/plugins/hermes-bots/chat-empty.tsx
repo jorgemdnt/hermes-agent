@@ -9,6 +9,8 @@
 
 import { host, useValue, Wordmark } from '@hermes/plugin-sdk'
 
+import { $workspaceMode } from '@/components/pane-shell/workspace-scope'
+
 import { avatarColor, botAppearance, BotFace } from './avatar'
 import { isBackfilledFacePng } from './avatar-image'
 import { $botMeta, $lastRoster } from './data'
@@ -62,10 +64,14 @@ export function BotChatEmpty({ sessionId }: { sessionId: string }) {
   // is in hand.
   const roster = useValue($lastRoster)
   const allMeta = useValue($botMeta)
+  const mode = useValue($workspaceMode)
   useValue(host.state.focusedStoredSessionId)
   const bot = botForChat(roster, sessionId)
 
-  if (!bot) {
+  // The lettering belongs to a bot chat being viewed in Bot Mode. A Sessions
+  // tab can still have that chat focused for a frame; painting the bot's name
+  // there is the wrong empty state.
+  if (mode !== 'bots' || !bot) {
     return null
   }
 
