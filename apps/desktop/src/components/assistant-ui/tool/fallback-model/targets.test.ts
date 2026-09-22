@@ -9,7 +9,7 @@ describe('isPreviewableTarget', () => {
   })
 
   it('rejects agent scratch html under ~/.hermes/tmp', () => {
-    expect(isPreviewableTarget('/Users/jorgemodesto/.hermes/tmp/pr-5154-artie-drawing.html')).toBe(false)
+    expect(isPreviewableTarget('/Users/someone/.hermes/tmp/scratch.html')).toBe(false)
     expect(isPreviewableTarget('file:///Users/x/.hermes/tmp/x.html')).toBe(false)
   })
 })
