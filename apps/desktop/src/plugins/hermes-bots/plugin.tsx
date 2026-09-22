@@ -97,6 +97,48 @@ interface ComposerDraftPayload {
   text: string
 }
 
+/** Sessions sidebar rows. Archived and hidden chats are omitted, same as the list. */
+async function visibleSessionIds(): Promise<string[]> {
+  if (typeof host.request !== 'function') {
+    return []
+  }
+
+  const listed = (await host.request('session.list', { limit: 50 })) as {
+    sessions?: Array<{ id?: string }>
+  } | null
+  const sessions = listed?.sessions || []
+
+  return sessions.map(session => String(session?.id || '')).filter(Boolean)
+}
+
+async function restoreSessionsChat(rememberedId: string): Promise<void> {
+  let visible: string[] | null = null
+
+  try {
+    visible = await visibleSessionIds()
+  } catch {
+    visible = null
+  }
+
+  const target =
+    visible === null
+      ? rememberedId
+      : rememberedId && visible.includes(rememberedId)
+        ? rememberedId
+        : visible[0] || ''
+
+  if (target && typeof host.openSession === 'function') {
+    pinChatToLatest(target)
+    await host.openSession(target)
+
+    return
+  }
+
+  if (typeof host.newChat === 'function') {
+    host.newChat()
+  }
+}
+
 export default {
   id: ID,
   name: translateNow('common.bots'),
@@ -572,22 +614,10 @@ export default {
           // returned to Sessions.
           bumpBotOpenGeneration()
           host.setWorkspaceScope?.('sessions')
-          if (lastSessionsStoredId && typeof host.openSession === 'function') {
-            pinChatToLatest(lastSessionsStoredId)
-            void host.openSession(lastSessionsStoredId)
-          } else if (typeof host.openSession === 'function' && typeof host.request === 'function') {
-            void host.request('projects.tree', { preview_limit: 1 }).then(tree => {
-              const projects = (
-                tree as { projects?: Array<{ previewSessions?: Array<{ id?: string }> }> } | null
-              )?.projects
-              const id = projects?.flatMap(project => project.previewSessions || []).find(session => session?.id)?.id
-
-              if (id) {
-                pinChatToLatest(String(id))
-                void host.openSession(String(id))
-              }
-            })
-          }
+          // The remembered id can be an archived chat. The Sessions sidebar
+          // does not list those, so reopening it paints a selection that is
+          // not in the list. An empty list is the new-chat empty state.
+          void restoreSessionsChat(lastSessionsStoredId)
         }
       })
 

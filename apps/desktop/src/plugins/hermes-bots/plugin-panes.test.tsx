@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   focusedId: 'sess-sessions',
   openBotCanonicalChat: vi.fn(),
   openSession: vi.fn(),
+  newChat: vi.fn(),
+  request: vi.fn(async () => ({ sessions: [{ id: 'sess-sessions' }] })),
   paneVisibility: vi.fn(),
   pinChatToLatest: vi.fn(),
   selectedRosterBot: vi.fn(() => null),
@@ -49,6 +51,8 @@ vi.mock('@hermes/plugin-sdk', async importOriginal => {
       ...original.host,
       onEvent: undefined,
       openSession: mocks.openSession,
+      newChat: mocks.newChat,
+      request: mocks.request,
       paneVisibility: mocks.paneVisibility,
       setWorkspaceScope: mocks.setWorkspaceScope,
       undismissPane: mocks.undismissPane,
@@ -68,7 +72,12 @@ vi.mock('@hermes/plugin-sdk', async importOriginal => {
 vi.mock('./avatar', () => ({ startFaceClock: vi.fn(), stopFaceClock: vi.fn() }))
 vi.mock('./relay', () => ({ startBotRelay: vi.fn(), stopBotRelay: vi.fn() }))
 vi.mock('./session-sweep', () => ({ startHideSweepScheduler: vi.fn() }))
-vi.mock('./canonical-chat', () => ({ openBotCanonicalChat: mocks.openBotCanonicalChat }))
+vi.mock('./canonical-chat', () => ({
+  CANONICAL_CHAT_TITLE: 'Bot Chat',
+  openBotCanonicalChat: mocks.openBotCanonicalChat,
+  prepareBotSource: async () => undefined,
+  notifyBotOpenFailure: vi.fn()
+}))
 vi.mock('./chat-empty', () => ({ BotChatEmpty: () => null }))
 vi.mock('./hygiene', () => ({ annotateOrphanedGroupChatMembers: () => ({ changed: false, rooms: {} }) }))
 vi.mock('./cron', () => ({ bindProfileSync: () => () => undefined, RoutinesPane: () => null }))
@@ -274,7 +283,7 @@ describe('Sessions | Bots tab focus', () => {
     store('hermes-bots:pane').set(true)
     await settle()
 
-    expect(mocks.openBotCanonicalChat).toHaveBeenCalledWith(bot)
+    expect(mocks.openBotCanonicalChat.mock.calls[0]?.[0]).toEqual(bot)
     expect(mocks.pinChatToLatest).toHaveBeenCalledWith('bot-chat')
 
     harness.dispose()
@@ -296,6 +305,28 @@ describe('Sessions | Bots tab focus', () => {
     expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
     expect(mocks.openSession).toHaveBeenCalledWith('sess-sessions')
     expect(mocks.pinChatToLatest).toHaveBeenCalledWith('sess-sessions')
+    expect(mocks.newChat).not.toHaveBeenCalled()
+
+    harness.dispose()
+  })
+
+  it('opens a new chat when every Sessions row is archived', async () => {
+    mocks.focusedId = 'archived-sess'
+    mocks.request.mockResolvedValue({ sessions: [] })
+    mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
+    const store = paneStores()
+    const harness = recordingContext()
+
+    plugin.register(harness.ctx)
+    await settle()
+    store('hermes-bots:pane').set(true)
+    await settle()
+    store('hermes-bots:pane').set(false)
+    await settle()
+
+    expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
+    expect(mocks.openSession).not.toHaveBeenCalled()
+    expect(mocks.newChat).toHaveBeenCalled()
 
     harness.dispose()
   })
