@@ -90,6 +90,7 @@ import {
   setBusy,
   setMessages
 } from '@/store/session'
+import { $focusedStoredSessionId } from '@/store/session-states'
 import { $titlebarAppActionsSide, titlebarAppActionsClusterCounts } from '@/store/titlebar-app-actions'
 import { clearSessionTodos, setSessionTodos, todosForHydration } from '@/store/todos'
 import { armWakeWord, stopClientCapture } from '@/store/wake-word'
@@ -1081,9 +1082,11 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     void openNewSessionTile('center', { listed: false })
   }, [openNewSessionTile])
 
-  // Archive the selected session (rebindable `session.archive` hotkey).
+  // Archive the chat on screen. A tile's id lives on the focused pane;
+  // `$selectedStoredSessionId` is the primary, and after a sidebar chord it
+  // can still be the previous chat.
   const archiveSelectedSession = useCallback(() => {
-    const sessionId = $selectedStoredSessionId.get()
+    const sessionId = $focusedStoredSessionId.get()
 
     if (!sessionId) {
       return

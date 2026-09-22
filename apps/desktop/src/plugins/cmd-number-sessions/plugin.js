@@ -5,6 +5,7 @@
  *   ⌃3–9     named profiles 3–9
  *   ⌘J       toggle terminal      (stock: ⌃`)
  *   ⌘⌥B      toggle right sidebar (stock: ⌘J)
+ *   ⌘⇧A      archive the focused chat (stock: unbound)
  *
  * Stock session.slot.N is $sessions[N-1] (flat recency). We unbind those and
  * register sidebar.row.N so the chord follows PROJECTS / recents row order.
@@ -56,6 +57,7 @@ function isDesired(overrides) {
   }
   if (!comboIsOrUnset(overrides, 'view.showTerminal', 'mod+j')) return false
   if (!comboIsOrUnset(overrides, 'view.toggleRightSidebar', 'mod+alt+b')) return false
+  if (!comboIs(overrides, 'session.archive', 'mod+shift+a')) return false
   if (Object.prototype.hasOwnProperty.call(overrides, 'session.new')) return false
   return true
 }
@@ -72,6 +74,7 @@ function writeMap() {
   }
   next['view.showTerminal'] = ['mod+j']
   next['view.toggleRightSidebar'] = ['mod+alt+b']
+  next['session.archive'] = ['mod+shift+a']
   delete next['session.new']
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
   localStorage.setItem(APPLIED_KEY, '1')
