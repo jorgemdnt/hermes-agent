@@ -33,7 +33,11 @@ const mocks = vi.hoisted(() => ({
   openBotCanonicalChat: vi.fn(),
   openSession: vi.fn(),
   newChat: vi.fn(),
-  request: vi.fn(async () => ({ sessions: [{ id: 'sess-sessions' }] })),
+  request: vi.fn(async (method: string) =>
+    method === 'projects.tree'
+      ? { projects: [{ previewSessions: [{ id: 'sess-sessions' }] }] }
+      : { sessions: [{ id: 'sess-sessions' }] }
+  ),
   paneVisibility: vi.fn(),
   pinChatToLatest: vi.fn(),
   selectedRosterBot: vi.fn(() => null),
@@ -318,7 +322,7 @@ describe('Sessions | Bots tab focus', () => {
 
     $lastRoster.set([{ canonical_session: { id: 'bot-chat' }, name: 'gandalf' } as never])
     mocks.focusedId = 'bot-chat'
-    mocks.request.mockResolvedValue({ sessions: [{ id: 'bot-chat' }] })
+    mocks.request.mockResolvedValue({ projects: [{ previewSessions: [{ id: 'bot-chat' }] }] })
     mocks.selectedRosterBot.mockReturnValue({ canonical_session: { id: 'bot-chat' }, name: 'gandalf' } as never)
     const store = paneStores()
     const harness = recordingContext()
@@ -344,7 +348,7 @@ describe('Sessions | Bots tab focus', () => {
     const { $freshSessionRequest, $newChatProfile } = await import('@/store/profile')
     const drafts = $freshSessionRequest.get()
     mocks.focusedId = 'archived-sess'
-    mocks.request.mockResolvedValue({ sessions: [] })
+    mocks.request.mockResolvedValue({ projects: [] })
     mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
     const store = paneStores()
     const harness = recordingContext()

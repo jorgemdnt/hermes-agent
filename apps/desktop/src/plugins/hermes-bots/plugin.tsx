@@ -132,18 +132,30 @@ function botCanonicalIds(): Set<string> {
   return ids
 }
 
-/** Sessions sidebar rows. Archived and hidden chats are omitted, same as the list. */
+/** Rows the Sessions sidebar actually paints. `session.list` includes chats the
+ *  project overview does not, and opening one of those leaves a follow-up
+ *  composer on a blank center. */
 async function visibleSessionIds(): Promise<string[]> {
   if (typeof host.request !== 'function') {
     return []
   }
 
-  const listed = (await host.request('session.list', { limit: 50 })) as {
-    sessions?: Array<{ id?: string }>
+  const tree = (await host.request('projects.tree', { preview_limit: 50 })) as {
+    projects?: Array<{ previewSessions?: Array<{ id?: string }> }>
   } | null
-  const sessions = listed?.sessions || []
+  const ids: string[] = []
 
-  return sessions.map(session => String(session?.id || '')).filter(Boolean)
+  for (const project of tree?.projects || []) {
+    for (const session of project?.previewSessions || []) {
+      const id = String(session?.id || '')
+
+      if (id) {
+        ids.push(id)
+      }
+    }
+  }
+
+  return ids
 }
 
 async function restoreSessionsChat(rememberedId: string): Promise<void> {
@@ -156,10 +168,9 @@ async function restoreSessionsChat(rememberedId: string): Promise<void> {
   }
 
   const bots = botCanonicalIds()
-  const listed = visible === null ? null : visible.filter(id => !bots.has(id))
-  const remembered = rememberedId && !bots.has(rememberedId) ? rememberedId : ''
-  const target =
-    listed === null ? remembered : remembered && listed.includes(remembered) ? remembered : listed[0] || ''
+  const listed = visible === null ? [] : visible.filter(id => !bots.has(id))
+  const remembered = rememberedId && listed.includes(rememberedId) ? rememberedId : ''
+  const target = remembered || listed[0] || ''
 
   if (target && typeof host.openSession === 'function') {
     pinChatToLatest(target)
