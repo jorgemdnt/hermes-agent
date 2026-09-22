@@ -51,6 +51,47 @@ describe('cmd-number-sessions sidebar slots', () => {
     expect(revealed).toEqual(['hermes-bots:pane', 'sessions'])
   })
 
+  it('skips section headers and opens the Nth bot row on the visible roster', async () => {
+    const roster = document.createElement('div')
+    roster.setAttribute('data-slot', 'bots-roster')
+    const header = row('THIS DEVICE')
+    header.setAttribute('aria-expanded', 'true')
+    const hermes = row('hermes')
+    const frodo = row('frodo')
+    const clicked: string[] = []
+    header.addEventListener('click', () => clicked.push('header'))
+    hermes.addEventListener('click', () => clicked.push('hermes'))
+    frodo.addEventListener('click', () => clicked.push('frodo'))
+    roster.append(header, hermes, frodo)
+    document.body.append(roster)
+
+    await openSidebarSlot(1, document)
+    await openSidebarSlot(2, document)
+    expect(clicked).toEqual(['hermes', 'frodo'])
+  })
+
+  it('does not let a keep-alive hidden bots roster steal the session slot', async () => {
+    const hidden = document.createElement('div')
+    hidden.setAttribute('data-pane-hidden', '')
+    const roster = document.createElement('div')
+    roster.setAttribute('data-slot', 'bots-roster')
+    const bot = row('gandalf')
+    const clicked: string[] = []
+    bot.addEventListener('click', () => clicked.push('gandalf'))
+    roster.append(bot)
+    hidden.append(roster)
+
+    const sessions = document.createElement('div')
+    sessions.setAttribute('data-sessions-mode', '')
+    const session = row('alpha')
+    session.addEventListener('click', () => clicked.push('alpha'))
+    sessions.append(session)
+    document.body.append(hidden, sessions)
+
+    await openSidebarSlot(1, document)
+    expect(clicked).toEqual(['alpha'])
+  })
+
   it('opens the Nth bot row when the bots roster is the visible sidebar', async () => {
     const roster = document.createElement('div')
     roster.setAttribute('data-slot', 'bots-roster')
@@ -64,6 +105,32 @@ describe('cmd-number-sessions sidebar slots', () => {
 
     await openSidebarSlot(2, document)
     expect(clicked).toEqual(['frodo'])
+  })
+
+  it('lets the bots plugin claim the slot instead of clicking', async () => {
+    const roster = document.createElement('div')
+    roster.setAttribute('data-slot', 'bots-roster')
+    const hermes = row('hermes')
+    hermes.setAttribute('data-roster-key', 'legacy::hermes')
+    const clicked: string[] = []
+    hermes.addEventListener('click', () => clicked.push('hermes'))
+    roster.append(hermes)
+    const tab = document.createElement('button')
+    tab.setAttribute('data-tree-tab', 'hermes-bots:pane')
+    tab.setAttribute('aria-selected', 'true')
+    document.body.append(tab, roster)
+
+    const claimed: number[] = []
+    const onSlot = (event: Event) => {
+      claimed.push((event as CustomEvent).detail.slot)
+      event.preventDefault()
+    }
+    window.addEventListener('hermes:sidebar-roster-slot', onSlot)
+
+    await openSidebarSlot(1, document)
+    window.removeEventListener('hermes:sidebar-roster-slot', onSlot)
+    expect(claimed).toEqual([1])
+    expect(clicked).toEqual([])
   })
 
   it('opens the Nth session row when the bots roster is not visible', async () => {

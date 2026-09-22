@@ -378,14 +378,19 @@ export function TreeGroup({
   // it is the resolver's call, not this component's — see strip-visibility.ts
   // for the precedence. The same resolver answers for the toggle command, so
   // the keystroke and the screen always agree about which way "toggle" points.
-  const stripVisible = tabStripVisibleForZone({
-    active: activeId,
-    isCollapsePane,
-    mode: node.tabStrip,
-    paneFor,
-    shown,
-    siblingMainZone: mainTileZoneCount > (shown.some(id => paneChrome(paneFor(id)).placement === 'main') ? 1 : 0)
-  })
+  // Work layout has no chat tab strip. Session switching is the sidebar;
+  // a titlebar row of open chats is chrome this mode does not use.
+  const workChatZone = isWorkLayout() && node.panes.includes('workspace')
+  const stripVisible = workChatZone
+    ? false
+    : tabStripVisibleForZone({
+        active: activeId,
+        isCollapsePane,
+        mode: node.tabStrip,
+        paneFor,
+        shown,
+        siblingMainZone: mainTileZoneCount > (shown.some(id => paneChrome(paneFor(id)).placement === 'main') ? 1 : 0)
+      })
 
   // A group collapses ALONG its parent split's axis. In a row that means the
   // WIDTH collapses — a full-width horizontal header would strand a tall

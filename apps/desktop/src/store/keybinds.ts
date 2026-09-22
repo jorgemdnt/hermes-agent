@@ -95,7 +95,10 @@ function loadBindings(): KeybindBindings {
   const base = defaultBindings()
 
   for (const id of Object.keys(base)) {
-    if (storedOverrides[id]) {
+    // An empty array is an explicit unbind. A truthy check treats `[]` as
+    // "no override" and the shipped chord stays — that is how ⌘1–9 kept
+    // switching top tabs after the sidebar plugin stored `profile.switch.N: []`.
+    if (Object.prototype.hasOwnProperty.call(storedOverrides, id)) {
       base[id] = storedOverrides[id]
     }
   }

@@ -791,6 +791,10 @@ export const $mainTileZoneCount = computed(
  *  inputs, so the toggle command and the strip on screen cannot disagree about
  *  which way "toggle" points. */
 export function tabStripVisibleForGroup(group: GroupNode): boolean {
+  if (isWorkLayout() && group.panes.includes('workspace')) {
+    return false
+  }
+
   const registered = registry.getArea('panes')
   const shown = shownPanesInGroup(group)
 
@@ -806,7 +810,15 @@ export function tabStripVisibleForGroup(group: GroupNode): boolean {
 
 /** Shared target for tab-number hints and shortcut dispatch. */
 export function treeTabSlotTarget(): GroupNode | null {
-  return tabTargetGroup(candidate => shownPanesInGroup(candidate).length >= 2)
+  return tabTargetGroup(candidate => {
+    // Work layout's chat zone has no tab strip. Number keys belong to the
+    // sidebar; a hidden stack of session tiles must not answer ⌘1–9.
+    if (isWorkLayout() && candidate.panes.includes('workspace')) {
+      return false
+    }
+
+    return shownPanesInGroup(candidate).length >= 2
+  })
 }
 
 /** ⌘1…⌘9: activate the Nth *visible* tab of the target zone — the first of

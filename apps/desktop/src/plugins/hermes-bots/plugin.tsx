@@ -19,6 +19,7 @@ import { CHAT_EMPTY_AREA, COMPOSER_AREAS, host, LocalizedTabTitle, PALETTE_AREA,
 import type { ChatEmptyProps, PluginContext } from '@hermes/plugin-sdk'
 
 import { pinChatToLatest } from '@/store/thread-scroll'
+import { revealTreePane } from '@/components/pane-shell/tree/store'
 
 import { startFaceClock, stopFaceClock } from './avatar'
 import { installBotProfileSwitch } from './bot-profile-switch'
@@ -438,6 +439,15 @@ export default {
       }
 
       event.preventDefault()
+      const storedId = String(bot.canonical_session?.resolved_id || bot.canonical_session?.id || '')
+
+      // ⌘1–3 on the Bots tab must front that bot's tab on the keydown. The
+      // open below is async and, from an occupied chat, used to return without
+      // moving the pane.
+      if (storedId) {
+        revealTreePane(`session-tile:${storedId}`)
+      }
+
       void openRosterBot(bot)
     }
 

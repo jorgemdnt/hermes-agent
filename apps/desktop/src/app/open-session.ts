@@ -14,6 +14,7 @@
  *   - `window` (⇧⌘-click) — pop into its own window; falls back to `tab` when
  *     the bridge has no session-window support.
  */
+import { revealTreePane } from '@/components/pane-shell/tree/store'
 import type { WorkspaceMode } from '@/contrib/types'
 import { $activeSessionId, $selectedStoredSessionId, markSessionRead } from '@/store/session'
 import type { SessionProfileRoute } from '@/store/session-request-router'
@@ -184,6 +185,17 @@ export function openSession(
       openSessionTile(storedSessionId, 'center', undefined, undefined, botWorkspaceScope)
     } else {
       openSessionTile(storedSessionId, 'center')
+    }
+
+    // The tile mirror adopts on the store write, but a roster chord (⌘1–3 on
+    // the Bots tab) returns before that pane is the zone's active tab. Front
+    // it here, and once more on the next frame if adoption landed late.
+    const paneId = `session-tile:${storedSessionId}`
+    revealTreePane(paneId)
+    queueMicrotask(() => revealTreePane(paneId))
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => revealTreePane(paneId))
     }
 
     focusOpenSession(storedSessionId, workspaceScope)

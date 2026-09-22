@@ -13,6 +13,10 @@ const openSessionInNewWindow = vi.fn()
 const canOpenSessionWindow = vi.fn(() => true)
 const workspaceIsPageGet = vi.fn(() => false)
 
+vi.mock('@/components/pane-shell/tree/store', () => ({
+  revealTreePane: vi.fn()
+}))
+
 vi.mock('@/store/session-states', () => ({
   focusedSessionNeedsRoute: (focused: 'main' | 'tile' | null, workspaceIsPage: boolean) =>
     !focused || (focused === 'main' && workspaceIsPage),
@@ -34,6 +38,7 @@ vi.mock('./routes', () => ({
 }))
 
 import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
+import { revealTreePane } from '@/components/pane-shell/tree/store'
 
 import { mainChatOccupied, openSession, openSessionFromPicker, openSessionIntentFromModifiers } from './open-session'
 
@@ -242,6 +247,7 @@ describe('openSession', () => {
     openSessionFromPicker('s2', navigate, 'stack')
 
     expect(openSessionTile).toHaveBeenCalledWith('s2', 'center', undefined, undefined, scope)
+    expect(revealTreePane).toHaveBeenCalledWith('session-tile:s2')
     expect(navigate).not.toHaveBeenCalled()
 
     // Control: the same doors in the Sessions workspace keep their in-place behaviour.

@@ -44,7 +44,7 @@ export const WORK_TREE = split(
     group(['sessions'], { id: 'grp-sessions' }),
     split(
       'column',
-      [group(['workspace'], { id: 'grp-main' }), group(['terminal'], { id: 'grp-terminal' })],
+      [group(['workspace'], { id: 'grp-main', tabStrip: 'never' }), group(['terminal'], { id: 'grp-terminal' })],
       [3.2, 1],
       'spl-center'
     ),

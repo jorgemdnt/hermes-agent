@@ -78,7 +78,10 @@ function writeMap() {
 }
 
 export function shown(el) {
-  return el.getClientRects().length > 0
+  // Inactive sidebar tabs stay mounted with visibility:hidden, so their rects
+  // match the visible tab. A rect check alone cannot tell them apart — skip
+  // the keep-alive marker or ⌘1–9 clicks an inert roster and does nothing.
+  return el.getClientRects().length > 0 && !el.closest('[data-pane-hidden]')
 }
 
 function clickWithoutModifiers(el) {
@@ -122,14 +125,15 @@ export function activateSidebarTab(slot, reveal, root = document) {
 }
 
 export function rosterVisible(root = document) {
-  const roster = root.querySelector('[data-slot="bots-roster"]')
-  return Boolean(roster && shown(roster))
+  return [...root.querySelectorAll('[data-slot="bots-roster"]')].some(shown)
 }
 
 export function rosterRowButtons(root = document) {
-  const roster = root.querySelector('[data-slot="bots-roster"]')
+  const roster = [...root.querySelectorAll('[data-slot="bots-roster"]')].find(shown)
   if (!roster) return []
-  return [...roster.querySelectorAll('[data-slot="row-button"]')].filter(shown)
+  // Section headers are row-buttons too (aria-expanded). Counting them makes
+  // ⌘1 toggle THIS DEVICE instead of opening the first bot.
+  return [...roster.querySelectorAll('[data-slot="row-button"]:not([aria-expanded])')].filter(shown)
 }
 
 function sessionResumeButtons(root = document) {
@@ -174,9 +178,33 @@ async function treePreviewIds() {
   }
 }
 
+export function botsTabActive(root = document) {
+  const tab = root.querySelector('[data-tree-tab="hermes-bots:pane"][aria-selected="true"]')
+  return Boolean(tab && shown(tab))
+}
+
+export function rosterKeys(root = document) {
+  const roster = [...root.querySelectorAll('[data-slot="bots-roster"]')].find(shown)
+  if (!roster) return []
+  return [...roster.querySelectorAll('[data-roster-key]')].filter(shown)
+}
+
+function dispatchRosterSlot(slot) {
+  return window.dispatchEvent(
+    new CustomEvent('hermes:sidebar-roster-slot', {
+      cancelable: true,
+      detail: { slot }
+    })
+  )
+}
+
 export async function openSidebarSlot(slot, root = document) {
-  if (rosterVisible(root)) {
-    const btn = rosterRowButtons(root)[slot - 1]
+  if (botsTabActive(root) || rosterVisible(root)) {
+    // A synthetic click on a draggable bot row does not run its React onClick.
+    // The bots plugin opens the Nth data-roster-key through the real open path
+    // and preventDefaults this event. Click remains the fallback.
+    if (!dispatchRosterSlot(slot)) return
+    const btn = rosterKeys(root)[slot - 1] || rosterRowButtons(root)[slot - 1]
     if (!btn) return
     clickWithoutModifiers(btn)
     return

@@ -20,6 +20,11 @@ describe('WORK_TREE', () => {
     expect(WORK_LAYOUT_ID).toBe('work')
     expect(treeLooksLikeWork(WORK_TREE)).toBe(true)
     expect(treeLooksLikeWork(DEFAULT_TREE)).toBe(false)
+    const main = WORK_TREE.children
+      .flatMap(child => (child.type === 'split' ? child.children : [child]))
+      .find(child => child.type === 'group' && child.panes.includes('workspace'))
+
+    expect(main && main.type === 'group' ? main.tabStrip : undefined).toBe('never')
   })
 
   it('puts the terminal under chat, with the work slot as a right sibling', () => {
