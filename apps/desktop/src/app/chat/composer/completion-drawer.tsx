@@ -35,6 +35,7 @@ export function ComposerCompletionDrawer({
       char={char}
       className={COMPLETION_DRAWER_CLASS}
       data-slot="composer-completion-drawer"
+      style={{ backgroundColor: 'var(--dt-card)', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
     >
       {children}
     </ComposerPrimitive.Unstable_TriggerPopover>

@@ -31,12 +31,15 @@ import { revealTreePane } from '@/components/pane-shell/tree/store'
 
 import { startFaceClock, stopFaceClock } from './avatar'
 import { installBotProfileSwitch } from './bot-profile-switch'
+import { botsLandingAction, BOTS_LOADING_ROUTE, centerIsWorkspacePage, firstOpenableBot } from './bots-landing'
+import { BotsLoadingPage } from './bots-loading-page'
 import {
   $botChatFocused,
   $botsPaneVisible,
   $focusedBotOwner,
   $openBotChat,
   $selectedBot,
+  $rosterHydrated,
   $selectedRosterHydrated,
   $selectedRosterKey,
   focusedMentionProfile
@@ -188,12 +191,59 @@ async function restoreSessionsChat(rememberedId: string): Promise<void> {
   requestFreshSession()
 }
 
+/** Cold start does not fire the pane-visibility listener — the bots tab is
+ *  already showing. Last-route restore paints the skills page into that gap.
+ *  Claim once: loading until the roster answers, then the first bot. */
+let botsBootClaimed = false
+
+export function claimBotsBoot(): void {
+  if (botsBootClaimed || !$botsPaneVisible.get() || $groupChatWorkspace.get()) {
+    return
+  }
+
+  const roster = $lastRoster.get()
+  const rows = Array.isArray(roster) ? roster : []
+  const bot = firstOpenableBot(rows, selectedRosterBot(rows, $selectedRosterKey.get()))
+  const hash = typeof window === 'undefined' ? '' : window.location.hash
+  const action = botsLandingAction({
+    paneVisible: true,
+    groupOpen: false,
+    rosterHydrated: $rosterHydrated.get(),
+    hasBot: Boolean(bot),
+    centerIsWorkspacePage: centerIsWorkspacePage(hash)
+  })
+
+  if (action === 'loading') {
+    host.navigate(BOTS_LOADING_ROUTE)
+
+    return
+  }
+
+  if (action === 'clear') {
+    botsBootClaimed = true
+    host.navigate('/')
+
+    return
+  }
+
+  if (action !== 'open' || !bot) {
+    return
+  }
+
+  botsBootClaimed = true
+  setBotsWorkspaceOwner(botWorkspaceOwnerKey(bot), bot)
+  const chatId = String(bot.canonical_session?.id || '')
+  pinChatToLatest(chatId)
+  void openRosterBot(bot)
+}
+
 export default {
   id: ID,
   name: translateNow('common.bots'),
   description:
     'Bot Mode — a one-chat-per-agent roster with avatars, routines, group chats, and bot-to-bot messaging. Ships with the app; disable here if unwanted.',
   register(ctx: PluginContext) {
+    botsBootClaimed = false
     setPluginCtx(ctx)
     // The user's own roster sections. Read once at register; every mutation
     // writes through.
@@ -669,6 +719,9 @@ export default {
                 pinChatToLatest(chat?.openedId || chat?.registryId || chatId)
               })
             })
+          } else if (centerIsWorkspacePage(window.location.hash)) {
+            // Roster has not answered yet. Do not leave the restored skills page up.
+            host.navigate(BOTS_LOADING_ROUTE)
           }
         } else {
           // Strand any owner wake still dialing. Its SDK open will fail the
@@ -759,17 +812,36 @@ export default {
 
       $botsPaneVisible.set(Boolean($sidebarVisible.get()))
       $botChatFocused.set(sessionOwnsWorkspace())
+      claimBotsBoot()
+
+      const stopBootClaim = $rosterHydrated.listen(hydrated => {
+        if (hydrated) {
+          claimBotsBoot()
+        }
+      })
+      const onBootHash = () => claimBotsBoot()
+      window.addEventListener('hashchange', onBootHash)
 
       if (typeof ctx.onDispose === 'function') {
         // The registration disposer is already tracked by ctx.register; only
         // the listeners need explicit teardown or they survive plugin disable.
         ctx.onDispose(() => {
           stopSidebarSync()
+          stopBootClaim()
+          window.removeEventListener('hashchange', onBootHash)
           stopFocusSync?.()
           stopReclaimSync?.()
         })
       }
     }
+
+    ctx.register({
+      id: 'bots-loading',
+      area: 'routes',
+      title: 'Bots',
+      data: { path: BOTS_LOADING_ROUTE },
+      render: () => <BotsLoadingPage />
+    })
 
     // A bot's chat before it has spoken: core's splash is Hermes' wordmark and
     // stands down for any session that exists, so the bot titles its own.

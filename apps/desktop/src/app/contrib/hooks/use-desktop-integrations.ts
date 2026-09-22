@@ -31,13 +31,14 @@ import {
   setRememberedSessionId
 } from '@/store/session'
 import { $botChatScopes, $sessionTiles, storedSessionIdForRuntimeId } from '@/store/session-states'
+import { isPaneVisible } from '@/components/pane-shell/tree/store'
 import { onSessionsChanged } from '@/store/session-sync'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
 import { isBrowserWindow, isHudWindow, isSecondaryWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
-import { appViewForPath, isOverlayView, NEW_CHAT_ROUTE, routeSessionId, sessionRoute } from '../../routes'
+import { appViewForPath, isOverlayView, isWorkspacePageRoute, NEW_CHAT_ROUTE, routeSessionId, sessionRoute } from '../../routes'
 
 type RememberedSession = Pick<SessionInfo, '_lineage_root_id' | 'id' | 'profile'>
 
@@ -160,6 +161,12 @@ export function useDesktopIntegrations({
         }
 
         restoredRef.current = true
+
+        // The bots tab is already the home. Restoring the skills page is what
+        // the user lands on instead of a loading state and the first bot.
+        if (route && isWorkspacePageRoute(route) && isPaneVisible('hermes-bots:pane')) {
+          return
+        }
 
         if (
           route &&

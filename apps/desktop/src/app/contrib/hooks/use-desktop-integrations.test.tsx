@@ -19,7 +19,19 @@ import { useDesktopIntegrations } from './use-desktop-integrations'
 // Mutable HUD-window flag so the restore tests can flip the window kind the
 // hook believes it runs in. Default false keeps the pre-existing restore
 // coverage exercising the real main-window path.
-const { hudWindowMock } = vi.hoisted(() => ({ hudWindowMock: vi.fn(() => false) }))
+const { hudWindowMock, botsPaneHome } = vi.hoisted(() => ({
+  hudWindowMock: vi.fn(() => false),
+  botsPaneHome: vi.fn(() => false)
+}))
+
+vi.mock('@/components/pane-shell/tree/store', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/components/pane-shell/tree/store')>()
+
+  return {
+    ...actual,
+    isPaneVisible: (id: string) => (id === 'hermes-bots:pane' ? botsPaneHome() : actual.isPaneVisible(id))
+  }
+})
 
 vi.mock('@/store/mcp-deeplink-install', () => ({
   requestMcpInstallFromDeepLink: vi.fn()
@@ -451,6 +463,16 @@ describe('useDesktopIntegrations', () => {
 
       // /skills is not a session route — no ownership validation needed.
       expect(navigate).toHaveBeenCalledWith('/capabilities', { replace: true })
+    })
+
+    it('does not restore the skills page when the bots tab is already home', () => {
+      botsPaneHome.mockReturnValue(true)
+      window.localStorage.setItem('hermes.desktop.lastRoute.profile.default', '/capabilities')
+
+      render({ profileReady: true, sessions: [session({ id: 'some-session', profile: 'default' })] })
+
+      expect(navigate).not.toHaveBeenCalled()
+      botsPaneHome.mockReturnValue(false)
     })
 
     it('does NOT restore overlay routes (settings/command-center)', () => {
