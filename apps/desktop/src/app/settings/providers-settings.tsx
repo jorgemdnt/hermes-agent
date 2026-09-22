@@ -36,7 +36,7 @@ import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { LocalModelsSettings } from './local-models-settings'
 import { SettingsContent, SettingsSkeleton } from './primitives'
 import { SettingsProfileScope } from './profile-scope'
-import { PoolAccounts } from './pool-accounts'
+import { CAN_ADD_SUBSCRIPTION, PoolAccounts } from './pool-accounts'
 
 // The embedded terminal (and thus the "run disconnect command" path) only
 // exists in the Electron desktop shell, not the web dashboard.
@@ -157,7 +157,8 @@ function OAuthPicker({
     return null
   }
 
-  const select = (p: OAuthProvider) => startManualProviderOAuth(p.id, profile)
+  const select = (provider: OAuthProvider) => startManualProviderOAuth(provider.id, profile)
+  const addAnother = (provider: OAuthProvider) => startManualProviderOAuth(provider.id, profile, { append: true })
 
   // The free tier holds a token but no account: it is never "connected"; the featured Nous row
   // names it (Nous · free tier) and offers the sign-in that keeps its connectors.
@@ -200,8 +201,9 @@ function OAuthPicker({
             <ConnectedProviderRow
               disconnecting={disconnecting === p.id}
               key={p.id}
+              onAddAnother={CAN_ADD_SUBSCRIPTION.has(p.id) ? addAnother : undefined}
               onDisconnect={onDisconnect}
-              onSelect={select}
+              onSelect={CAN_ADD_SUBSCRIPTION.has(p.id) ? addAnother : select}
               onTerminalDisconnect={onTerminalDisconnect}
               provider={p}
             />
@@ -236,12 +238,14 @@ function OAuthPicker({
 
 function ConnectedProviderRow({
   disconnecting,
+  onAddAnother,
   onDisconnect,
   onSelect,
   onTerminalDisconnect,
   provider
 }: {
   disconnecting: boolean
+  onAddAnother?: (provider: OAuthProvider) => void
   onDisconnect: (provider: OAuthProvider) => void
   onSelect: (provider: OAuthProvider) => void
   onTerminalDisconnect: (provider: OAuthProvider) => void
@@ -277,6 +281,11 @@ function ConnectedProviderRow({
         )}
       </RowButton>
       <div className="flex items-center gap-1 pr-2">
+        {onAddAnother && (
+          <Button onClick={() => onAddAnother(provider)} size="xs" type="button" variant="text">
+            {copy.addSubscription}
+          </Button>
+        )}
         <Trail className="size-4 text-muted-foreground transition group-hover:text-foreground" />
         {canDisconnect && (
           <Button
@@ -545,7 +554,9 @@ export function ProvidersSettings({
         providers={oauthProviders}
       />
       <PoolAccounts
-        connected={oauthProviders.filter(provider => provider.status?.logged_in && provider.status.free_tier !== true).map(provider => provider.id)}
+        connected={oauthProviders
+          .filter(provider => provider.status?.logged_in && provider.status.free_tier !== true)
+          .map(provider => ({ id: provider.id, name: providerTitle(provider) }))}
         profile={scopeProfile ?? undefined}
       />
     </SettingsContent>

@@ -291,17 +291,30 @@ def _codex_full_login_worker(session_id: str) -> None:
             return
 
         tokens = _codex_exchange_tokens(httpx, code_resp)
-        from hermes_cli.auth import _save_codex_tokens
+        from hermes_cli.auth import _save_codex_tokens, _utc_now_z
+        from hermes_cli.auth_constants import DEFAULT_CODEX_BASE_URL
+        from hermes_cli.web_server_oauth import _append_device_oauth
 
         # The cancellation check and the save are one atomic critical section
         # under the lock cancel_oauth_session() uses; otherwise DELETE could
         # flip "cancelled" between the check and the save and tokens would be
         # persisted after the user believed the login was aborted.
+        # append mirrors `hermes auth add openai-codex`: a second subscription is
+        # its own pool row. `_save_codex_tokens` would overwrite the one already saved.
         with _oauth_sessions_lock:
             if _codex_cancelled(sess, session_id, " before token save"):
                 return
             with _profile_scope(session_profile):
-                _save_codex_tokens(tokens)
+                if sess.get("append"):
+                    _append_device_oauth(
+                        "openai-codex",
+                        access_token=tokens["access_token"],
+                        refresh_token=tokens.get("refresh_token") or "",
+                        base_url=DEFAULT_CODEX_BASE_URL,
+                        last_refresh=_utc_now_z(),
+                    )
+                else:
+                    _save_codex_tokens(tokens)
             sess["status"] = "approved"
         _log.info("oauth/device: openai-codex login completed (session=%s)", session_id)
     except Exception as e:
@@ -468,11 +481,14 @@ async def _start_nous_device_code(profile: Optional[str]) -> Dict[str, Any]:
     }
 
 
-async def _start_codex_device_code(profile: Optional[str]) -> Dict[str, Any]:
+async def _start_codex_device_code(profile: Optional[str], *, append: bool = False) -> Dict[str, Any]:
     # The full Codex helper polls inline, so it runs in a worker thread and
     # proxies user_code + verification_url back via the session dict; block
     # briefly until the worker has populated the user_code, OR errored.
-    sid, _ = _new_oauth_session("openai-codex", "device_code", profile=profile)
+    # Set append before the worker starts. A late write can lose the race and
+    # the worker will replace the saved login instead of adding a pool row.
+    sid, sess = _new_oauth_session("openai-codex", "device_code", profile=profile)
+    sess["append"] = append
     _start_poller(_codex_full_login_worker, sid, prefix="oauth-codex")
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -556,7 +572,7 @@ async def _start_device_code_flow(provider_id: str, profile: Optional[str] = Non
     starter = _DEVICE_CODE_STARTERS.get(provider_id)
     if starter is None:
         raise HTTPException(status_code=400, detail=f"Provider {provider_id} does not support device-code flow")
-    if provider_id == "xai-oauth":
+    if provider_id in ("openai-codex", "xai-oauth"):
         return await starter(profile, append=append)
     return await starter(profile)
 

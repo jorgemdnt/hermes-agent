@@ -829,5 +829,49 @@ def test_status_falls_through_to_generic_dispatcher_for_catalog_only_provider():
     assert out["has_refresh_token"] is True
 
 
+def test_codex_worker_append_adds_a_pool_row(tmp_path, monkeypatch):
+    """A second ChatGPT login must not call `_save_codex_tokens`.
+
+    That save overwrites the singleton. `append` is the desktop form of
+    `hermes auth add openai-codex`: its own pool row.
+    """
+    from hermes_cli import auth as auth_mod
+
+    appended = []
+    saved = []
+    _make_profile_home(tmp_path, monkeypatch, profile="coder")
+    sid, sess = _rt_oauth._new_oauth_session("openai-codex", "device_code", profile="coder")
+    sess["append"] = True
+
+    monkeypatch.setattr(
+        _rt_oauth, "_codex_request_user_code",
+        lambda _httpx: {"user_code": "CODE", "device_auth_id": "id", "interval": 1},
+    )
+    monkeypatch.setattr(
+        _rt_oauth, "_codex_poll_authorization",
+        lambda _httpx, _sess, _sid: {"authorization_code": "auth", "code_verifier": "v"},
+    )
+    monkeypatch.setattr(
+        _rt_oauth, "_codex_exchange_tokens",
+        lambda _httpx, _code: {"access_token": "at-new", "refresh_token": "rt-new"},
+    )
+    monkeypatch.setattr(auth_mod, "_save_codex_tokens", lambda tokens: saved.append(tokens))
+    monkeypatch.setattr(
+        _web_server_oauth, "_append_device_oauth",
+        lambda provider, **kwargs: appended.append((provider, kwargs)),
+    )
+
+    try:
+        _rt_oauth._codex_full_login_worker(sid)
+        assert saved == []
+        assert appended[0][0] == "openai-codex"
+        assert appended[0][1]["access_token"] == "at-new"
+        assert appended[0][1]["refresh_token"] == "rt-new"
+        assert _web_server_oauth._oauth_sessions[sid]["status"] == "approved"
+    finally:
+        _web_server_oauth._oauth_sessions.pop(sid, None)
+
+
+
 
 

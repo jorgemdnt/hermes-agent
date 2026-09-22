@@ -12,7 +12,15 @@ import { SectionHeading } from './primitives'
 const STRATEGIES = ['fill_first', 'round_robin', 'least_used', 'random'] as const
 type Strategy = (typeof STRATEGIES)[number]
 
-export function PoolAccounts({ connected = [], profile }: { connected?: string[]; profile?: string }) {
+export const CAN_ADD_SUBSCRIPTION = new Set(['openai-codex', 'xai-oauth'])
+
+export function PoolAccounts({
+  connected = [],
+  profile
+}: {
+  connected?: Array<{ id: string; name?: string }>
+  profile?: string
+}) {
   const { t } = useI18n()
   const copy = t.settings.providers
   const [providers, setProviders] = useState<CredentialPoolProvider[]>([])
@@ -37,11 +45,11 @@ export function PoolAccounts({ connected = [], profile }: { connected?: string[]
     round_robin: copy.rotationRoundRobin
   }
 
+  const names = new Map(connected.map(item => [item.id, item.name ?? item.id]))
   const known = new Map(providers.map(group => [group.provider, group]))
-  for (const id of connected) {
-    if (!known.has(id)) {
-      known.set(id, { entries: [], provider: id, strategy: 'fill_first' })
-    }
+  for (const item of connected) {
+    if (!CAN_ADD_SUBSCRIPTION.has(item.id) || known.has(item.id)) continue
+    known.set(item.id, { entries: [], provider: item.id, strategy: 'fill_first' })
   }
   const groups = [...known.values()]
 
@@ -59,15 +67,17 @@ export function PoolAccounts({ connected = [], profile }: { connected?: string[]
           return (
             <div className="rounded-[6px] border border-(--ui-stroke-tertiary) px-3 py-2.5" key={group.provider}>
               <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="font-semibold">{group.provider}</span>
-                <Button
-                  onClick={() => startManualProviderOAuth(group.provider, profile, { append: true })}
-                  size="xs"
-                  type="button"
-                  variant="text"
-                >
-                  {copy.addSubscription}
-                </Button>
+                <span className="font-semibold">{names.get(group.provider) ?? group.provider}</span>
+                {CAN_ADD_SUBSCRIPTION.has(group.provider) && (
+                  <Button
+                    onClick={() => startManualProviderOAuth(group.provider, profile, { append: true })}
+                    size="xs"
+                    type="button"
+                    variant="text"
+                  >
+                    {copy.addSubscription}
+                  </Button>
+                )}
               </div>
               <ul className="mb-2 grid gap-1 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-secondary)">
                 {group.entries.map(entry => (
