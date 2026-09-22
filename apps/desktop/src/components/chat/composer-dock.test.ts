@@ -16,5 +16,7 @@ describe('composer surface treatments', () => {
     expect(hasBackdropFilter(composerInputSurface)).toBe(false)
     expect(hasBackdropFilter(composerDockCard())).toBe(true)
     expect(hasBackdropFilter(composerPanelCard)).toBe(true)
+    expect(composerPanelCard).toContain('bg-(--dt-card)')
+    expect(composerPanelCard).not.toContain('transparent')
   })
 })
