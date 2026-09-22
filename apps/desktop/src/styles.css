@@ -3172,6 +3172,12 @@ button[data-slot='aui_msg-reactions'] svg {
   filter: blur(1.5px);
 }
 
+[data-slot='composer-completion-drawer'] {
+  background: var(--dt-card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 [data-hud-shell] [data-slot='composer-completion-drawer'] {
   background: var(--dt-card) !important;
 }

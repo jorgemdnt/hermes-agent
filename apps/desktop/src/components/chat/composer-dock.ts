@@ -39,16 +39,14 @@ export const composerDockCard = (edge: 'bottom' | 'top' = 'top') =>
   cn('shrink-0', composerDockEdge(edge), composerFill, composerSurfaceGlass)
 
 /** Floating composer panel skin — the `/`·`@`·`?` completion drawer and the
- *  attach (`+`) menu. Solid card, hairline border, full radius, smallest type,
- *  soft nous shadow. A translucent fill here is the chat text showing through
- *  the list the user is trying to read. Uses an explicit fill (not
- *  `--composer-fill`) so it renders identically whether mounted inside the
- *  composer or portaled out of it. Visual skin only — consumers add their own
- *  size/position/padding. */
+ *  attach (`+`) menu. Opaque card. Backdrop blur on this surface samples the
+ *  transcript through the list, which is what made the skill picker unreadable
+ *  on window Glass. Uses an explicit fill (not `--composer-fill`) so it renders
+ *  identically whether mounted inside the composer or portaled out of it.
+ *  Visual skin only — consumers add their own size/position/padding. */
 export const composerPanelCard = cn(
   'rounded-2xl border border-border/65 shadow-nous text-[length:var(--conversation-tool-font-size)]',
-  'bg-(--dt-card)',
-  composerSurfaceGlass
+  'bg-(--dt-card) backdrop-blur-none [-webkit-backdrop-filter:none]'
 )
 
 /**
