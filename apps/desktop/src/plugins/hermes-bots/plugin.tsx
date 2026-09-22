@@ -19,6 +19,7 @@ import { CHAT_EMPTY_AREA, COMPOSER_AREAS, host, LocalizedTabTitle, PALETTE_AREA,
 import type { ChatEmptyProps, PluginContext } from '@hermes/plugin-sdk'
 
 import { pinChatToLatest } from '@/store/thread-scroll'
+import { $newChatProfile, requestFreshSession } from '@/store/profile'
 import { revealTreePane } from '@/components/pane-shell/tree/store'
 
 import { startFaceClock, stopFaceClock } from './avatar'
@@ -134,9 +135,10 @@ async function restoreSessionsChat(rememberedId: string): Promise<void> {
     return
   }
 
-  if (typeof host.newChat === 'function') {
-    host.newChat()
-  }
+  // Same door as ⌘N. host.newChat() pins the live bot and leaves a session id,
+  // so the composer stays on a follow-up and the wordmark never paints.
+  $newChatProfile.set(null)
+  requestFreshSession()
 }
 
 export default {

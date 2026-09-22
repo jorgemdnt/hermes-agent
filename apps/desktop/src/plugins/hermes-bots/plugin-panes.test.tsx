@@ -311,6 +311,8 @@ describe('Sessions | Bots tab focus', () => {
   })
 
   it('opens a new chat when every Sessions row is archived', async () => {
+    const { $freshSessionRequest, $newChatProfile } = await import('@/store/profile')
+    const drafts = $freshSessionRequest.get()
     mocks.focusedId = 'archived-sess'
     mocks.request.mockResolvedValue({ sessions: [] })
     mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
@@ -326,7 +328,9 @@ describe('Sessions | Bots tab focus', () => {
 
     expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
     expect(mocks.openSession).not.toHaveBeenCalled()
-    expect(mocks.newChat).toHaveBeenCalled()
+    expect(mocks.newChat).not.toHaveBeenCalled()
+    expect($newChatProfile.get()).toBeNull()
+    expect($freshSessionRequest.get()).toBe(drafts + 1)
 
     harness.dispose()
   })
