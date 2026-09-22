@@ -188,16 +188,9 @@ export function openSession(
       openSessionTile(storedSessionId, 'center')
     }
 
-    // The tile mirror adopts on the store write, but a roster chord (⌘1–3 on
-    // the Bots tab) returns before that pane is the zone's active tab. Front
-    // it here, and once more on the next frame if adoption landed late.
-    const paneId = `session-tile:${storedSessionId}`
-    revealTreePane(paneId)
-    queueMicrotask(() => revealTreePane(paneId))
-
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => revealTreePane(paneId))
-    }
+    // The tile mirror adopts on the store write. Front that pane once it exists.
+    // A second reveal on a later frame does not adopt anything the first missed.
+    revealTreePane(`session-tile:${storedSessionId}`)
 
     focusOpenSession(storedSessionId, workspaceScope)
 
