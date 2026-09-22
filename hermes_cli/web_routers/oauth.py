@@ -530,14 +530,14 @@ async def _start_minimax_device_code(profile: Optional[str]) -> Dict[str, Any]:
     )
 
 
-async def _start_xai_device_code(profile: Optional[str]) -> Dict[str, Any]:
+async def _start_xai_device_code(profile: Optional[str], *, append: bool = False) -> Dict[str, Any]:
     from hermes_cli.auth import _xai_oauth_request_device_code
     device_data = await _httpx_call(_xai_oauth_request_device_code, timeout=20.0)
     return _device_session_started(
         "xai-oauth", profile, _xai_device_poller,
         dict(
             device_code=str(device_data["device_code"]), interval=int(device_data["interval"]),
-            expires_at=time.time() + int(device_data["expires_in"]),
+            expires_at=time.time() + int(device_data["expires_in"]), append=append,
         ),
         str(device_data["user_code"]),
         str(device_data.get("verification_uri_complete") or device_data["verification_uri"]),
@@ -551,11 +551,13 @@ _DEVICE_CODE_STARTERS = {
 }
 
 
-async def _start_device_code_flow(provider_id: str, profile: Optional[str] = None) -> Dict[str, Any]:
+async def _start_device_code_flow(provider_id: str, profile: Optional[str] = None, *, append: bool = False) -> Dict[str, Any]:
     """Hit the provider's device-auth endpoint, spawn its poller, return the display fields."""
     starter = _DEVICE_CODE_STARTERS.get(provider_id)
     if starter is None:
         raise HTTPException(status_code=400, detail=f"Provider {provider_id} does not support device-code flow")
+    if provider_id == "xai-oauth":
+        return await starter(profile, append=append)
     return await starter(profile)
 
 
@@ -729,8 +731,13 @@ async def start_oauth_login(provider_id: str, request: Request, profile: Optiona
     if catalog_entry["flow"] == "external":
         raise HTTPException(400, f"{provider_id} uses an external CLI; run `{catalog_entry['cli_command']}` manually")
     try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    append = bool(body.get("append")) if isinstance(body, dict) else False
+    try:
         if catalog_entry["flow"] == "device_code":
-            return await _start_device_code_flow(provider_id, profile=profile)
+            return await _start_device_code_flow(provider_id, profile=profile, append=append)
     except HTTPException:
         raise
     except Exception as e:

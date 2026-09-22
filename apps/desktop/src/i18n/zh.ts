@@ -521,6 +521,7 @@ export const zh = defineLocale({
       archivedChats: '已归档对话',
       about: '关于',
       billing: '账单',
+      usage: '用量',
       notifications: '通知',
       vault: '密码与登录'
     },

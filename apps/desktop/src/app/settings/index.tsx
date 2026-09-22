@@ -56,6 +56,7 @@ import { NotificationsSettings } from './notifications-settings'
 import { SettingsBreadcrumbContext } from './primitives'
 import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
 import { SessionsSettings } from './sessions-settings'
+import { UsageSettings } from './usage-settings'
 import { SettingsSubpageHeader } from './subpage-navigation'
 import { resolveSettingsSubpage, settingsSubpageIcon, settingsSubpages } from './subpages'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
@@ -73,6 +74,7 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   'vault',
   'notifications',
   'billing',
+  'usage',
   'sessions',
   'about'
 ]
@@ -293,6 +295,13 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             id: 'billing',
             label: t.settings.nav.billing,
             onSelect: () => setActiveView('billing')
+          },
+          {
+            active: activeView === 'usage',
+            icon: BarChart3,
+            id: 'usage',
+            label: t.settings.nav.usage,
+            onSelect: () => setActiveView('usage')
           },
           {
             active: activeView === 'providers',
@@ -546,6 +555,8 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       <NotificationsSettings subpage={subpage} />
     ) : activeView === 'billing' ? (
       <BillingSettings />
+    ) : activeView === 'usage' ? (
+      <UsageSettings />
     ) : activeView === 'vault' ? (
       <VaultSettings key={vaultOwnerKey(activeConnectionId, scopeProfile)} subpage={subpage} />
     ) : (

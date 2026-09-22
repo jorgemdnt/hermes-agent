@@ -36,6 +36,7 @@ import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { LocalModelsSettings } from './local-models-settings'
 import { SettingsContent, SettingsSkeleton } from './primitives'
 import { SettingsProfileScope } from './profile-scope'
+import { PoolAccounts } from './pool-accounts'
 
 // The embedded terminal (and thus the "run disconnect command" path) only
 // exists in the Electron desktop shell, not the web dashboard.
@@ -542,6 +543,10 @@ export function ProvidersSettings({
         onWantLocalModels={() => onViewChange('local')}
         profile={scopeProfile}
         providers={oauthProviders}
+      />
+      <PoolAccounts
+        connected={oauthProviders.filter(provider => provider.status?.logged_in && provider.status.free_tier !== true).map(provider => provider.id)}
+        profile={scopeProfile ?? undefined}
       />
     </SettingsContent>
   )

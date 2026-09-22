@@ -140,6 +140,24 @@ def _get_usage_analytics(days: int = 30, profile: Optional[str] = None):
         db.close()
 
 
+@router.get("/api/analytics/account-limits")
+async def get_account_limits(profile: Optional[str] = None):
+    """Provider quota windows (5h, weekly, credits) for each signed-in provider.
+
+    Same fetch as ``hermes usage``. Providers with no usage endpoint come back
+    ``unavailable_reason`` set and no windows — the UI must not invent a meter.
+    """
+
+    def _load() -> Dict[str, Any]:
+        from agent.account_usage import list_configured_account_usage
+        from hermes_cli.subcommands.usage import usage_snapshot_document
+
+        with _profile_scope(profile):
+            return {"providers": [usage_snapshot_document(item) for item in list_configured_account_usage()]}
+
+    return await asyncio.to_thread(_load)
+
+
 @router.get("/api/analytics/usage")
 async def get_usage_analytics(
     days: int = Query(30, ge=1, le=365),

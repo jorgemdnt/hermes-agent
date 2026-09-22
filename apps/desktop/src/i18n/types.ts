@@ -458,8 +458,23 @@ export interface Translations {
       archivedChats: string
       about: string
       billing: string
+      usage: string
       notifications: string
       vault: string
+    }
+    usagePage: {
+      quotas: string
+      consumption: string
+      unavailable: string
+      noProviders: string
+      used: (percent: string) => string
+      resets: (when: string) => string
+      empty: string
+      refresh: string
+      days: (n: number) => string
+      tokens: string
+      cost: string
+      calls: string
     }
     plugins: {
       title: string
@@ -1350,6 +1365,13 @@ export interface Translations {
       connected: string
       collapse: string
       connectAnother: string
+      addSubscription: string
+      rotation: string
+      rotationFillFirst: string
+      rotationRoundRobin: string
+      rotationLeastUsed: string
+      rotationRandom: string
+      poolEmpty: string
       otherProviders: string
       disconnect: string
       disconnectInTerminal: string

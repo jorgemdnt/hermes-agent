@@ -26,7 +26,7 @@ from hermes_cli.web_server_files import _path_is_under
 from hermes_cli.web_server_gateway import _restart_gateway_after
 from hermes_cli.web_server_memory import _normalize_memory_provider_name, _require_memory_provider_ready
 from hermes_cli.web_models import (
-    BackupRequest, CredentialPoolAdd, HookCreate, HookDelete, ImportRequest, MemoryProviderSelect,
+    BackupRequest, CredentialPoolAdd, CredentialPoolStrategy, HookCreate, HookDelete, ImportRequest, MemoryProviderSelect,
     MemoryReset, PairingApprove, PairingRevoke, WebhookCreate, WebhookEnabledToggle,
 )
 from hermes_cli.web_routers._common import (
@@ -313,6 +313,12 @@ async def stop_gateway(profile: Optional[str] = None):
 # once froze the uvicorn loop for 17 minutes. Every pool load below runs off-loop.
 
 
+def _pool_strategy(provider: str) -> str:
+    from agent.credential_pool import get_pool_strategy
+
+    return get_pool_strategy(provider)
+
+
 def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
     """Redacted view of one PooledCredential; ``index`` is 1-based to match
     CredentialPool.remove_index()."""
@@ -350,6 +356,7 @@ async def list_credential_pool(profile: Optional[str] = None):
             if entries:
                 providers.append({
                     "provider": provider_id,
+                    "strategy": _pool_strategy(provider_id),
                     "entries": [_pool_entry_summary(e, i) for i, e in enumerate(entries, start=1)],
                 })
         return {"providers": providers}
@@ -357,6 +364,32 @@ async def list_credential_pool(profile: Optional[str] = None):
     # A named profile reads only its own auth.json (#111724), and the store path
     # resolves at call time — so the pool the dashboard shows is the one the
     # requested profile's agent would actually use.
+    return await config_scoped_to_thread(profile, _run)
+
+
+@router.put("/api/credentials/pool/{provider}/strategy")
+async def set_credential_pool_strategy(provider: str, body: CredentialPoolStrategy, profile: Optional[str] = None):
+    """Same write as ``hermes auth`` strategy: ``credential_pool_strategies.<provider>``."""
+    from agent.credential_pool import SUPPORTED_POOL_STRATEGIES
+    from hermes_cli.config import load_config, save_config
+
+    strategy = (body.strategy or "").strip().lower()
+    if strategy not in SUPPORTED_POOL_STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"strategy must be one of {sorted(SUPPORTED_POOL_STRATEGIES)}")
+    provider = (provider or "").strip().lower()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+
+    def _run():
+        cfg = load_config()
+        strategies = cfg.get("credential_pool_strategies")
+        if not isinstance(strategies, dict):
+            strategies = {}
+        strategies[provider] = strategy
+        cfg["credential_pool_strategies"] = strategies
+        save_config(cfg)
+        return {"ok": True, "provider": provider, "strategy": strategy}
+
     return await config_scoped_to_thread(profile, _run)
 
 

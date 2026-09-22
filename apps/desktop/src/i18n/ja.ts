@@ -385,6 +385,7 @@ export const ja = defineLocale({
       archivedChats: 'アーカイブ済みチャット',
       about: '情報',
       billing: '請求',
+      usage: '使用量',
       notifications: '通知',
       vault: 'パスワードとログイン'
     },

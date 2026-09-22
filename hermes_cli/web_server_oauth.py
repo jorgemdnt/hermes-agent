@@ -398,6 +398,35 @@ def _minimax_poller(session_id: str, sess: Dict[str, Any]) -> None:
         _minimax_save_auth_state(auth_state)
 
 
+def _append_device_oauth(
+    provider: str, *, access_token: str, refresh_token: str, base_url: str, last_refresh: str,
+) -> None:
+    """Add a second subscription the way ``hermes auth add`` does: its own pool row, not the singleton."""
+    import uuid
+
+    from agent.credential_pool import (
+        AUTH_TYPE_OAUTH, SOURCE_MANUAL_DEVICE_CODE, PooledCredential, label_from_token, load_pool,
+    )
+    from hermes_cli.auth import mark_provider_active_if_unset
+
+    pool = load_pool(provider)
+    existing = pool.entries()
+    pool.add_entry(PooledCredential(
+        provider=provider,
+        id=uuid.uuid4().hex[:6],
+        label=label_from_token(access_token, f"{provider}-oauth-{len(existing) + 1}"),
+        auth_type=AUTH_TYPE_OAUTH,
+        priority=0,
+        source=SOURCE_MANUAL_DEVICE_CODE,
+        access_token=access_token,
+        refresh_token=refresh_token or None,
+        base_url=base_url or None,
+        last_refresh=last_refresh or None,
+    ))
+    if not existing:
+        mark_provider_active_if_unset(provider)
+
+
 @_oauth_poller("xai")
 def _xai_device_poller(session_id: str, sess: Dict[str, Any]) -> None:
     """Background poller for xAI's OAuth device-code flow."""
@@ -422,15 +451,27 @@ def _xai_device_poller(session_id: str, sess: Dict[str, Any]) -> None:
         "token_type": str(token_data.get("token_type") or "Bearer").strip() or "Bearer",
     }
     with _profile_scope(_oauth_session_profile(session_id)):
-        # set_active=False: persist without hijacking an existing active chat provider.
-        _save_xai_oauth_tokens(
-            tokens, discovery=discovery, auth_mode="oauth_device_code", set_active=False,
-            last_refresh=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        )
-        # Mirror `hermes auth add xai-oauth`: first credential may become active; never overwrite.
-        mark_provider_active_if_unset("xai-oauth")
-        # The singleton write is the source of truth (the pool load seeds it as the canonical
-        # ``device_code`` entry). Do NOT add a parallel ``manual:dashboard_*`` pool entry — it
-        # duplicates the single-use refresh token and triggers ``refresh_token_reused`` churn.
-        # An interactive login is an explicit re-enable, so clear any prior suppression.
+        if sess.get("append"):
+            # A second subscription is its own pool entry, same as ``hermes auth add``.
+            # Overwriting the singleton would revoke the account already signed in.
+            from hermes_cli.auth_constants import DEFAULT_XAI_OAUTH_BASE_URL
+
+            _append_device_oauth(
+                "xai-oauth",
+                access_token=tokens["access_token"],
+                refresh_token=tokens["refresh_token"],
+                base_url=DEFAULT_XAI_OAUTH_BASE_URL,
+                last_refresh=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+        else:
+            # set_active=False: persist without hijacking an existing active chat provider.
+            _save_xai_oauth_tokens(
+                tokens, discovery=discovery, auth_mode="oauth_device_code", set_active=False,
+                last_refresh=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+            # Mirror `hermes auth add xai-oauth`: first credential may become active; never overwrite.
+            mark_provider_active_if_unset("xai-oauth")
+        # The singleton write is the source of truth for the first login (the pool load seeds it as
+        # the canonical ``device_code`` entry). An append login is a distinct token pair and must not
+        # also be written as that singleton — sharing one refresh token triggers ``refresh_token_reused``.
         unsuppress_credential_source("xai-oauth", "device_code")

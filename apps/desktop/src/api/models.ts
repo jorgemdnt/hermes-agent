@@ -1,6 +1,7 @@
 import type { ModelOptionsResult } from '@hermes/shared'
 
 import type {
+  AccountLimitsResponse,
   AnalyticsResponse,
   AuxiliaryModelsResponse,
   MoaConfigResponse,
@@ -23,6 +24,13 @@ export function getUsageAnalytics(days = 30, profile?: ProfileScope): Promise<An
   return window.hermesDesktop.api<AnalyticsResponse>({
     ...capabilityScoped(profile),
     path: `/api/analytics/usage?days=${Math.max(1, Math.floor(days))}`
+  })
+}
+
+export function getAccountLimits(profile?: ProfileScope): Promise<AccountLimitsResponse> {
+  return window.hermesDesktop.api<AccountLimitsResponse>({
+    ...capabilityScoped(profile),
+    path: '/api/analytics/account-limits'
   })
 }
 

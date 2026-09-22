@@ -644,9 +644,16 @@ def _fetch_openrouter_account_usage(base_url: Optional[str], api_key: Optional[s
     return _snapshot("openrouter", "credits_api", windows, details)
 
 
+def _fetch_xai_account_usage(base_url: Optional[str], api_key: Optional[str]) -> Optional[AccountUsageSnapshot]:
+    from agent.account_usage_xai import fetch_xai_account_usage
+
+    return fetch_xai_account_usage(base_url, api_key)
+
+
 _USAGE_FETCHERS: dict[str, Callable[[Optional[str], Optional[str]], Optional[AccountUsageSnapshot]]] = {
     "openai-codex": _fetch_codex_account_usage, "anthropic": _fetch_anthropic_account_usage,
     "openrouter": _fetch_openrouter_account_usage,
+    "xai": _fetch_xai_account_usage, "xai-oauth": _fetch_xai_account_usage,
 }
 
 
@@ -669,6 +676,50 @@ def _call_plugin_usage_hook(profile, base_url: Optional[str], api_key: Optional[
         lambda: profile.fetch_account_usage(base_url=base_url, api_key=api_key),
         PLUGIN_USAGE_HOOK_DEADLINE_S, label="plugin-account-usage")
     return None if bounded.timed_out else bounded.value
+
+
+def configured_usage_provider_ids() -> list[str]:
+    """Signed-in auth providers, with the configured model provider first.
+
+    Names only. Credentials stay in the auth store.
+    """
+    seen: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip().lower()
+        if text and text not in seen:
+            seen.append(text)
+
+    try:
+        from hermes_cli.config import load_config
+
+        add((load_config().get("model") or {}).get("provider"))
+    except Exception:
+        logger.debug("account usage: could not read model.provider", exc_info=True)
+    try:
+        from hermes_cli.auth import _load_auth_store
+
+        providers = _load_auth_store().get("providers")
+        if isinstance(providers, dict):
+            for key in providers:
+                add(key)
+    except Exception:
+        logger.debug("account usage: could not read auth providers", exc_info=True)
+    return seen
+
+
+def list_configured_account_usage() -> list[AccountUsageSnapshot]:
+    """One snapshot per signed-in provider. Missing endpoints stay unavailable, not invented."""
+    snapshots: list[AccountUsageSnapshot] = []
+    for provider in configured_usage_provider_ids():
+        snapshot = fetch_account_usage(provider)
+        if snapshot is None:
+            snapshot = AccountUsageSnapshot(
+                provider=provider, source="none", fetched_at=_utc_now(),
+                unavailable_reason="Usage unavailable",
+            )
+        snapshots.append(snapshot)
+    return snapshots
 
 
 def fetch_account_usage(

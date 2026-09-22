@@ -895,6 +895,28 @@ export interface AnalyticsResponse {
   totals: AnalyticsTotals
 }
 
+export interface AccountLimitWindow {
+  detail: string | null
+  label: string
+  resets_at: string | null
+  used_percent: number | null
+}
+
+export interface AccountLimitSnapshot {
+  details: string[]
+  fetched_at: string
+  plan: string | null
+  provider: string
+  source: string
+  title: string
+  unavailable_reason: string | null
+  windows: AccountLimitWindow[]
+}
+
+export interface AccountLimitsResponse {
+  providers: AccountLimitSnapshot[]
+}
+
 export interface AnalyticsToolEntry {
   count: number
   percentage: number

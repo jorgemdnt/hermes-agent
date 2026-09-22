@@ -318,12 +318,16 @@ export function disconnectOAuthProvider(
   })
 }
 
-export function startOAuthLogin(providerId: string, profile?: ProfileScope): Promise<OAuthStartResponse> {
+export function startOAuthLogin(
+  providerId: string,
+  profile?: ProfileScope,
+  opts?: { append?: boolean }
+): Promise<OAuthStartResponse> {
   return window.hermesDesktop.api<OAuthStartResponse>({
     ...capabilityScoped(profile),
     path: `/api/providers/oauth/${encodeURIComponent(providerId)}/start`,
     method: 'POST',
-    body: {}
+    body: opts?.append ? { append: true } : {}
   })
 }
 
@@ -357,5 +361,40 @@ export function cancelOAuthSession(sessionId: string, profile?: null | string): 
     ...profileScoped(profile),
     path: `/api/providers/oauth/sessions/${encodeURIComponent(sessionId)}`,
     method: 'DELETE'
+  })
+}
+
+export interface CredentialPoolEntry {
+  id: string
+  index: number
+  label: string
+  auth_type: string
+  last_status: string | null
+  source: string
+}
+
+export interface CredentialPoolProvider {
+  entries: CredentialPoolEntry[]
+  provider: string
+  strategy?: string
+}
+
+export function listCredentialPool(profile?: ProfileScope): Promise<{ providers: CredentialPoolProvider[] }> {
+  return window.hermesDesktop.api<{ providers: CredentialPoolProvider[] }>({
+    ...capabilityScoped(profile),
+    path: '/api/credentials/pool'
+  })
+}
+
+export function setCredentialPoolStrategy(
+  provider: string,
+  strategy: string,
+  profile?: ProfileScope
+): Promise<{ ok: boolean; strategy: string }> {
+  return window.hermesDesktop.api<{ ok: boolean; strategy: string }>({
+    ...capabilityScoped(profile),
+    body: { strategy },
+    method: 'PUT',
+    path: `/api/credentials/pool/${encodeURIComponent(provider)}/strategy`
   })
 }

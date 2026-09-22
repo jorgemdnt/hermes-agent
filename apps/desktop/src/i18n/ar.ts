@@ -439,6 +439,7 @@ export const ar = defineLocale({
       archivedChats: 'المحادثات المؤرشفة',
       about: 'حول',
       notifications: 'الإشعارات',
+      usage: 'الاستخدام',
       keybinds: 'اختصارات لوحة المفاتيح',
       vault: 'كلمات المرور وتسجيلات الدخول'
     },

@@ -378,6 +378,9 @@ class CredentialPoolAdd(BaseModel):
     api_key: str  # OAuth pooling stays CLI-only (needs an interactive browser flow)
     label: Optional[str] = None
 
+class CredentialPoolStrategy(BaseModel):
+    strategy: str
+
 class MemoryProviderSelect(BaseModel):
     provider: str  # "" or "built-in" disables the external provider
 

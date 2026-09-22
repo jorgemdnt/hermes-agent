@@ -573,6 +573,7 @@ export function startManualOnboarding(reason: null | string = DEFAULT_MANUAL_ONB
 export function startManualLocalEndpoint(reason: null | string = null, profile?: string) {
   cancelOnboardingFlow()
   pendingProviderOAuthId = null
+  pendingOAuthAppend = false
   patch({
     manual: true,
     targetProfile: profile,
@@ -592,10 +593,16 @@ export function startManualLocalEndpoint(reason: null | string = null, profile?:
 // Module-level (not store state) because it's consumed immediately on the next
 // overlay render and never needs to persist or re-render anything itself.
 let pendingProviderOAuthId: null | string = null
+let pendingOAuthAppend = false
 
-export function startManualProviderOAuth(providerId: string, profile?: string) {
+export function startManualProviderOAuth(providerId: string, profile?: string, opts?: { append?: boolean }) {
   pendingProviderOAuthId = providerId
+  pendingOAuthAppend = Boolean(opts?.append)
   startManualOnboarding(null, profile)
+}
+
+export function peekPendingOAuthAppend(): boolean {
+  return pendingOAuthAppend
 }
 
 // Read the pending provider id without clearing it. The overlay only clears it
@@ -608,6 +615,7 @@ export function peekPendingProviderOAuth(): null | string {
 
 export function clearPendingProviderOAuth() {
   pendingProviderOAuthId = null
+  pendingOAuthAppend = false
 }
 
 // Dismiss a manually-opened provider selector without touching the existing
@@ -617,6 +625,7 @@ export function closeManualOnboarding() {
   cancelOnboardingFlow()
   providersRefreshPromise = null
   pendingProviderOAuthId = null
+  pendingOAuthAppend = false
 
   patch({
     targetProfile: undefined,
@@ -812,7 +821,7 @@ export async function startProviderOAuth(provider: OAuthProvider, ctx: Onboardin
   setFlow({ status: 'starting', provider })
 
   try {
-    const start = await startOAuthLogin(provider.id, ctx.profile)
+    const start = await startOAuthLogin(provider.id, ctx.profile, { append: peekPendingOAuthAppend() })
 
     if (generation !== flowGeneration) {
       void cancelOAuthSession(start.session_id, ctx.profile).catch(() => undefined)

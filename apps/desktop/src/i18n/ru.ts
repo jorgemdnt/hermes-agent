@@ -480,6 +480,7 @@ export const ru = defineLocale({
       archivedChats: 'Архив чатов',
       about: 'О программе',
       billing: 'Оплата',
+      usage: 'Использование',
       notifications: 'Уведомления'
     },
     plugins: {
