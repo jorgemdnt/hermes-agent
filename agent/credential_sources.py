@@ -181,10 +181,30 @@ def _remove_xai_oauth_device_code(provider: str, removed) -> RemovalResult:
 def _remove_codex_device_code(provider: str, removed) -> RemovalResult:
     """Codex tokens also live in ~/.codex/auth.json (Codex CLI's file, kept).
 
-    Suppress the canonical ``device_code`` key — not just ``removed.source`` —
-    so a ``manual:device_code`` removal still blocks the re-seed path.
+    The seeded ``device_code`` row is the auth.json singleton. Clearing that
+    singleton is correct when the user removes that row.
+
+    An added subscription is ``manual:device_code`` and is its own pool row.
+    Removing it must not clear the singleton or suppress ``device_code``, or
+    the other saved login disappears with it. Only a row that is the same
+    principal as the singleton (a legacy alias) takes the wipe path.
     """
-    from hermes_cli.auth import suppress_credential_source
+    from agent.credential_pool import SOURCE_MANUAL_DEVICE_CODE, _codex_principal_identity
+    from hermes_cli.auth import _load_auth_store, _load_provider_state, suppress_credential_source
+
+    if getattr(removed, "source", "") == SOURCE_MANUAL_DEVICE_CODE:
+        state = _load_provider_state(_load_auth_store(), provider)
+        tokens = state.get("tokens") if isinstance(state, dict) else None
+        singleton_token = tokens.get("access_token") if isinstance(tokens, dict) else None
+        if singleton_token:
+            removed_id = _codex_principal_identity(getattr(removed, "access_token", None))
+            singleton_id = _codex_principal_identity(singleton_token)
+            same_account = removed_id is not None and removed_id == singleton_id
+            if not same_account:
+                return RemovalResult(
+                    suppress=False,
+                    hints=["Removed that subscription. The other saved login is unchanged."],
+                )
 
     result = _remove_auth_store_oauth(provider, removed)
     suppress_credential_source(provider, "device_code")

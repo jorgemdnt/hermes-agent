@@ -1,11 +1,13 @@
+import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { listCredentialPool, setCredentialPoolStrategy, type CredentialPoolProvider } from '@/api/config'
+import { listCredentialPool, removeCredentialPoolEntry, setCredentialPoolStrategy, type CredentialPoolProvider } from '@/api/config'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { useI18n } from '@/i18n'
-import { KeyRound } from '@/lib/icons'
-import { startManualProviderOAuth } from '@/store/onboarding'
+import { KeyRound, Trash2 } from '@/lib/icons'
+import { confirm } from '@/store/confirm'
+import { $desktopOnboarding, startManualProviderOAuth } from '@/store/onboarding'
 
 import { SectionHeading } from './primitives'
 
@@ -23,7 +25,9 @@ export function PoolAccounts({
 }) {
   const { t } = useI18n()
   const copy = t.settings.providers
+  const flow = useStore($desktopOnboarding).flow
   const [providers, setProviders] = useState<CredentialPoolProvider[]>([])
+  const [removing, setRemoving] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +41,28 @@ export function PoolAccounts({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (flow.status === 'success' && CAN_ADD_SUBSCRIPTION.has(flow.provider.id)) {
+      void load()
+    }
+  }, [flow, load])
+
+  const remove = useCallback(async (provider: string, index: number, label: string) => {
+    const ok = await confirm({
+      confirmLabel: t.common.remove,
+      destructive: true,
+      title: copy.removeConfirm(label)
+    })
+    if (!ok) return
+    setRemoving(`${provider}:${index}`)
+    try {
+      await removeCredentialPoolEntry(provider, index, profile)
+      await load()
+    } finally {
+      setRemoving(null)
+    }
+  }, [copy, load, profile, t.common.remove])
 
   const labels: Record<Strategy, string> = {
     fill_first: copy.rotationFillFirst,
@@ -80,12 +106,28 @@ export function PoolAccounts({
                 )}
               </div>
               <ul className="mb-2 grid gap-1 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-secondary)">
-                {group.entries.map(entry => (
-                  <li key={entry.id}>
-                    {entry.label}
-                    {entry.last_status ? ` · ${entry.last_status}` : ''}
-                  </li>
-                ))}
+                {group.entries.length === 0 ? (
+                  <li>{copy.poolEmpty}</li>
+                ) : (
+                  group.entries.map(entry => (
+                    <li className="flex items-center justify-between gap-2" key={entry.id}>
+                      <span className="min-w-0 truncate">
+                        {entry.label}
+                        {entry.last_status ? ` · ${entry.last_status}` : ''}
+                      </span>
+                      <Button
+                        aria-label={`${t.common.remove} ${entry.label}`}
+                        disabled={removing === `${group.provider}:${entry.index}`}
+                        onClick={() => void remove(group.provider, entry.index, entry.label)}
+                        size="icon-xs"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </li>
+                  ))
+                )}
               </ul>
               <SegmentedControl
                 onChange={id => {

@@ -910,6 +910,34 @@ def test_auth_remove_codex_migrates_legacy_dict_suppression(tmp_path, monkeypatc
     assert load_pool("openai-codex").peek() is None
 
 
+def test_auth_remove_added_codex_subscription_keeps_the_other(tmp_path, monkeypatch):
+    """Deleting an added ChatGPT subscription must not wipe the original login."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    store = _codex_pool_only_store()
+    store["providers"] = {
+        "openai-codex": {
+            "tokens": {"access_token": "singleton-at", "refresh_token": "singleton-rt"},
+            "auth_mode": "chatgpt",
+        }
+    }
+    added = store["credential_pool"]["openai-codex"][0]
+    added.update({"id": "added-1", "label": "second", "access_token": "other-at"})
+    _write_auth_store(tmp_path, store)
+
+    from types import SimpleNamespace
+    from hermes_cli.auth_commands import auth_remove_command
+
+    auth_remove_command(SimpleNamespace(provider="openai-codex", target="second"))
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text(encoding="utf-8"))
+    tokens = payload["providers"]["openai-codex"]["tokens"]
+    assert tokens["access_token"] == "singleton-at"
+    assert tokens["refresh_token"] == "singleton-rt"
+    labels = [item.get("label") for item in payload.get("credential_pool", {}).get("openai-codex", [])]
+    assert "second" not in labels
+    assert "device_code" not in payload.get("suppressed_sources", {}).get("openai-codex", [])
+
+
 def test_clear_provider_auth_removes_provider_pool_entries(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(

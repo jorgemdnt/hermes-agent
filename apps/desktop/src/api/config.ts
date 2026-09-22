@@ -386,6 +386,18 @@ export function listCredentialPool(profile?: ProfileScope): Promise<{ providers:
   })
 }
 
+export function removeCredentialPoolEntry(
+  provider: string,
+  index: number,
+  profile?: ProfileScope
+): Promise<{ ok: boolean }> {
+  return window.hermesDesktop.api<{ ok: boolean }>({
+    ...capabilityScoped(profile),
+    method: 'DELETE',
+    path: `/api/credentials/pool/${encodeURIComponent(provider)}/${index}`
+  })
+}
+
 export function setCredentialPoolStrategy(
   provider: string,
   strategy: string,
