@@ -62,7 +62,7 @@ def test_fifo_survives_clock_rollback(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("capable", [True, False])
-def test_only_canonical_capable_owner_receives_across_compression(tmp_path, capable):
+def test_bot_chat_lease_is_pinned_without_a_second_writer(tmp_path, capable):
     from hermes_state import SessionDB
     from hermes_cli.active_sessions import try_acquire_active_session, transfer_active_session
     from tools import bot_live_delivery as mailbox
@@ -76,9 +76,7 @@ def test_only_canonical_capable_owner_receives_across_compression(tmp_path, capa
     assert refusal is None
     try:
         owner = mailbox.find_canonical_live_owner(tmp_path)
-        if not capable:
-            assert owner is None
-            return
+        assert owner is not None
         assert owner["lease_id"] == lease.lease_id
         queued = mailbox.deliver_to_live_owner(tmp_path, owner, "before compression")
         db.end_session("chat", "compression")
@@ -93,6 +91,17 @@ def test_only_canonical_capable_owner_receives_across_compression(tmp_path, capa
     finally:
         lease.release()
         db.close()
+
+
+def test_declining_the_oldest_does_not_skip_to_a_later_message(tmp_path):
+    from tools import bot_live_delivery as mailbox
+
+    owner = dict(profile_home=str(tmp_path.resolve()), session_id="chat",
+                 lease_id="lease", live_session_id="live")
+    mailbox.deliver_to_live_owner(tmp_path, owner, "queue-me", delivery_id="e" * 32)
+    mailbox.deliver_to_live_owner(tmp_path, owner, "steer-me", delivery_id="f" * 32)
+    assert mailbox.claim_pending_delivery(tmp_path, owner, accept=lambda record: False) is None
+    assert mailbox.claim_pending_delivery(tmp_path, owner)["message"] == "queue-me"
 
 
 def test_delivery_keeps_the_sender_and_refuses_a_different_one_under_the_same_id(tmp_path):

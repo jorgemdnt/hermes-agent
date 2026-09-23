@@ -594,18 +594,22 @@ def _notif_handle_ready(sid, session, events, emitted, registry, fmt, deferred, 
 
 
 def _poll_bot_live_delivery_once(sid: str, session: dict) -> bool:
-    """Run one durable envelope only after local FIFO/continuations yield the idle boundary."""
-    from tools.bot_live_delivery import claim_pending_delivery, complete_delivery, find_canonical_live_owner, has_mailbox
+    """Apply one bot message the way a typed submit would: turn, steer, queue, or interrupt."""
+    from tools.bot_live_delivery import (
+        claim_pending_delivery, complete_delivery, find_canonical_live_owner, has_mailbox, live_delivery_action,
+    )
 
     home = _session_home(session)
     # Most profiles never receive a delivery: without a mailbox there is nothing to claim, and the owner
     # lookup below costs a state.db open plus the exclusive active-session registry lock every pass (#111719).
     if not has_mailbox(home):
         return False
+    running = bool(session.get("running"))
     with _session_turn_admission(session) as admitted:
-        if not admitted or any(session.get(key) for key in (
-                "running", "_closing", "_finalized", "queued_prompt", "queued_prompts",
-                "_auto_continue_scheduled")) or session.get("agent") is None:
+        if not admitted or session.get("_closing") or session.get("_finalized") or session.get("agent") is None:
+            return False
+        if not running and any(session.get(key) for key in (
+                "queued_prompt", "queued_prompts", "_auto_continue_scheduled")):
             return False
         lease = session.get("active_session_lease")
         if lease is None or getattr(lease, "released", False):
@@ -615,13 +619,28 @@ def _poll_bot_live_delivery_once(sid: str, session: dict) -> bool:
                 or owner.get("live_session_id") != sid
                 or owner.get("session_id") != session.get("session_key")):
             return False
-        # The mailbox matches each envelope to this pinned lease/live id and compression lineage.
-        claimed = claim_pending_delivery(home, owner)
+        loader = globals().get("_load_busy_input_mode")
+        fallback = str(loader() if callable(loader) else "interrupt")
+
+        def accept(record: dict) -> bool:
+            action = live_delivery_action(running, record.get("delivery") or fallback)
+            return action in {"steer", "interrupt"} if running else True
+
+        claimed = claim_pending_delivery(home, owner, accept=accept)
         if claimed is None:
             return False
-        session["running"] = True
+        if not running:
+            session["running"] = True
 
     delivery_id = str(claimed["id"])
+    action = live_delivery_action(running, claimed.get("delivery") or fallback)
+    if running:
+        busy = _handle_busy_submit(
+            f"__bot_dm__{delivery_id}", sid, session, claimed["message"],
+            session.get("transport"), mode=action, turn_author=claimed.get("author") or None)
+        status = str((busy or {}).get("result", {}).get("status") or "queued")
+        complete_delivery(home, delivery_id, status="settled", reason=status or action)
+        return True
 
     def terminal_receipt(terminal: dict) -> None:
         status = str(terminal.get("status") or "failed")

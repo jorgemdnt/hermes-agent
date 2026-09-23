@@ -36,6 +36,8 @@ class CLITuiRuntimeMixin:
                 except queue.Empty:
                     if not self._agent_running:
                         self._tui_idle_tick()
+                    else:
+                        self._drain_bot_live_delivery_busy()
                     continue
                 self._tui_process_one_input(user_input)
             except Exception as e:
@@ -54,9 +56,95 @@ class CLITuiRuntimeMixin:
             lambda: self._drain_process_notifications("cli-idle"),
             self._maybe_fire_loop_tick,
             self._maybe_resume_parked_goal,
+            self._drain_bot_live_delivery,
         ):
             with suppress(Exception):
                 step()
+
+    def _drain_bot_live_delivery(self) -> None:
+        """Inject one queued Bot Chat DM when this process is the live owner.
+
+        Throttled: the owner lookup takes the active-session registry lock, and
+        this idle tick runs every 100ms.
+        """
+        now = time.monotonic()
+        if now - getattr(self, "_bot_dm_polled_at", 0.0) < 5.0:
+            return
+        if getattr(self, "_pending_bot_delivery", None) is not None:
+            return
+        self._bot_dm_polled_at = now
+        lease = getattr(self, "_active_session_lease", None)
+        if lease is None or getattr(lease, "released", False):
+            return
+        from hermes_constants import get_hermes_home
+        from tools.bot_live_delivery import (
+            claim_pending_delivery,
+            find_canonical_live_owner,
+            has_mailbox,
+        )
+
+        home = get_hermes_home()
+        if not has_mailbox(home):
+            return
+        owner = find_canonical_live_owner(home)
+        if not owner or owner.get("lease_id") != lease.lease_id:
+            return
+        if owner.get("live_session_id") != str(self.session_id):
+            return
+        claimed = claim_pending_delivery(home, owner)
+        if not claimed:
+            return
+        self._pending_bot_delivery = {"home": str(home), "id": claimed["id"], "kind": "mailbox"}
+        self._pending_input.put(claimed["message"])
+
+    def _finish_bot_delivery(self, reply: str | None) -> None:
+        pending = getattr(self, "_pending_bot_delivery", None)
+        if not pending:
+            return
+        self._pending_bot_delivery = None
+        status = "cancelled" if getattr(self, "_last_turn_interrupted", False) else "settled"
+        text = reply or ""
+        from tools.bot_live_delivery import complete_delivery
+        complete_delivery(pending["home"], pending["id"], status=status, reply=text if status == "settled" else "")
+
+    def _drain_bot_live_delivery_busy(self) -> None:
+        """While a turn is running, steer or interrupt a bot message. Queue waits for idle."""
+        now = time.monotonic()
+        if now - getattr(self, "_bot_dm_polled_at", 0.0) < 5.0:
+            return
+        self._bot_dm_polled_at = now
+        lease = getattr(self, "_active_session_lease", None)
+        if lease is None or getattr(lease, "released", False):
+            return
+        from hermes_constants import get_hermes_home
+        from tools.bot_live_delivery import (
+            claim_pending_delivery, complete_delivery, find_canonical_live_owner, has_mailbox, live_delivery_action,
+        )
+
+        home = get_hermes_home()
+        if not has_mailbox(home):
+            return
+        owner = find_canonical_live_owner(home)
+        if not owner or owner.get("lease_id") != lease.lease_id:
+            return
+        if owner.get("live_session_id") != str(getattr(self, "session_id", "")):
+            return
+        fallback = getattr(self, "busy_input_mode", "interrupt")
+
+        def accept(record: dict) -> bool:
+            return live_delivery_action(True, record.get("delivery") or fallback) in {"steer", "interrupt"}
+
+        claimed = claim_pending_delivery(home, owner, accept=accept)
+        if not claimed:
+            return
+        mode = live_delivery_action(True, claimed.get("delivery") or fallback)
+        saved = self.busy_input_mode
+        self.busy_input_mode = mode
+        try:
+            self._tui_enter_while_busy(claimed["message"], [], claimed["message"])
+        finally:
+            self.busy_input_mode = saved
+        complete_delivery(home, claimed["id"], status="settled", reason=mode)
 
     def _tui_process_one_input(self, user_input):
         """Route one submitted input: file drop, /resume pick, ! shell, slash command, or a chat turn."""
@@ -119,10 +207,11 @@ class CLITuiRuntimeMixin:
         self._pet_turn_error = self._pet_reasoning = False
         self._turn_summary_begin()
         self._app.invalidate()
+        reply = None
         try:
-            self.chat(notification_preview or user_input, images=submit_images or None, voice_input=is_voice_input)
+            reply = self.chat(notification_preview or user_input, images=submit_images or None, voice_input=is_voice_input)
         finally:
-            self._tui_after_turn()
+            self._tui_after_turn(reply)
 
     def _tui_run_slash_input(self, user_input: str):
         """Dispatch a slash command. Returns the pending agent seed to run as a chat turn, else None."""
@@ -140,9 +229,10 @@ class CLITuiRuntimeMixin:
         _seed, self._pending_agent_seed = self._pending_agent_seed, None
         return _seed or None
 
-    def _tui_after_turn(self):
+    def _tui_after_turn(self, reply: str | None = None):
         """Post-turn bookkeeping after chat() returns (normal, error, or interrupt)."""
         from cli import _DIM, _RST, _cprint
+        self._finish_bot_delivery(reply)
         self._agent_running = self._pet_reasoning = False
         self._spinner_text = self._last_scrollback_tool = ""
         self._tool_start_time = 0.0

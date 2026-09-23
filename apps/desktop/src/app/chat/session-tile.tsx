@@ -118,9 +118,10 @@ export function shouldResumeSessionTile(opts: {
   removalPending: boolean
   resuming: boolean
   runtimeId: null | string | undefined
+  suppressAutoResume?: boolean
   tileError: string | undefined
 }): boolean {
-  return !opts.removalPending && opts.gatewayOpen && !opts.runtimeId && !opts.tileError && !opts.resuming
+  return !opts.removalPending && opts.gatewayOpen && !opts.runtimeId && !opts.tileError && !opts.resuming && !opts.suppressAutoResume
 }
 
 /** The tile's SessionView: the same atom shape the primary chat renders
@@ -438,6 +439,7 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
         removalPending: isSessionRemovalPending(storedSessionId),
         resuming: resumingRef.current,
         runtimeId,
+        suppressAutoResume: tile?.suppressAutoResume,
         tileError: tile?.error
       })
     ) {
@@ -480,7 +482,7 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
       .finally(() => {
         resumingRef.current = false
       })
-  }, [delegateRevision, gatewayOpen, ownerRoute, runtimeId, storedSessionId, tile?.error])
+  }, [delegateRevision, gatewayOpen, ownerRoute, runtimeId, storedSessionId, tile?.error, tile?.suppressAutoResume])
 
   // The gateway (re)opening invalidates any latched error — it likely came
   // from a not-yet-open gateway or the previous connection. Clearing it

@@ -246,12 +246,17 @@ def _ac_try_correction(rid, session: dict, agent: Any, method: str, plain_text: 
 
 
 def _handle_busy_submit(rid, sid: str, session: dict, text: Any, transport: Any, queued: bool = False,
-                        turn_author: dict | None = None) -> dict | None:
-    """Apply ``display.busy_input_mode`` to a mid-turn prompt instead of rejecting it (rejection made clients busy-retry
-    and drop sends): ``interrupt`` (default) → redirect, falling back to hard interrupt + queue; ``queue`` → queue only;
-    ``steer`` → inject after the current atomic action. ``queued=True`` (client queue drain) forces queue mode: a "run
-    after" message must NEVER become a live correction."""
-    mode = "queue" if queued else _load_busy_input_mode()
+                        turn_author: dict | None = None, mode: str | None = None) -> dict | None:
+    """Apply a mid-turn prompt instead of rejecting it.
+
+    ``mode`` is the same choice a person has: ``interrupt`` (redirect, else hard
+    interrupt + queue), ``queue`` (next turn only), ``steer`` (inject after the
+    current atomic action). ``queued=True`` forces queue: a "run after" message
+    must never become a live correction. Omitted mode uses ``display.busy_input_mode``.
+    """
+    from tools.bot_live_delivery import resolve_delivery_mode
+
+    mode = "queue" if queued else resolve_delivery_mode(mode, _load_busy_input_mode())
     agent = session.get("agent")
     with session["history_lock"]:
         if not session.get("running"):

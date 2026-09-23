@@ -744,6 +744,39 @@ def test_delivery_runner_surfaces_live_owner_refusal(tmp_path, capsys):
     assert "NOT delivered" in payload["error"]
 
 
+def test_live_owner_is_steered_instead_of_spawning_a_second_writer(tmp_path, monkeypatch):
+    """A Bot Chat lease is the writer. Delivery queues on it. It does not spawn."""
+    from hermes_cli.active_sessions import try_acquire_active_session
+    from hermes_state import SessionDB
+    from tools import bot_live_delivery as mailbox
+
+    db = SessionDB(db_path=tmp_path / "state.db")
+    db.create_session(session_id="chat", source="cli")
+    db.set_session_title("chat", "Bot Chat")
+    lease, refusal = try_acquire_active_session(
+        session_id="chat", surface="cli", config={}, registry_home=tmp_path,
+        metadata={"live_session_id": "live"},
+    )
+    assert refusal is None
+    owner = mailbox.find_canonical_live_owner(tmp_path)
+    assert owner is not None
+    dm_file = tmp_path / "message.txt"
+    dm_file.write_text("steer this", encoding="utf-8")
+    spawned = []
+    monkeypatch.setattr(bot_mode_dm, "_wait_live_dm", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(bot_mode_dm.subprocess, "run", lambda *args, **kwargs: spawned.append(args) or None)
+    try:
+        assert bot_mode_dm._run_delivery(
+            ["hermes", "-p", "ops"], str(dm_file), stdin_file=False, profile_home=tmp_path,
+        ) == 0
+        queued = mailbox.claim_pending_delivery(tmp_path, owner)
+    finally:
+        lease.release()
+        db.close()
+    assert spawned == []
+    assert queued is not None and queued["message"] == "steer this"
+
+
 def test_local_turn_reemits_empty_stdout_for_a_bare_silence_marker(tmp_path, capsys):
     """#110782: the one-shot ``hermes chat -c "Bot Chat"`` transport applies the gateway's
     silence rule — a successful bare marker reaches the sender as "", prose stays verbatim."""

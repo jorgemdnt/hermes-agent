@@ -12,7 +12,7 @@ import {
   setChangeEventsAvailable
 } from '@/store/live-sync'
 import { markRuntimeGone } from '@/store/runtime-gone'
-import { dropSessionState, unbindTileRuntime } from '@/store/session-states'
+import { dropSessionState, suppressTileAutoResume, unbindTileRuntime } from '@/store/session-states'
 // Leaf import (not the `@/themes` barrel) to avoid pulling the ThemeProvider
 // module graph into the gateway event hot path.
 import { ingestBackendSkin } from '@/themes/backend-sync'
@@ -110,6 +110,12 @@ export function handleLifecycleEvent(ctx: GatewayEventContext): boolean {
       // runtime straight back instead of cold-resuming a live one.
       unbindTileRuntime(reclaimedRuntimeId)
       deps.sessionStateByRuntimeIdRef.current.delete(reclaimedRuntimeId)
+      const reason = String((payload as { reason?: string } | undefined)?.reason ?? '')
+      const storedSessionId = String((payload as { stored_session_id?: string } | undefined)?.stored_session_id ?? '')
+
+      if (reason === 'ws_orphan_reap' && storedSessionId) {
+        suppressTileAutoResume(storedSessionId)
+      }
     }
 
     // The row's ended_at moved, so refresh the lists that render it.

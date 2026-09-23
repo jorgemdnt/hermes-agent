@@ -885,20 +885,28 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
         self._init_runtime_state(resume)
 
 
-    def _claim_active_session(self, surface: str = "cli", *, stderr: bool = False) -> bool:
-        """Claim a global active-session slot for this CLI process."""
+    def _claim_active_session(self, surface: str = "cli", *, stderr: bool = False, consume_deliveries: bool = False) -> bool:
+        """Claim a global active-session slot for this CLI process.
+
+        Interactive Bot Chat must advertise as a mailbox consumer. A lease that
+        only carries ``live_session_id`` makes delivery skip the mailbox, spawn
+        a second CLI, and drop the message when that second writer is refused.
+        """
         if self._active_session_lease is not None:
             return True
         try:
             from hermes_cli.active_sessions import format_refusal_stderr, try_acquire_active_session
 
+            metadata: dict[str, Any] = {"live_session_id": str(self.session_id)}
+            if consume_deliveries:
+                metadata["bot_live_delivery_consumer"] = True
             lease, message = try_acquire_active_session(
                 session_id=self.session_id,
                 surface=surface,
                 config=self.config,
                 # Writer identity: a re-claim by this process replaces its own entry.
                 # See #94595.
-                metadata={"live_session_id": str(self.session_id)},
+                metadata=metadata,
             )
         except Exception as exc:
             logger.warning("Failed to claim active session slot: %s", exc)
@@ -1364,7 +1372,7 @@ class HermesCLI(CLIInitMixin, CLITuiRuntimeMixin, CLIProcessNotificationsMixin, 
 
     def run(self):
         """Run the interactive CLI loop with persistent input at bottom."""
-        if not self._claim_active_session("cli"):
+        if not self._claim_active_session("cli", consume_deliveries=True):
             return
 
         self._tui_print_startup()

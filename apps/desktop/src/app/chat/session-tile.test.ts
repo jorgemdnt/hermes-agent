@@ -25,6 +25,10 @@ describe('shouldResumeSessionTile', () => {
     expect(shouldResumeSessionTile({ ...live, removalPending: true })).toBe(false)
   })
 
+  it('does not resume a tile a WS-orphan reap already unbound', () => {
+    expect(shouldResumeSessionTile({ ...live, suppressAutoResume: true })).toBe(false)
+  })
+
   it('waits for the gateway, a free slot, and an unbound, unlatched tile', () => {
     expect(shouldResumeSessionTile({ ...live, gatewayOpen: false })).toBe(false)
     expect(shouldResumeSessionTile({ ...live, runtimeId: 'rt-1' })).toBe(false)

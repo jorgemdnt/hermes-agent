@@ -121,7 +121,18 @@ describe('session.reclaimed', () => {
     // The reclaimed tile survives as a pane (its stored session is intact) but
     // sheds the dead runtime; the bystander tile keeps its live binding.
     expect(tiles.find(t => t.storedSessionId === 'stored-1')?.runtimeId).toBeUndefined()
+    expect(tiles.find(t => t.storedSessionId === 'stored-1')?.suppressAutoResume).toBe(true)
     expect(tiles.find(t => t.storedSessionId === 'stored-2')?.runtimeId).toBe('live-kept')
+  })
+
+  it('still auto-resumes after an idle reclaim', () => {
+    mountStream()
+    publishSessionState('live-gone', createClientSessionState('stored-1'))
+    $sessionTiles.set([{ runtimeId: 'live-gone', storedSessionId: 'stored-1' }])
+
+    reclaim('live-gone', 'idle_timeout')
+
+    expect($sessionTiles.get()[0]?.suppressAutoResume).toBeUndefined()
   })
 
   // The wiring cache is resumeTile's warm path: a leftover entry for the dead

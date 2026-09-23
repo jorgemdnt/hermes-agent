@@ -27,6 +27,22 @@ DELIVERY_DIR_NAME = "bot_live_delivery"
 _SEQUENCE_FILE = ".sequence"
 _OWNER_KEYS = ("profile_home", "session_id", "lease_id", "live_session_id")
 _TERMINAL = frozenset({"settled", "failed", "cancelled", "ambiguous"})
+DELIVERY_MODES = frozenset({"queue", "steer", "interrupt"})
+
+
+def resolve_delivery_mode(requested: str | None, fallback: str = "interrupt") -> str:
+    """Steer, queue, or interrupt. Same three verbs as typing into a live thread."""
+    mode = str(requested or "").strip().lower()
+    if mode in DELIVERY_MODES:
+        return mode
+    fallback_mode = str(fallback or "").strip().lower()
+    return fallback_mode if fallback_mode in DELIVERY_MODES else "interrupt"
+
+
+def live_delivery_action(running: bool, mode: str) -> str:
+    """What the live owner does with a bot message. Idle always starts a turn."""
+    resolved = resolve_delivery_mode(mode)
+    return "turn" if not running else resolved
 
 
 def find_canonical_owner(profile_home: Path | str) -> dict[str, Any] | None:
@@ -52,12 +68,17 @@ def find_canonical_owner(profile_home: Path | str) -> dict[str, Any] | None:
 
 
 def find_canonical_live_owner(profile_home: Path | str) -> dict[str, Any] | None:
-    """Only advertised consumers may receive owner-pinned mailbox deliveries."""
+    """Pin the Bot Chat tip so a bot message can steer, queue, or interrupt it.
+
+    A missing consumer flag must not force a second writer. The owner applies
+    the message with the same busy-input verbs as a typed submit. A lease
+    without ``live_session_id`` cannot be pinned.
+    """
     entry = find_canonical_owner(profile_home)
-    meta = (entry or {}).get("metadata") or {}
-    if entry and meta.get("bot_live_delivery_consumer") is True and meta.get("live_session_id"):
+    live_session_id = ((entry or {}).get("metadata") or {}).get("live_session_id")
+    if entry and isinstance(live_session_id, str) and live_session_id:
         return {key: entry[key] for key in ("profile_home", "session_id", "lease_id")} | {
-            "live_session_id": meta["live_session_id"]}
+            "live_session_id": live_session_id}
     return None
 
 
@@ -241,13 +262,15 @@ def _matches(home: Path | str, record: dict, owner: dict) -> bool:
 
 
 def claim_pending_delivery(
-    profile_home: Path | str, owner: dict[str, Any],
+    profile_home: Path | str, owner: dict[str, Any], accept=None,
 ) -> dict[str, Any] | None:
     """Claim oldest matching input exactly once; caller supplies its current lease.
 
     A lease transfer across compression is accepted only along the original
     stored session's compression chain. A new lease/live session cannot steal it.
     Caller must hold its normal turn-admission guard before invoking this.
+    ``accept`` sees the oldest match under the lock. Returning false claims nothing,
+    so a queue-mode message cannot be skipped in favor of a later steer.
     """
     current = _owner(profile_home, owner)
     if not _root(profile_home).is_dir():
@@ -262,6 +285,8 @@ def claim_pending_delivery(
             return None
         record = min(pending, key=lambda item: (
             item.get("sequence", item["created_at"]), item["delivery_id"]))
+        if accept is not None and not accept(record):
+            return None
         record.update(status="claimed", claimed_at=time.time_ns())
         _write(root / f"{record['delivery_id']}.json", record)
         return record

@@ -908,6 +908,12 @@ export interface SessionTile {
   before?: null | string
   /** Live runtime id once the tile's resume has bound one. */
   runtimeId?: string
+  /**
+   * Set when a WS-orphan reap unbound this tile and nobody is looking at it.
+   * Auto-resume would attach a socket the backend already decided was gone,
+   * then get reaped again. Focus clears it and resumes once.
+   */
+  suppressAutoResume?: boolean
   /** Resume failed terminally (shown in the tile; retryable). */
   error?: string
   /** Presentation workspace this tab belongs to. Missing legacy values are Sessions. */
@@ -1551,6 +1557,23 @@ export function unbindTileRuntime(runtimeId: string) {
   if (tiles.some(t => t.runtimeId === runtimeId)) {
     $sessionTiles.set(tiles.map(t => (t.runtimeId === runtimeId ? { ...t, runtimeId: undefined } : t)))
   }
+}
+
+/** An unfocused tile must not resume a socket the backend just reaped as gone. */
+export function suppressTileAutoResume(storedSessionId: string) {
+  if ($focusedStoredSessionId.get() === storedSessionId) {
+    return
+  }
+
+  const tiles = $sessionTiles.get()
+
+  if (!tiles.some(t => t.storedSessionId === storedSessionId && !t.suppressAutoResume)) {
+    return
+  }
+
+  $sessionTiles.set(
+    tiles.map(t => (t.storedSessionId === storedSessionId ? { ...t, suppressAutoResume: true } : t))
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -2366,6 +2389,11 @@ $focusedStoredSessionId.listen(focused => {
   if (focused) {
     markSessionRead(focused)
     ackStoredSessionId(focused)
+    const tiles = $sessionTiles.get()
+
+    if (tiles.some(t => t.storedSessionId === focused && t.suppressAutoResume)) {
+      $sessionTiles.set(tiles.map(t => (t.storedSessionId === focused ? { ...t, suppressAutoResume: undefined } : t)))
+    }
   }
 
   syncFocusedChrome(focused)

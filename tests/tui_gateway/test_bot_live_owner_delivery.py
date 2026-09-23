@@ -73,7 +73,7 @@ def test_local_work_blocks_mailbox_claim_without_consuming_envelope(monkeypatch,
     author = {"id": "bot:coder", "name": "coder", "is_bot": True}
     pending = [{"id": "receipt", "message": "imported", "author": author}]
     monkeypatch.setattr(mailbox, "find_canonical_live_owner", lambda home: owner)
-    monkeypatch.setattr(mailbox, "claim_pending_delivery", lambda home, pinned: pending.pop(0))
+    monkeypatch.setattr(mailbox, "claim_pending_delivery", lambda home, pinned, accept=None: pending.pop(0))
     receipts = []
     monkeypatch.setattr(mailbox, "complete_delivery", lambda *args, **kwargs: receipts.append((args, kwargs)))
     submitted = []
@@ -90,7 +90,7 @@ def test_local_work_blocks_mailbox_claim_without_consuming_envelope(monkeypatch,
     mailbox._root(tmp_path).mkdir(parents=True)  # a delivery was admitted for this profile
     session = {"history_lock": threading.RLock(), "agent": object(), "session_key": "chat",
                "active_session_lease": SimpleNamespace(lease_id="lease", released=False)}
-    for blocker in ("running", "queued_prompt", "queued_prompts", "_auto_continue_scheduled"):
+    for blocker in ("queued_prompt", "queued_prompts", "_auto_continue_scheduled"):
         session[blocker] = True
         assert poll("live", session) is False
         assert pending and not submitted
