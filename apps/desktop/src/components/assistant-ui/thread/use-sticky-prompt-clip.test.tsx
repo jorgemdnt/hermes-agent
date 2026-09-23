@@ -1,6 +1,7 @@
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { StickyHumanMessageContainer } from './user-message'
 import { stickyPromptEngaged, useStickyPromptClip } from './use-sticky-prompt-clip'
 
 const rect = (top: number, height: number) => ({ top, bottom: top + height, height }) as DOMRect
@@ -223,6 +224,141 @@ it('keeps a below-the-fold prompt in flow and releases the override once the tur
     run?.(0)
   })
 
-  expect(prompt.style.position).toBe('')
+  expect(prompt.style.position).toBe('sticky')
   expect(prompt.style.top).toBe('')
+})
+
+function stubObservers() {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  )
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callback(0)
+
+    return 1
+  })
+  vi.stubGlobal('cancelAnimationFrame', () => {})
+}
+
+it('does not pin a prompt the scroller has not reached, including one still below the fold', () => {
+  // The sticky utility is what pins an unmeasured bubble to the list container.
+  // A turn the observer has not intersected must not keep that position.
+  const style = window.document.createElement('style')
+  style.textContent = '.sticky { position: sticky; top: 5px; }'
+  window.document.head.append(style)
+
+  const viewport = window.document.createElement('div')
+  const content = window.document.createElement('div')
+  viewport.append(content)
+  window.document.body.append(viewport)
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect(0, 500))
+
+  const group = window.document.createElement('div')
+  group.dataset.slot = 'aui_message-group'
+  const turn = window.document.createElement('div')
+  turn.dataset.slot = 'aui_turn-pair'
+  group.append(turn)
+  content.append(group)
+  vi.spyOn(group, 'getBoundingClientRect').mockReturnValue(rect(800, 240))
+  vi.spyOn(turn, 'getBoundingClientRect').mockReturnValue(rect(800, 240))
+  stubObservers()
+
+  render(<StickyHumanMessageContainer>1. make sure we can have that pipe</StickyHumanMessageContainer>, {
+    container: turn
+  })
+  const prompt = turn.querySelector<HTMLElement>('[data-slot="aui_user-message-root"]')!
+
+  renderHook(() =>
+    useStickyPromptClip({
+      scrollRef: { current: viewport },
+      contentRef: { current: content },
+      paneVisible: true,
+      rows: 'sent'
+    })
+  )
+
+  expect(getComputedStyle(prompt).position).not.toBe('sticky')
+  style.remove()
+  viewport.remove()
+})
+
+it('drops a pin when the turn scrolls back below the fold', () => {
+  const viewport = window.document.createElement('div')
+  const content = window.document.createElement('div')
+  viewport.append(content)
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect(0, 500))
+
+  const group = window.document.createElement('div')
+  group.dataset.slot = 'aui_message-group'
+  const turn = window.document.createElement('div')
+  turn.dataset.slot = 'aui_turn-pair'
+  const prompt = window.document.createElement('div')
+  prompt.dataset.slot = 'aui_user-message-root'
+  prompt.style.top = '5px'
+  turn.append(prompt)
+  group.append(turn)
+  content.append(group)
+
+  const groupRect = vi.spyOn(group, 'getBoundingClientRect').mockReturnValue(rect(-20, 700))
+  vi.spyOn(turn, 'getBoundingClientRect').mockReturnValue(rect(-20, 700))
+  vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(rect(5, 60))
+
+  let frame: FrameRequestCallback | undefined
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  )
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frame = callback
+
+    return 1
+  })
+  vi.stubGlobal('cancelAnimationFrame', () => {
+    frame = undefined
+  })
+
+  renderHook(() =>
+    useStickyPromptClip({
+      scrollRef: { current: viewport },
+      contentRef: { current: content },
+      paneVisible: true,
+      rows: 'pinned'
+    })
+  )
+
+  expect(prompt.style.position).toBe('sticky')
+
+  groupRect.mockReturnValue(rect(800, 240))
+  act(() => viewport.dispatchEvent(new Event('scroll')))
+  act(() => {
+    const run = frame
+    frame = undefined
+    run?.(0)
+  })
+
+  expect(prompt.style.position).toBe('relative')
+  expect(prompt.style.top).toBe('auto')
 })

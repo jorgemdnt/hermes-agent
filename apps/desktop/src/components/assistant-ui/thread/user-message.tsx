@@ -44,11 +44,14 @@ export function StickyHumanMessageContainer({
   return (
     // Fragment, not a wrapper: a wrapping element becomes the sticky's
     // containing block (it'd stick within its own height = never). The bubble
-    // and attachments are flow siblings so the bubble pins against the scroller
-    // while attachments below it scroll away.
+    // and attachments are flow siblings so the bubble can pin against the
+    // scroller while attachments below it scroll away. Sticky itself is not a
+    // class: `useStickyPromptClip` sets it only once this turn reaches the
+    // stick line. A standing sticky utility pins the bubble to the list
+    // container while an earlier turn is still in view.
     <>
       <div
-        className="group/user-message sticky z-40 -mx-4 flex w-[calc(100%+2rem)] min-w-0 max-w-none flex-col items-stretch gap-0 self-end overflow-visible px-4 pb-(--conversation-turn-gap) pt-1"
+        className="group/user-message z-40 -mx-4 flex w-[calc(100%+2rem)] min-w-0 max-w-none flex-col items-stretch gap-0 self-end overflow-visible px-4 pb-(--conversation-turn-gap) pt-1"
         data-message-id={messageId}
         data-role="user"
         data-slot="aui_user-message-root"

@@ -322,8 +322,8 @@ interface ThreadMessageListProps {
 }
 
 // Group each user message with the assistant turn(s) that follow it so the
-// human bubble can `position: sticky` against the scroller across its whole
-// turn (see StickyHumanMessageContainer in thread.tsx).
+// human bubble can pin against the scroller once that turn reaches the stick
+// line. The pin is applied by useStickyPromptClip, not a standing sticky class.
 export function buildGroups(signature: string): MessageGroup[] {
   if (!signature) {
     return []

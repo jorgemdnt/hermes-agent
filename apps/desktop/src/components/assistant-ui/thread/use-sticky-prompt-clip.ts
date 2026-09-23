@@ -64,8 +64,14 @@ function syncStickyEngagement(prompt: HTMLElement, viewportTop: number) {
   prompt.dataset[ENGAGED] = next
 
   if (engaged) {
-    prompt.style.removeProperty('position')
-    prompt.style.removeProperty('top')
+    // The bubble has no sticky class. Inline is the only pin, and it is set
+    // only here — a standing utility pins against the list container while an
+    // earlier turn is still in view.
+    prompt.style.position = 'sticky'
+
+    if (prompt.style.top === 'auto') {
+      prompt.style.removeProperty('top')
+    }
 
     return
   }
@@ -123,7 +129,8 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
 
   const measure = () => {
     frame = 0
-    const viewportTop = viewport.getBoundingClientRect().top
+    const viewportRect = viewport.getBoundingClientRect()
+    const viewportTop = viewportRect.top
     const next = new Map<HTMLElement, number>()
     let activePrompt: HTMLElement | null = null
     let exclusionBottom = viewportTop
@@ -211,6 +218,28 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
       }
 
       clipped.add(element)
+    }
+
+    for (const prompt of engaged) {
+      const group = prompt.closest<HTMLElement>(GROUP)
+      const groupRect = group?.getBoundingClientRect()
+      const onScreen =
+        groupRect !== undefined && groupRect.bottom > viewportRect.top && groupRect.top < viewportRect.bottom
+
+      if (onScreen) {
+        continue
+      }
+
+      // A scroll jump or a pane reveal can move a pinned turn below the fold
+      // before the intersection observer delivers. Drop the pin; the next
+      // measure that sees the turn at the stick line puts it back.
+      if (prompt.dataset[ENGAGED] === 'false') {
+        continue
+      }
+
+      prompt.dataset[ENGAGED] = 'false'
+      prompt.style.position = 'relative'
+      prompt.style.top = 'auto'
     }
   }
 
