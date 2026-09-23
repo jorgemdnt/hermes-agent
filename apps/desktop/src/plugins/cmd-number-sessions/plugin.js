@@ -136,19 +136,23 @@ export function rosterRowButtons(root = document) {
   return [...roster.querySelectorAll('[data-slot="row-button"]:not([aria-expanded])')].filter(shown)
 }
 
+function isSessionResumeButton(btn) {
+  // Project names are SidebarRowLink (`p-0`). They enter the project; they are
+  // not a chat. Show-all and the drill-in back row are row-buttons too, and
+  // they don't resume. Do not skip "the first row-button" in each project:
+  // a project whose name is not a row-button loses its only chat to that skip,
+  // so ⌘N never reaches the next project.
+  if (btn.classList.contains('p-0')) return false
+  if (btn.classList.contains('group/more')) return false
+  if (btn.classList.contains('group/back')) return false
+  return true
+}
+
 function sessionResumeButtons(root = document) {
-  const sessionsRoot = root.querySelector('[data-sessions-mode]')
+  const roots = [...root.querySelectorAll('[data-sessions-mode]')]
+  const sessionsRoot = roots.find(shown) || roots[0]
   if (!sessionsRoot) return []
-  const projects = [...sessionsRoot.querySelectorAll('[data-sessions-project]')]
-  if (projects.length) {
-    const buttons = []
-    for (const project of projects) {
-      const btns = [...project.querySelectorAll('[data-slot="row-button"]')].filter(shown)
-      buttons.push(...btns.slice(1))
-    }
-    return buttons
-  }
-  return [...sessionsRoot.querySelectorAll('[data-slot="row-button"]')].filter(shown)
+  return [...sessionsRoot.querySelectorAll('[data-slot="row-button"]')].filter(shown).filter(isSessionResumeButton)
 }
 
 function resumeNthVisibleSession(slot, root = document) {

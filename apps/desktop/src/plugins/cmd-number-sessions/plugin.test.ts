@@ -133,6 +133,39 @@ describe('cmd-number-sessions sidebar slots', () => {
     expect(clicked).toEqual([])
   })
 
+  it('opens a chat in the next project when that project name is not a row-button', async () => {
+    const sessions = document.createElement('div')
+    sessions.setAttribute('data-sessions-mode', '')
+
+    const artemis = document.createElement('div')
+    artemis.setAttribute('data-sessions-project', 'artemis')
+    const title = row('artemis')
+    title.classList.add('p-0')
+    const alpha = row('alpha')
+    const beta = row('beta')
+    const showAll = row('show all')
+    showAll.classList.add('group/more')
+    artemis.append(title, alpha, beta, showAll)
+
+    const hermes = document.createElement('div')
+    hermes.setAttribute('data-sessions-project', 'hermes-agent')
+    const background = row('background')
+    hermes.append(background)
+
+    const clicked: string[] = []
+    alpha.addEventListener('click', () => clicked.push('alpha'))
+    beta.addEventListener('click', () => clicked.push('beta'))
+    showAll.addEventListener('click', () => clicked.push('show all'))
+    background.addEventListener('click', () => clicked.push('background'))
+    title.addEventListener('click', () => clicked.push('artemis'))
+    sessions.append(artemis, hermes)
+    document.body.append(sessions)
+
+    await openSidebarSlot(1, document)
+    await openSidebarSlot(3, document)
+    expect(clicked).toEqual(['alpha', 'background'])
+  })
+
   it('opens the Nth session row when the bots roster is not visible', async () => {
     const sessions = document.createElement('div')
     sessions.setAttribute('data-sessions-mode', '')
