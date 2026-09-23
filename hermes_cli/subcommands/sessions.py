@@ -299,6 +299,18 @@ def build_sessions_parser(subparsers, *, cmd_sessions: Callable) -> None:
     sessions_import.add_argument(
         "path", nargs="?", help="Path to a specific session JSONL file (skips the picker)")
 
+    sessions_handoff = sessions_subparsers.add_parser(
+        "handoff",
+        help="Open a visible Desktop session and hand it a prompt",
+        description="Coding and investigation go here, not in a bot chat. "
+        "The session shows in the Desktop list. The serve credential is not printed.",
+    )
+    sessions_handoff.add_argument("--title", default="Desktop session", help="Sidebar title")
+    sessions_handoff.add_argument("--prompt", help="Prompt text")
+    sessions_handoff.add_argument("--prompt-file", help="Read the prompt from this file")
+    sessions_handoff.add_argument("--cwd", help="Session working directory")
+    sessions_handoff.add_argument("--resume", help="Stored session id for a follow-up")
+
 
     # cmd_sessions lives in hermes_cli/sessions_cmd.py; the parser is threaded
     # in because the fallthrough branch calls sessions_parser.print_help().

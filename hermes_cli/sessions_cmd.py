@@ -976,10 +976,16 @@ def _cmd_set_journal_mode(args):
     return cmd_set_journal_mode(args)
 
 
+def _cmd_handoff(args):
+    from hermes_cli.desktop_session_handoff import cmd_handoff
+    return cmd_handoff(args)
+
+
 _PRE_DB_HANDLERS = {
     "repair": _cmd_repair, "recover": _cmd_recover, "import": _cmd_import,
     "repair-profiles": _cmd_repair_profiles,  # opens every profile's store itself
     "set-journal-mode": _cmd_set_journal_mode,  # offline: must not open the store it converts
+    "handoff": _cmd_handoff,
 }
 _OBSERVATIONAL_DB_ACTIONS = frozenset({"list", "stats", "pinned"})
 _DB_HANDLERS = {
