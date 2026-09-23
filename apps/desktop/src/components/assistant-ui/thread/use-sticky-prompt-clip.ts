@@ -2,7 +2,79 @@ import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
 
 const GROUP = '[data-slot="aui_message-group"]'
 const PROMPT = '[data-slot="aui_user-message-root"]'
+const TURN = '[data-slot="aui_turn-pair"]'
 const CLIP = '--sticky-prompt-clip'
+const ENGAGED = 'stickyEngaged'
+const OFFSET = 'stickyOffset'
+
+/** A prompt may pin only once its turn has reached the scroller's stick line
+ *  and still occupies it. A turn still below that line — a message just sent,
+ *  or one painted after switching back to the thread — stays in document order.
+ *  Pinning it early floats the bubble on the message-list container while the
+ *  previous turn is still visible underneath. */
+export function stickyPromptEngaged(
+  turnTop: number,
+  turnBottom: number,
+  viewportTop: number,
+  stickyOffset: number
+): boolean {
+  const stickLine = viewportTop + stickyOffset
+
+  return turnTop <= stickLine + 1 && turnBottom > stickLine + 1
+}
+
+function stickyOffsetOf(prompt: HTMLElement): number {
+  const cached = prompt.dataset[OFFSET]
+
+  if (cached) {
+    return Number(cached)
+  }
+
+  const variable = Number.parseFloat(getComputedStyle(prompt).getPropertyValue('--sticky-human-offset'))
+  const top = Number.parseFloat(getComputedStyle(prompt).top)
+  const offset = Number.isFinite(variable) ? variable : Number.isFinite(top) ? top : 0
+
+  prompt.dataset[OFFSET] = String(offset)
+
+  return offset
+}
+
+function releaseStickyOverride(prompt: HTMLElement) {
+  prompt.style.removeProperty('position')
+  prompt.style.removeProperty('top')
+  delete prompt.dataset[ENGAGED]
+  delete prompt.dataset[OFFSET]
+}
+
+function syncStickyEngagement(prompt: HTMLElement, viewportTop: number) {
+  const turn = prompt.closest<HTMLElement>(TURN) ?? prompt.closest<HTMLElement>(GROUP)
+
+  if (!turn) {
+    return
+  }
+
+  const turnRect = turn.getBoundingClientRect()
+  const engaged = stickyPromptEngaged(turnRect.top, turnRect.bottom, viewportTop, stickyOffsetOf(prompt))
+  const next = engaged ? 'true' : 'false'
+
+  if (prompt.dataset[ENGAGED] === next) {
+    return
+  }
+
+  prompt.dataset[ENGAGED] = next
+
+  if (engaged) {
+    prompt.style.removeProperty('position')
+    prompt.style.removeProperty('top')
+
+    return
+  }
+
+  // Inline, not a class: the bubble's `sticky` utility would otherwise win
+  // and pin against whatever overflow ancestor survived a pane hide/show.
+  prompt.style.position = 'relative'
+  prompt.style.top = 'auto'
+}
 
 interface StickyPromptClipOptions {
   contentRef: RefObject<HTMLElement | null>
@@ -46,6 +118,7 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
   const observed = new Set<HTMLElement>()
   const visible = new Set<HTMLElement>()
   const clipped = new Set<HTMLElement>()
+  const engaged = new Set<HTMLElement>()
   let frame = 0
 
   const measure = () => {
@@ -63,6 +136,9 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
       if (!prompt) {
         continue
       }
+
+      syncStickyEngagement(prompt, viewportTop)
+      engaged.add(prompt)
 
       const promptRect = prompt.getBoundingClientRect()
       const stickyTop = Number.parseFloat(getComputedStyle(prompt).top) || 0
@@ -214,6 +290,10 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
     for (const element of clipped) {
       element.style.removeProperty(CLIP)
       element.removeAttribute('data-sticky-prompt-clip')
+    }
+
+    for (const prompt of engaged) {
+      releaseStickyOverride(prompt)
     }
   }
 
