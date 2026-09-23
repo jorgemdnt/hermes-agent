@@ -25,9 +25,10 @@ A bot stays the short thread. Coding and investigation go to a Desktop session t
 
 1. Write the full brief to a file. It must stand alone. The session cannot see this chat.
 2. Run `terminal(command="hermes sessions handoff --title '<short title>' --prompt-file <path> --cwd <repo>")`.
-3. Done when stdout is JSON with `stored_session_id` and the serve token is absent.
-4. A follow-up is the same command with `--resume <stored_session_id>`.
-5. Read the transcript from the session store. Do not redo the work in the bot chat.
+3. Done when stdout is JSON with `link` and the serve token is absent.
+4. When you tell the person about that session, write the `link` value exactly. Desktop turns `@session:<profile>/<id>` into a click. A bare id is not a link.
+5. A follow-up is the same command with `--resume <stored_session_id>`.
+6. Read the transcript from the session store. Do not redo the work in the bot chat.
 
 ## Pitfalls
 

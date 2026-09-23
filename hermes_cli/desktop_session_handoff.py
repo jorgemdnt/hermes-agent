@@ -59,6 +59,19 @@ def find_desktop_serve(processes: Iterable[Any], *, home: str) -> Optional[Deskt
     return found[0]
 
 
+def session_link(session_id: str, profile: str = "") -> str:
+    """Token Desktop renders as a click. Same shape as session search.
+
+    ``custom`` is not a profile the app can route, so it is omitted.
+    """
+    name = (profile or "").strip()
+    if name == "custom":
+        name = ""
+    if name:
+        return f"@session:{name}/{session_id}"
+    return f"@session:{session_id}"
+
+
 def run_handoff(
     serve: DesktopServe,
     *,
@@ -67,6 +80,7 @@ def run_handoff(
     cwd: str,
     resume: Optional[str],
     rpc: Callable[[DesktopServe, str, dict], dict],
+    profile: str = "",
 ) -> dict:
     """Create or resume a visible session and submit ``prompt``. Ids only."""
     if resume:
@@ -96,7 +110,14 @@ def run_handoff(
     )
     if "error" in submitted:
         raise HandoffError("prompt.submit failed")
-    return {"session_id": session_id, "stored_session_id": stored, "title": title}
+    if not stored:
+        raise HandoffError("handoff returned no stored id")
+    return {
+        "session_id": session_id,
+        "stored_session_id": stored,
+        "title": title,
+        "link": session_link(str(stored), profile),
+    }
 
 
 def public_result(payload: dict) -> str:
@@ -134,6 +155,7 @@ def cmd_handoff(args) -> int:
     """CLI entry. Prints ids. Never prints the serve token."""
     import psutil
 
+    from hermes_cli.profiles import get_active_profile_name
     from hermes_constants import get_hermes_home
 
     prompt = getattr(args, "prompt", None) or ""
@@ -158,6 +180,7 @@ def cmd_handoff(args) -> int:
             cwd=cwd,
             resume=getattr(args, "resume", None),
             rpc=_ws_rpc,
+            profile=get_active_profile_name(),
         )
     except HandoffError as exc:
         print(str(exc))

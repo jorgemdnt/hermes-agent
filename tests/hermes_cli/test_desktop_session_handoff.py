@@ -10,6 +10,7 @@ from hermes_cli.desktop_session_handoff import (
     listening_port,
     public_result,
     run_handoff,
+    session_link,
 )
 
 
@@ -83,6 +84,7 @@ def test_run_handoff_submits_to_the_created_session_and_hides_the_token():
 
     result = run_handoff(
         serve, title="Allow", prompt="fix it", cwd="/repo", resume=None, rpc=rpc,
+        profile="default",
     )
     assert calls[0][0] == "session.create"
     assert calls[0][1]["hidden"] is False
@@ -90,9 +92,16 @@ def test_run_handoff_submits_to_the_created_session_and_hides_the_token():
     assert calls[1] == ("prompt.submit", {"session_id": "runtime", "text": "fix it", "title_preview": "Allow"})
     printed = public_result(result)
     assert "secret-token" not in printed
-    assert "stored" in printed
+    assert result["link"] == "@session:default/stored"
+    assert result["link"] in printed
 
 
 def test_public_result_refuses_a_token_field():
     with pytest.raises(Exception):
         public_result({"token": "nope"})
+
+
+def test_session_link_matches_the_desktop_chip_and_drops_custom():
+    assert session_link("20260923_173420_b1fb25", "default") == "@session:default/20260923_173420_b1fb25"
+    assert session_link("abc", "custom") == "@session:abc"
+    assert session_link("abc", "") == "@session:abc"
