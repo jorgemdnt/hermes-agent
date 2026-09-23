@@ -162,19 +162,30 @@ interface ProfilesGetAssetResult {
   found?: boolean
 }
 
+/** Revision of the hermes-bots ui_meta block. A file swap bumps it so a
+ *  cached data URL is not treated as the face on disk. */
+function avatarRevision(bot: RosterRow): number {
+  return Math.max(0, Number(bot.ui_meta_revisions?.['hermes-bots'] || 0))
+}
+
+function cachedAvatarIsCurrent(meta: { image?: null | string; imageRevision?: number } | undefined, revision: number) {
+  return Boolean(meta?.image) && meta?.imageRevision === revision
+}
+
 /** Fetch server-side avatars for roster rows flagged has_avatar when the
- *  local cache doesn't already have an image for them. Fire-and-forget. */
+ *  local cache doesn't already have this revision's image. Fire-and-forget. */
 export function pullServerAvatars(roster: RosterRow[]) {
   pushLocalAvatars(roster)
 
   for (const bot of roster) {
     const key = botMetaKey(bot)
+    const revision = avatarRevision(bot)
 
     if (!bot.has_avatar || avatarFetchInflight.has(key) || avatarFaceOnly.has(key)) {
       continue
     }
 
-    if ($botMeta.get()[key]?.image) {
+    if (cachedAvatarIsCurrent($botMeta.get()[key], revision)) {
       continue
     }
 
@@ -205,7 +216,8 @@ export function pullServerAvatars(roster: RosterRow[]) {
             ...current,
             [key]: {
               ...mine,
-              image: res.data
+              image: res.data,
+              imageRevision: revision
             }
           })
           persistBotMetaSnapshot($botMeta.get(), Boolean(bot.sourceScoped))

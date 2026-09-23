@@ -237,4 +237,49 @@ describe('roster avatar sync (#102978)', () => {
     // The raster is a notice-only copy of the live face, never parked on the roster.
     expect($botMeta.get()['local::secretary']?.image).toBeUndefined()
   })
+
+  it('refetches a cached face when the profile revision moved', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    hostMock.request.mockResolvedValue({ data: 'data:image/png;base64,new', found: true })
+    $botMeta.set({
+      'local::default': { image: 'data:image/png;base64,old', imageRevision: 1, title: 'Frodo' }
+    })
+
+    const row = {
+      connectionId: 'local',
+      has_avatar: true,
+      name: 'default',
+      route: { connectionId: 'local', mode: 'local', profile: 'default', targetProfile: 'default' },
+      sourceScoped: true,
+      ui_meta_revisions: { 'hermes-bots': 3 }
+    } as RosterRow
+
+    pullServerAvatars([row])
+    await vi.waitFor(() => expect($botMeta.get()['local::default']?.image).toBe('data:image/png;base64,new'))
+
+    expect($botMeta.get()['local::default']?.imageRevision).toBe(3)
+    expect(hostMock.request).toHaveBeenCalledWith('profiles.get_asset', { asset: 'avatar', name: 'default' })
+  })
+
+  it('does not refetch a cached face whose revision still matches', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    $botMeta.set({
+      'local::frodo': { image: 'data:image/png;base64,kept', imageRevision: 2, title: 'Gandalf' }
+    })
+
+    pullServerAvatars([
+      {
+        connectionId: 'local',
+        has_avatar: true,
+        name: 'frodo',
+        route: { connectionId: 'local', mode: 'local', profile: 'frodo', targetProfile: 'frodo' },
+        sourceScoped: true,
+        ui_meta_revisions: { 'hermes-bots': 2 }
+      } as RosterRow
+    ])
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(hostMock.request).not.toHaveBeenCalled()
+    expect($botMeta.get()['local::frodo']?.image).toBe('data:image/png;base64,kept')
+  })
 })

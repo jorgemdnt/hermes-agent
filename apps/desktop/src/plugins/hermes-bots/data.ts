@@ -351,7 +351,7 @@ export async function saveBotMeta(owner: RosterRow | string, patch: StoredBotMet
   let serverRequest: null | Promise<ProfilesConfigureResult> = null
 
   try {
-    const { image, pet, ...rest } = next[key] || {}
+    const { image, imageRevision, pet, ...rest } = next[key] || {}
 
     const request = route
       ? requestForBot(bot, 'profiles.configure', {

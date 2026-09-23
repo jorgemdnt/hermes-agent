@@ -76,6 +76,9 @@ export interface BotMeta {
   hidden?: boolean
   /** Data URL. Stripped before `profiles.configure`; travels via `set_asset`. */
   image?: null | string
+  /** `ui_meta_revisions['hermes-bots']` at the fetch that stored `image`. A
+   *  missing or older stamp means the file on disk may have moved. */
+  imageRevision?: number
   imageKind?: 'photo' | 'shape'
   /** Legacy single-group scalar, projected alongside `groups`. */
   group?: null | string
