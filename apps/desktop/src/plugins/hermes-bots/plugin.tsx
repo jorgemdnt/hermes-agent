@@ -26,6 +26,7 @@ import {
 import type { ChatEmptyProps, PluginContext } from '@hermes/plugin-sdk'
 
 import { pinChatToLatest } from '@/store/thread-scroll'
+import { consumeSessionsFollowOpen } from '@/store/sidebar-follow'
 import { $newChatProfile, requestFreshSession } from '@/store/profile'
 import { revealTreePane } from '@/components/pane-shell/tree/store'
 
@@ -730,6 +731,12 @@ export default {
           // returned to Sessions.
           bumpBotOpenGeneration()
           host.setWorkspaceScope?.('sessions')
+          // A notification already focused the conversation. Restoring the
+          // chat remembered from the last Bots visit would replace it.
+          if (consumeSessionsFollowOpen()) {
+            return
+          }
+
           // The remembered id can be an archived chat. The Sessions sidebar
           // does not list those, so reopening it paints a selection that is
           // not in the list. An empty list is the new-chat empty state.

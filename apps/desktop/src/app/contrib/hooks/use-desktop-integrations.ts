@@ -32,6 +32,7 @@ import {
 } from '@/store/session'
 import { $botChatScopes, $sessionTiles, storedSessionIdForRuntimeId } from '@/store/session-states'
 import { isPaneVisible } from '@/components/pane-shell/tree/store'
+import { revealThreadSidebar } from '@/store/sidebar-follow'
 import { onSessionsChanged } from '@/store/session-sync'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
 import { isBrowserWindow, isHudWindow, isSecondaryWindow } from '@/store/windows'
@@ -265,6 +266,9 @@ export function useDesktopIntegrations({
           'stack',
           scope && { ...scope, workspaceMode: scope.workspaceMode ?? 'sessions' }
         )
+        // The click already focused the conversation. The sidebar tab has to
+        // follow, or Bots stays up over a Sessions thread.
+        revealThreadSidebar(scope?.workspaceMode ?? 'sessions')
       }
     })
 

@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import { paneMirror } from '@/app/chat/pane-mirror'
 import { sessionRoute, syncWorkspaceRoute } from '@/app/routes'
-import { group } from '@/components/pane-shell/tree/model'
+import { group, split } from '@/components/pane-shell/tree/model'
 import * as tree from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
 import { $selectedStoredSessionId } from '@/store/session'
@@ -107,4 +107,42 @@ it('a native click reveals the existing remote Bot tab without changing its owne
   expect($selectedStoredSessionId.get()).toBe('main-chat')
   // Close the overlay without navigating main onto the tile's conversation.
   expect(navigate).toHaveBeenCalledWith(sessionRoute('main-chat'), { replace: true })
+})
+
+it('a sessions notification fronts the sessions sidebar tab instead of leaving Bots up', () => {
+  let fire!: (id: string) => void
+  window.hermesDesktop = {
+    onFocusSession: callback => {
+      fire = callback
+
+      return () => undefined
+    }
+  } as Window['hermesDesktop']
+  renderHook(() =>
+    useDesktopIntegrations({
+      activeProfile: 'default',
+      chatOpen: false,
+      hasPreview: false,
+      locationPathname: '/',
+      navigate: vi.fn(),
+      profileReady: false,
+      refreshSessions: vi.fn(),
+      resumeLastSession: false,
+      resumeExhaustedSessionId: null,
+      routedSessionId: null,
+      runtimeIdByStoredSessionId: { current: new Map() },
+      sessions: []
+    })
+  )
+  tree.$layoutTree.set(
+    split('row', [
+      group(['sessions', 'hermes-bots:pane'], { active: 'hermes-bots:pane', id: 'sidebar' }),
+      group(['workspace'], { active: 'workspace', id: 'main' })
+    ])
+  )
+
+  act(() => fire('chat-1'))
+
+  expect(tree.isPaneVisible('sessions')).toBe(true)
+  expect(tree.isPaneVisible('hermes-bots:pane')).toBe(false)
 })

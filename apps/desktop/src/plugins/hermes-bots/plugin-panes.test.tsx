@@ -294,6 +294,28 @@ describe('Sessions | Bots tab focus', () => {
     harness.dispose()
   })
 
+  it('a notification follow-open does not replace the conversation it just focused', async () => {
+    mocks.focusedId = 'sess-sessions'
+    mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
+    const store = paneStores()
+    const harness = recordingContext()
+    const { armSessionsFollowOpen } = await import('@/store/sidebar-follow')
+
+    plugin.register(harness.ctx)
+    await settle()
+    store('hermes-bots:pane').set(true)
+    await settle()
+    mocks.openSession.mockClear()
+    armSessionsFollowOpen()
+    store('hermes-bots:pane').set(false)
+    await settle()
+
+    expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
+    expect(mocks.openSession).not.toHaveBeenCalled()
+
+    harness.dispose()
+  })
+
   it('reopens the Sessions chat when leaving Bots', async () => {
     mocks.focusedId = 'sess-sessions'
     mocks.selectedRosterBot.mockReturnValue({ name: 'coder' })
