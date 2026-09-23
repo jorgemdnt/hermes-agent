@@ -192,9 +192,25 @@ describe('new activity after the seed', () => {
     expect(hostMock.notify).not.toHaveBeenCalled()
   })
 
+  it('does not badge the bot for a newer Sessions thread on the same profile', async () => {
+    const { trackInboundActivity } = await loadActions()
+
+    const sideThread = (lastActive: number) =>
+      ({
+        canonical_session: { id: 'bot-chat', last_active: 1000, preview: 'old' },
+        last_session: { id: 'scratch', last_active: lastActive, preview: 'new session' },
+        name: 'default'
+      }) as RosterRow
+
+    trackInboundActivity([sideThread(1000)])
+    trackInboundActivity([sideThread(9000)])
+
+    expect(markUnreadMock).not.toHaveBeenCalled()
+    expect(hostMock.notify).not.toHaveBeenCalled()
+  })
+
   it('sees a DM delivered into the hidden Bot Chat that last_session cannot', async () => {
-    // The whole reason watermarks follow botActivitySession: a stale visible
-    // session would otherwise hold the watermark and swallow the DM.
+    // A stale visible session must not hold the watermark and swallow the DM.
     const { trackInboundActivity } = await loadActions()
 
     const withStaleVisible = (lastActive: number) =>

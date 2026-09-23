@@ -13,7 +13,7 @@ import { ackStoredSessionId, atom, haptic, host, markSessionUnreadFinished } fro
 import { $openBotChat, $selectedBot, lastToastedPreview, rosterWatermarks, saveSelectedRosterBot } from './bot-state'
 import { paintCachedLocalBotChat } from './cached-bot-paint'
 import { CANONICAL_CHAT_TITLE, notifyBotOpenFailure, openBotCanonicalChat, prepareBotSource } from './canonical-chat'
-import { $botMeta, botActivitySession, botRosterKey, botSelectionKey, newBotChat } from './data'
+import { $botMeta, botRosterKey, botSelectionKey, newBotChat } from './data'
 import { $groupChats, $groupChatWorkspace } from './group-chat'
 import { openGroupChat } from './group-chat-view'
 import { liveGroupChatNames } from './group-membership'
@@ -44,11 +44,11 @@ export function setActivityToasts(enabled: boolean) {
   }
 }
 
-/** Detect new inbound activity from a fresh roster: last_active moved past
- *  the watermark for a bot whose chat isn't on screen -> unread + toast.
- *  Watermarks follow botActivitySession (canonical Bot Chat included) —
- *  last_session alone never sees the hidden Bot Chat, so DMs delivered
- *  there would neither badge nor toast.
+/** Detect new inbound activity from a fresh roster: the canonical Bot Chat's
+ *  last_active moved past the watermark, and that chat isn't on screen ->
+ *  unread + toast. A newer Sessions thread on the same profile is not a
+ *  message to this bot. last_session never enters the watermark, or a side
+ *  thread on the home profile badges the bot for work that never arrived.
  *
  *  This poll is the ONLY unread signal a canonical Bot Chat can have: it is
  *  unconditionally hidden, so it never reaches the session list the backend's
@@ -60,7 +60,7 @@ export function trackInboundActivity(roster: RosterRow[]) {
 
   for (const bot of roster) {
     const key = botSelectionKey(bot)
-    const activity = botActivitySession(bot)
+    const activity = bot.canonical_session
     const ts = activity?.last_active || 0
     const prev = rosterWatermarks.get(key) || 0
     rosterWatermarks.set(key, Math.max(prev, ts))
