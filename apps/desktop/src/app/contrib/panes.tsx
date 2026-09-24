@@ -78,7 +78,7 @@ function previewFile(path: string) {
   void normalizeOrLocalPreviewTarget(path, $currentCwd.get() || undefined)
     .then(target => {
       if (target) {
-        openPreview(target, 'file-browser')
+        openPreview(target)
       }
     })
     .catch(() => undefined)

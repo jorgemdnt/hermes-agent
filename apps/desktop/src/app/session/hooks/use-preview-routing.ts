@@ -12,6 +12,7 @@ import {
   completePreviewServerRestart,
   openPreview,
   progressPreviewServerRestart,
+  renderedHtmlTarget,
   requestPreviewReload
 } from '@/store/preview'
 import { $activeSessionId, $currentCwd } from '@/store/session'
@@ -110,7 +111,11 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
               const url = resolved.kind === 'url' ? await reachablePreviewUrl(resolved.url) : resolved.url
               const reached = url === resolved.url ? resolved : { ...resolved, label: resolved.label || target, url }
 
-              openPreview(trimmedLabel ? { ...reached, label: trimmedLabel } : reached, 'tool-result', event.session_id)
+              openPreview(
+                renderedHtmlTarget(trimmedLabel ? { ...reached, label: trimmedLabel } : reached),
+                'tool-result',
+                event.session_id
+              )
             }
           )
         }

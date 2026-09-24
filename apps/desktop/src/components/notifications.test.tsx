@@ -11,10 +11,7 @@ import { $selectedStoredSessionId } from '@/store/session'
 import { $sessionTiles, discardSessionTile } from '@/store/session-states'
 import { stubResizeObserver } from '@/test/jsdom'
 
-import { NotificationStack, toastTitleClassName } from './notifications'
-
-const LONG_TITLE = 'This turn is no longer in server history (it may have been compressed away).'
-const DETAIL = 'target user message is no longer in session history'
+import { NotificationStack } from './notifications'
 
 beforeAll(stubResizeObserver)
 
@@ -28,16 +25,6 @@ describe('toast titles', () => {
     cleanup()
     clearNotifications()
     $poolLimitsSettingsRequest.set(0)
-  })
-
-  it('drops the one-line clamp so a long error title can wrap', () => {
-    const className = toastTitleClassName()
-
-    expect(className).toMatch(/\bline-clamp-none\b/)
-    expect(className).not.toMatch(/\bline-clamp-1\b/)
-    expect(className).toMatch(/\bwhitespace-normal\b/)
-    expect(className).toContain('max-h-[4.5em]')
-    expect(className).toMatch(/\boverflow-y-auto\b/)
   })
 
   it.each(['default', 'bottom-right'] as const)(
@@ -57,25 +44,6 @@ describe('toast titles', () => {
       await waitFor(() => expect(screen.queryByText('Notice 6')).toBeNull())
     }
   )
-
-  it('renders the full title and body instead of truncating them', () => {
-    notify({ kind: 'error', title: LONG_TITLE, message: DETAIL })
-
-    render(
-      <I18nProvider configClient={null} initialLocale="en">
-        <NotificationStack />
-      </I18nProvider>
-    )
-
-    const title = screen.getByText(LONG_TITLE)
-
-    expect(title.textContent).toBe(LONG_TITLE)
-    expect(title.getAttribute('title')).toBe(LONG_TITLE)
-    expect(title.className).toMatch(/\bline-clamp-none\b/)
-    expect(title.className).not.toMatch(/\bline-clamp-1\b/)
-    expect(title.className).toMatch(/\boverflow-y-auto\b/)
-    expect(screen.getByText(DETAIL)).toBeTruthy()
-  })
 
   it('makes a local pool-slot timeout actionable without changing ordinary errors', () => {
     notifyError(

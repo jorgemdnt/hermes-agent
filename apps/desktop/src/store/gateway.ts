@@ -20,7 +20,6 @@ import {
 } from '@/lib/gateway-liveness-policy'
 import { isMissingRpcMethod } from '@/lib/gateway-rpc'
 import { isTimeoutError, RECONNECT_ATTEMPT_TIMEOUT_MS, withTimeout } from '@/lib/with-timeout'
-import { profileRidesLocalPrimary } from '@/store/local-primary-multiplex'
 import { notifyError, RECOVERY_ACTIONS } from '@/store/notifications'
 import { markNativeNotifyBaseline } from '@/store/notify-baseline'
 import { setConnection, setGatewayState } from '@/store/session'
@@ -428,13 +427,17 @@ function isPrimaryRegistryRoute(connectionId: null | string, profile: string): b
   )
 }
 
-/** True when `connectionId` is the window's already-attached source AND that
- *  source is a one-host-many-profiles remote (`sharedRemote`). Named member
- *  profiles on that host must reuse the primary socket — a registry secondary
- *  dials a second WebSocket at the same Tailscale URL, which accept/closes in
- *  ~30ms (`messages=1`) and never runs `session.create` (#96493). Isolated
- *  SSH/pooled backends (`sharedRemote: false`) still get their own secondary. */
-async function isAttachedSharedRemote(
+/** True when `connectionId` is the window's already-attached source AND main
+ *  says `profile` rides the backend that source's primary socket is already
+ *  connected to — a one-host-many-profiles remote (`sharedRemote`, #96493) or
+ *  the one local host backend that serves every local profile under
+ *  multiplex-only (`sharedPrimary`, #118246). Either way a registry secondary
+ *  would be a SECOND WebSocket to the SAME process: on a remote it accept/closes
+ *  in ~30ms and never runs `session.create`; on the local host backend it joins
+ *  the chat's transport fan-out and the renderer receives every event twice
+ *  (garbled streaming text + a duplicate interim bubble, #120005). Isolated
+ *  SSH/pooled backends (neither flag) still get their own secondary. */
+async function ridesPrimaryBackend(
   connectionId: null | string,
   profile: string,
   spawnPriority: SpawnPriority = 'background'
@@ -455,41 +458,39 @@ async function isAttachedSharedRemote(
     return false
   }
 
-  // A local primary multiplexes other local homes on this same socket
-  // (localPrimaryMultiplex, checked before any dial). `sharedRemote` is a
-  // remote-only answer, so the probe below can only cost a pooled dial a
-  // 20 s timeout. Remote-override profiles still take that pooled path.
-  if (g.primaryConnectionMode === 'local') {
-    return false
-  }
-
   const desktop = window.hermesDesktop
 
   if (!desktop?.getConnectionFor) {
     return false
   }
 
+  // Resolved per call, never cached: main answers the route per request
+  // (`resolveProfileBackendRoute` case 6 keeps a pooled backend for
+  // `HERMES_DESKTOP_ISOLATED_BACKEND=1`), and for a pooled profile this is the
+  // same dial `openSecondary` makes next, coalesced by main's claim key.
   try {
     const conn = await withTimeout(
       desktop.getConnectionFor({ connectionId: id, profile: key, ...dialPriority(spawnPriority) }),
       RECONNECT_ATTEMPT_TIMEOUT_MS,
-      `Timed out resolving shared-remote route for "${key}"`
+      `Timed out resolving the backend route for "${key}"`
     )
 
-    return Boolean(conn && typeof conn === 'object' && (conn as { sharedRemote?: boolean }).sharedRemote === true)
+    const flags =
+      conn && typeof conn === 'object' ? (conn as { sharedPrimary?: boolean; sharedRemote?: boolean }) : null
+
+    return flags?.sharedRemote === true || flags?.sharedPrimary === true
   } catch {
     // Probe failed on a remote (or not-yet-classified) primary: a secondary at
     // this already-attached source is the #96493 ghost WebSocket (accept/close,
     // messages=1), so prefer the primary until a later probe can prove
-    // isolation (`sharedRemote: false`). A LOCAL primary never reaches here
-    // (early return above): it is one `hermes serve --profile <primary>` child
-    // and every other local profile has its own pooled child. The primary
-    // would still ACCEPT a `profile`-tagged session.create (profile_home
-    // multiplexing) and mint the session under its own pid, but the exact-owner
-    // route then names the pool backend — after a renderer reload or a pool
-    // respawn the resume dials that backend and is refused SESSION_NOT_OWNED by
-    // a pid of the same Desktop (#101416).
-    return true
+    // isolation (`sharedRemote: false`). A LOCAL primary must NOT get that
+    // fallback: when main routes the profile to a pooled child (isolated
+    // backend), the primary would still ACCEPT a `profile`-tagged
+    // session.create (profile_home multiplexing) and mint the session under
+    // its own pid, but the exact-owner route names the pool backend — after a
+    // renderer reload or a pool respawn the resume dials that backend and is
+    // refused SESSION_NOT_OWNED by a pid of the same Desktop (#101416).
+    return g.primaryConnectionMode !== 'local'
   }
 }
 
@@ -508,27 +509,6 @@ async function requestOnPrimaryGateway<T>(
   return timeoutMs === undefined && signal === undefined
     ? gateway.request<T>(method, params)
     : gateway.request<T>(method, params, timeoutMs, signal)
-}
-
-/** Local named profile, no remote override: the warm primary already hosts
- *  that home. Callers send `profile` on this socket and do not dial. */
-export async function localPrimaryMultiplex(connectionId: null | string, profile: string): Promise<boolean> {
-  return profileRidesLocalPrimary({
-    connectionId,
-    primaryConnectionId: g.primaryConnectionId,
-    primaryMode: g.primaryConnectionMode,
-    primaryOpen: isOpen(g.primaryGateway),
-    primaryProfile: g.primaryProfile,
-    profile
-  })
-}
-
-function withProfileParam(params: Record<string, unknown>, profile: string): Record<string, unknown> {
-  if (typeof params.profile === 'string' && params.profile.trim()) {
-    return params
-  }
-
-  return { ...params, profile }
 }
 
 export function isActivePrimary(): boolean {
@@ -716,12 +696,21 @@ async function openSecondary(entry: Secondary, spawnPriority: SpawnPriority = 'b
 
     if (reopening) {
       try {
-        const { reconcileBusyStatesOnReconnect, resetTileRuntimeBindings } = await import('@/store/session-states')
+        const { reconcileBusyStatesOnReconnect, resetRouteOwnedTileRuntimeBindings, resetTileRuntimeBindings } =
+          await import('@/store/session-states')
 
-        resetTileRuntimeBindings({
-          connectionId: entry.connectionId || 'local',
-          profile: entry.profile
-        })
+        const scope = { connectionId: entry.connectionId || 'local', profile: entry.profile }
+
+        // Only the window's ambient gateway carries un-owned tiles and the main
+        // thread. A background route (e.g. a relay request lease that disposed
+        // its socket after the last tick) can only have minted runtimes for
+        // tiles that name it as their owner route.
+        if (g.activeKey === entry.scope) {
+          resetTileRuntimeBindings(scope)
+        } else {
+          resetRouteOwnedTileRuntimeBindings(scope)
+        }
+
         reconcileBusyAfterOpen = () => reconcileBusyStatesOnReconnect(entry.scope)
       } catch {
         // Best effort for partial test/HMR graphs. Production always loads the
@@ -1072,10 +1061,8 @@ async function sharedPrimaryRoute(profile: string, spawnPriority: SpawnPriority 
 }
 
 // Resolve and open `profile`'s socket WITHOUT changing the active gateway.
-// A local named profile with no remote override rides the already-warm primary
-// and a `profile` param — never a pooled child. Shared global-remote profiles
-// also return the primary socket plus a request-scope flag. A per-profile
-// remote override still uses its own backend.
+// Shared global-remote profiles intentionally return the primary socket plus a
+// request-scope flag; dedicated local/remote profiles use their pooled socket.
 async function gatewayForProfile(
   profile: string,
   leaseRequest = false,
@@ -1083,21 +1070,14 @@ async function gatewayForProfile(
 ): Promise<{ gateway: HermesGateway | null; key: string; release: () => void; scopeProfile: boolean }> {
   const key = normKey(profile)
   const noRelease = () => undefined
-
-  if (key === g.primaryProfile) {
-    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: false }
-  }
-
-  // Before any rearm. A retired pooled child must not be marked wanted just
-  // because a chat RPC named this profile — that rearm is the respawn.
-  if (await localPrimaryMultiplex(null, key)) {
-    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: true }
-  }
-
   const parked = g.secondaries.get(key)
 
   if (parked?.retiredByPool) {
     rearmSecondary(parked, spawnPriority)
+  }
+
+  if (key === g.primaryProfile) {
+    return { gateway: g.primaryGateway, key, release: noRelease, scopeProfile: false }
   }
 
   if (await sharedPrimaryRoute(key, spawnPriority)) {
@@ -1236,11 +1216,7 @@ export async function requestGatewayForAgent<T>(
     return requestGatewayForProfile<T>(key, method, params, timeoutMs, signal, { spawnPriority })
   }
 
-  if (await localPrimaryMultiplex(connectionId, key)) {
-    return requestOnPrimaryGateway<T>(method, withProfileParam(params, key), timeoutMs, signal)
-  }
-
-  if (await isAttachedSharedRemote(connectionId, key, spawnPriority)) {
+  if (await ridesPrimaryBackend(connectionId, key, spawnPriority)) {
     return requestOnPrimaryGateway<T>(method, { ...params, profile: key }, timeoutMs, signal)
   }
 
@@ -1458,11 +1434,7 @@ export async function retainGatewayForAgent(
     return route.release
   }
 
-  if (
-    isPrimaryRegistryRoute(connectionId, key) ||
-    (await localPrimaryMultiplex(connectionId, key)) ||
-    (await isAttachedSharedRemote(connectionId, key, spawnPriority))
-  ) {
+  if (isPrimaryRegistryRoute(connectionId, key) || (await ridesPrimaryBackend(connectionId, key, spawnPriority))) {
     // Primary socket stays open for the window lifetime — no secondary to hold.
     return () => undefined
   }
@@ -1742,15 +1714,7 @@ export async function openGatewayForAgent(
     return openGatewayForProfile(profile, { spawnPriority })
   }
 
-  if (await localPrimaryMultiplex(connectionId, profile)) {
-    if (!isOpen(g.primaryGateway)) {
-      throw new Error('Hermes gateway unavailable')
-    }
-
-    return
-  }
-
-  if (await isAttachedSharedRemote(connectionId, profile, spawnPriority)) {
+  if (await ridesPrimaryBackend(connectionId, profile, spawnPriority)) {
     if (!isOpen(g.primaryGateway)) {
       throw new Error('Hermes gateway unavailable')
     }
@@ -1804,19 +1768,9 @@ export async function ensureGatewayForAgent(
     return !signal?.aborted
   }
 
-  if (signal?.aborted) {
-    return false
-  }
-
-  // The primary already hosts this home. Do not activate a second socket and
-  // do not move the foreground — a bot open is a tab swap, not a reboot.
-  if (await localPrimaryMultiplex(connectionId, profile)) {
-    return isOpen(g.primaryGateway)
-  }
-
   const activationEpoch = beginGatewayActivation()
 
-  if (await isAttachedSharedRemote(connectionId, profile, 'foreground')) {
+  if (await ridesPrimaryBackend(connectionId, profile, 'foreground')) {
     // A retained primary can be open while the foreground still points at a
     // different source. Reusing its socket must also move the active route.
     return Boolean(isOpen(g.primaryGateway) && !signal?.aborted && applyActive(g.primaryProfile, activationEpoch))
@@ -1890,10 +1844,6 @@ export async function ensureGatewayForProfile(profile: string): Promise<void> {
   if (key === g.primaryProfile) {
     applyActive(key, activationEpoch)
 
-    return
-  }
-
-  if (await localPrimaryMultiplex(null, key)) {
     return
   }
 

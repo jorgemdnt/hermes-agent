@@ -58,16 +58,17 @@ def _default_terminal_temp_dir() -> "Path | None":
         return None
 
 
-def cleanup_terminal_temp_cache(max_idle_hours: float = TERMINAL_TEMP_MAX_IDLE_HOURS) -> int:
-    """Delete session temp artifacts idle for *max_idle_hours* (no write anywhere in a
-    directory's subtree); return count.
+def cleanup_terminal_temp_cache(max_age_hours: float = TERMINAL_TEMP_MAX_IDLE_HOURS) -> int:
+    """Delete session temp artifacts idle for *max_age_hours* (no write anywhere in a
+    directory's subtree; the kwarg name is the ``cleanup_*_cache`` signature the gateway
+    housekeeping loop calls every entry with); return count.
     Only the managed default dir is pruned — never a user-pointed ``terminal.temp_dir``."""
     from hermes_constants_scratch import subtree_touched_since
 
     root = _default_terminal_temp_dir()
     if root is None:
         return 0
-    cutoff = time.time() - (max_idle_hours * 3600)
+    cutoff = time.time() - (max_age_hours * 3600)
     try:
         entries = list(root.iterdir())
     except OSError:
@@ -409,10 +410,14 @@ def served_profile_child_env(
 
 
 def _is_routed_home(target_home: "str | Path") -> bool:
-    """True when ``target_home`` is not the process's own (launch) home."""
-    from hermes_constants import get_process_hermes_home
+    """True when ``target_home`` is not the process's own (launch) home.
+
+    Same launch-home identity as ``agent.secret_scope.serves_routed_profile()``: under a host that
+    mirrors the served profile into ``HERMES_HOME``, the live env var names the served home and the
+    launch residue would never be stripped from that profile's child env."""
+    from hermes_constants import get_routing_process_hermes_home
     try:
-        return Path(target_home).resolve() != get_process_hermes_home().resolve()
+        return Path(target_home).resolve() != get_routing_process_hermes_home().resolve()
     except OSError:
         return True
 
@@ -957,6 +962,17 @@ class LocalEnvironment(BaseEnvironment):
         except OSError:  # ProcessLookupError / PermissionError included
             with contextlib.suppress(Exception):
                 proc.kill()
+
+    def _force_kill_process(self, proc):
+        """SIGKILL the whole group with no TERM grace or wait: the caller os._exit()s next."""
+        if _IS_WINDOWS:  # already a forced tree kill
+            return self._kill_process(proc)
+        with contextlib.suppress(OSError):
+            pgid = getattr(proc, "_hermes_pgid", None) or os.getpgid(proc.pid)
+            if pgid != os.getpgrp():  # never our own group (see _kill_process_group_posix)
+                os.killpg(pgid, signal.SIGKILL)  # windows-footgun: ok — POSIX only (_IS_WINDOWS returned above)
+        with contextlib.suppress(OSError):
+            proc.kill()
 
     def _extract_cwd_from_output(self, result: dict):
         """Base semantics plus: Git Bash ``pwd -P`` emits MSYS form on Windows —
