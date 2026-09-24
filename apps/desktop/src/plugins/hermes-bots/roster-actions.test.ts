@@ -124,6 +124,20 @@ describe('new activity after the seed', () => {
     expect(hostMock.notify.mock.calls[0][0]).toMatchObject({ kind: 'info', message: 'a plain update' })
   })
 
+  it('opens that bot from the toast, without pinning a session id', async () => {
+    const { $activityToasts, $selectedBot, trackInboundActivity } = await loadActions()
+
+    $activityToasts.set(true)
+    trackInboundActivity([chatting('researcher', 5000)])
+    trackInboundActivity([chatting('researcher', 6000, 'a plain update')])
+
+    const toast = hostMock.notify.mock.calls[0][0] as { onOpen?: () => void; sessionId?: string }
+
+    expect(toast.sessionId).toBeUndefined()
+    toast.onOpen?.()
+    expect($selectedBot.get()).toBe('researcher')
+  })
+
   it('titles a bot-to-bot delivery differently from ordinary activity', async () => {
     const { $activityToasts, trackInboundActivity } = await loadActions()
 

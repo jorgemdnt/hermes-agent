@@ -72,6 +72,19 @@ def session_link(session_id: str, profile: str = "") -> str:
     return f"@session:{session_id}"
 
 
+def session_prompt(prompt: str) -> str:
+    """The handed session does the work. It must not hand off again."""
+    stay = (
+        "You are the Desktop session this brief was handed to. "
+        "Do the work in this thread. Do not call `hermes sessions handoff` "
+        "and do not spawn another session.\n\n"
+    )
+    body = prompt or ""
+    if body.startswith("You are the Desktop session this brief was handed to."):
+        return body
+    return stay + body
+
+
 def run_handoff(
     serve: DesktopServe,
     *,
@@ -106,7 +119,7 @@ def run_handoff(
     submitted = rpc(
         serve,
         "prompt.submit",
-        {"session_id": session_id, "text": prompt, "title_preview": title},
+        {"session_id": session_id, "text": session_prompt(prompt), "title_preview": title},
     )
     if "error" in submitted:
         raise HandoffError("prompt.submit failed")

@@ -119,7 +119,12 @@ export function trackInboundActivity(roster: RosterRow[]) {
       host.notify({
         kind: 'info',
         title: inbound ? `\uD83E\uDD16 New message for ${label}` : `${label} has new activity`,
-        message: preview.slice(0, 140) || 'Open the chat to see it.'
+        message: preview.slice(0, 140) || 'Open the chat to see it.',
+        // Roster door, not a stored session id. Canonical identity is the
+        // Bot Chat title registry; a pin dangles.
+        onOpen: () => {
+          void openRosterBot(bot)
+        }
       })
     }
   }

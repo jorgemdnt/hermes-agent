@@ -23,14 +23,43 @@ interface MessagesBelowOptions {
  * counting them as "above the fold" undercounts by that turn.
  */
 export function countMessagesBelow(viewport: HTMLElement, content: HTMLElement): { count: number; settled: boolean } {
-  const bottom = viewport.getBoundingClientRect().bottom
+  const viewportRect = viewport.getBoundingClientRect()
+  const top = viewportRect.top
+  const bottom = viewportRect.bottom
+  const shown = new Set<string>()
   let count = 0
   let settled = true
+
+  const remember = (group: HTMLElement) => {
+    for (const message of group.querySelectorAll<HTMLElement>('[data-slot="aui_assistant-message-root"]')) {
+      const text = message.textContent?.trim()
+
+      if (text) {
+        shown.add(text)
+      }
+    }
+  }
+
+  const isPaintedClone = (message: HTMLElement) => {
+    if (message.dataset.slot !== 'aui_assistant-message-root') {
+      return false
+    }
+
+    const text = message.textContent?.trim()
+
+    return Boolean(text && shown.has(text))
+  }
 
   for (const group of content.querySelectorAll<HTMLElement>('[data-slot="aui_message-group"]')) {
     const rect = group.getBoundingClientRect()
 
+    if (rect.bottom <= top + 1) {
+      continue
+    }
+
     if (rect.bottom <= bottom + 1) {
+      remember(group)
+
       continue
     }
 
@@ -47,7 +76,13 @@ export function countMessagesBelow(viewport: HTMLElement, content: HTMLElement):
 
       if (messageRect.height === 0 && messageRect.width === 0) {
         settled = false
-      } else if (messageRect.height > 0 && messageRect.bottom > bottom + 1) {
+      } else if (messageRect.height > 0 && messageRect.bottom <= bottom + 1) {
+        const text = message.textContent?.trim()
+
+        if (message.dataset.slot === 'aui_assistant-message-root' && text) {
+          shown.add(text)
+        }
+      } else if (messageRect.height > 0 && messageRect.bottom > bottom + 1 && !isPaintedClone(message)) {
         count++
       }
     }

@@ -360,8 +360,9 @@ export function useComposerQueue({
         notify({
           id: 'composer-queue-stuck',
           kind: 'error',
-          title: t.composer.queueStuckTitle,
-          message: t.composer.queueStuckBody
+          message: t.composer.queueStuckBody,
+          sessionId: activeQueueSessionKey || undefined,
+          title: t.composer.queueStuckTitle
         })
       } else {
         retryTimer = setTimeout(() => setDrainRetryTick(tick => tick + 1), 750 * fails)

@@ -2,7 +2,7 @@ import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { StickyHumanMessageContainer } from './user-message'
-import { stickyPromptEngaged, useStickyPromptClip } from './use-sticky-prompt-clip'
+import { seatedPromptTop, stickyPromptEngaged, useStickyPromptClip } from './use-sticky-prompt-clip'
 
 const rect = (top: number, height: number) => ({ top, bottom: top + height, height }) as DOMRect
 
@@ -178,7 +178,7 @@ it('keeps a below-the-fold prompt in flow and releases the override once the tur
 
   const turnRect = vi.spyOn(turn, 'getBoundingClientRect').mockReturnValue(rect(180, 240))
   vi.spyOn(group, 'getBoundingClientRect').mockReturnValue(rect(180, 240))
-  vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(rect(180, 60))
+  const promptRect = vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(rect(180, 60))
 
   let frame: FrameRequestCallback | undefined
   vi.stubGlobal(
@@ -217,6 +217,7 @@ it('keeps a below-the-fold prompt in flow and releases the override once the tur
   expect(prompt.style.top).toBe('auto')
 
   turnRect.mockReturnValue(rect(-20, 700))
+  promptRect.mockReturnValue(rect(-20, 60))
   act(() => viewport.dispatchEvent(new Event('scroll')))
   act(() => {
     const run = frame
@@ -361,4 +362,75 @@ it('drops a pin when the turn scrolls back below the fold', () => {
 
   expect(prompt.style.position).toBe('relative')
   expect(prompt.style.top).toBe('auto')
+})
+
+it('keeps a just-sent prompt after the previous turn, at the bottom of the viewport', () => {
+  // The measured turn includes the previous turn, so its top is already above
+  // the stick line on send. The bubble was sent at the bottom. It must stay
+  // there, not jump to the top while the previous turn is still in view.
+  const viewportTop = 0
+  const viewportBottom = 500
+  const stickyOffset = 5
+  const previousTop = 12
+  const previousBottom = 430
+  const sentTop = 448
+  const sentBottom = 488
+
+  const seat = seatedPromptTop({
+    promptTop: sentTop,
+    promptBottom: sentBottom,
+    turnTop: -180,
+    turnBottom: viewportBottom,
+    previousTop,
+    previousBottom,
+    viewportTop,
+    viewportBottom,
+    stickyOffset
+  })
+
+  expect(seat).toBe(sentTop)
+  expect(seat).toBeGreaterThan(previousTop)
+  expect(seat).toBeLessThan(viewportBottom)
+  expect(seat).toBeGreaterThan(viewportTop + stickyOffset + 1)
+
+  const viewport = window.document.createElement('div')
+  const content = window.document.createElement('div')
+  viewport.append(content)
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect(viewportTop, viewportBottom))
+
+  const previous = window.document.createElement('div')
+  previous.dataset.slot = 'aui_message-group'
+  content.append(previous)
+  vi.spyOn(previous, 'getBoundingClientRect').mockReturnValue(rect(previousTop, previousBottom - previousTop))
+
+  const group = window.document.createElement('div')
+  group.dataset.slot = 'aui_message-group'
+  const turn = window.document.createElement('div')
+  turn.dataset.slot = 'aui_turn-pair'
+  const prompt = window.document.createElement('div')
+  prompt.dataset.slot = 'aui_user-message-root'
+  prompt.textContent = 'Ok close it, it is fixed I guess'
+  turn.append(prompt)
+  group.append(turn)
+  content.append(group)
+  vi.spyOn(group, 'getBoundingClientRect').mockReturnValue(rect(sentTop, sentBottom - sentTop))
+  vi.spyOn(turn, 'getBoundingClientRect').mockReturnValue(rect(-180, viewportBottom + 180))
+  vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(rect(sentTop, sentBottom - sentTop))
+  stubObservers()
+
+  renderHook(() =>
+    useStickyPromptClip({
+      scrollRef: { current: viewport },
+      contentRef: { current: content },
+      paneVisible: true,
+      rows: 'just-sent'
+    })
+  )
+
+  const stickLine = viewportTop + stickyOffset
+  const seated = prompt.style.position === 'sticky' ? stickLine : sentTop
+
+  expect(prompt.style.position).toBe('relative')
+  expect(seated).toBe(sentTop)
+  expect(seated).toBeGreaterThan(previousTop)
 })

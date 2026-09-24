@@ -35,6 +35,7 @@ import { $todosBySession, setSessionTodos } from '@/store/todos'
 import type { ClientSessionState } from '../../../types'
 
 import { collapseDuplicateFinalAfterToolInterim, type DuplicateFinalCollapse } from './collapse-duplicate-final'
+import { replayedInterimTarget } from './replayed-interim'
 import { useGatewayEventHandler } from './gateway-event'
 import { handleServerRequest as dispatchServerRequest } from './gateway-event/server-requests'
 import { completionErrorText, delegateTaskPayloads, MAX_STREAM_FLUSH_GAP_MS, STREAM_DELTA_FLUSH_MS } from './utils'
@@ -211,6 +212,9 @@ export function useMessageStream({
   )
 
   const queuedDeltasRef = useRef<Map<string, QueuedStreamDelta[]>>(new Map())
+  // Text already painted on a sealed interim, held so a later diverging token
+  // can still seed the full replay instead of the suffix after the shared prefix.
+  const replayHoldRef = useRef<Map<string, { interimId: string; text: string }>>(new Map())
   const flushHandleRef = useRef<number | null>(null)
   const lastFlushAtRef = useRef<number>(0)
   // What the previous flush cost on the main thread — drives the adaptive
@@ -240,6 +244,21 @@ export function useMessageStream({
 
         queue.delete(id)
 
+        const incoming = queued
+          .filter(delta => delta.type === 'assistant')
+          .map(delta => delta.text)
+          .join('')
+        const occurredAt = queued[0]?.occurredAt
+        let paintText = incoming
+        let decision: ReturnType<typeof replayedInterimTarget> = null
+
+        const applyReasoning = (parts: ChatMessagePart[]) =>
+          queued.reduce(
+            (next, delta) =>
+              delta.type === 'reasoning' ? appendReasoningPart(next, delta.text, delta.occurredAt) : next,
+            parts
+          )
+
         const applyQueued = (parts: ChatMessagePart[]) =>
           queued.reduce(
             (next, delta) =>
@@ -249,7 +268,54 @@ export function useMessageStream({
             parts
           )
 
-        mutateStream(id, applyQueued, () => applyQueued([]), {}, queued[0]?.occurredAt)
+        mutateStream(
+          id,
+          (parts, message) => {
+            if (decision?.id === message.id && decision.mode === 'painted') {
+              replayHoldRef.current.set(id, { interimId: message.id, text: paintText })
+
+              return applyReasoning(parts)
+            }
+
+            if (decision?.id === message.id && decision.mode === 'extend') {
+              replayHoldRef.current.delete(id)
+              const existing = chatMessageText(message).trim()
+              const suffix = paintText.trim().slice(existing.length)
+              const next = applyReasoning(parts)
+
+              return suffix
+                ? dedupeGeneratedImageEchoesInParts(appendAssistantTextPart(next, suffix, occurredAt))
+                : next
+            }
+
+            return applyQueued(parts)
+          },
+          () => {
+            replayHoldRef.current.delete(id)
+
+            return paintText
+              ? dedupeGeneratedImageEchoesInParts(appendAssistantTextPart(applyReasoning([]), paintText, occurredAt))
+              : applyReasoning([])
+          },
+          {
+            eventTarget: state => {
+              const stored = replayHoldRef.current.get(id)
+              const tail = [...state.messages].reverse().find(message => !message.hidden)
+              const holdStillApplies = Boolean(stored && tail?.interim && tail.id === stored.interimId)
+
+              paintText = holdStillApplies ? `${stored?.text ?? ''}${incoming}` : incoming
+
+              if (!holdStillApplies) {
+                replayHoldRef.current.delete(id)
+              }
+
+              decision = replayedInterimTarget(state.messages, state.streamId, paintText)
+
+              return decision?.id ?? null
+            }
+          },
+          occurredAt
+        )
       }
     },
     [mutateStream]

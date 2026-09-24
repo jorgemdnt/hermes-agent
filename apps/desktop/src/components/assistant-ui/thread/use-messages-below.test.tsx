@@ -208,4 +208,35 @@ describe('messages below the viewport', () => {
     expect($threadMessagesBelowBySession.get()['runtime-a']).toBe(2)
     expect(frame).toBeUndefined()
   })
+
+  it('does not count a second paint of an assistant turn already in view', () => {
+    const viewport = window.document.createElement('div')
+    const content = window.document.createElement('div')
+    viewport.append(content)
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect(0, 600))
+
+    const first = window.document.createElement('div')
+    first.dataset.slot = 'aui_message-group'
+    content.append(first)
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(rect(40, 520))
+
+    const original = window.document.createElement('div')
+    original.dataset.slot = 'aui_assistant-message-root'
+    original.textContent = 'Kanban is a shared task board, not a chat.'
+    first.append(original)
+    vi.spyOn(original, 'getBoundingClientRect').mockReturnValue(rect(80, 520))
+
+    const second = window.document.createElement('div')
+    second.dataset.slot = 'aui_message-group'
+    content.append(second)
+    vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(rect(520, 900))
+
+    const clone = window.document.createElement('div')
+    clone.dataset.slot = 'aui_assistant-message-root'
+    clone.textContent = original.textContent
+    second.append(clone)
+    vi.spyOn(clone, 'getBoundingClientRect').mockReturnValue(rect(520, 900))
+
+    expect(countMessagesBelow(viewport, content).count).toBe(0)
+  })
 })

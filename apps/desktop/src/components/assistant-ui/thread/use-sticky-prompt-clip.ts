@@ -23,6 +23,32 @@ export function stickyPromptEngaged(
   return turnTop <= stickLine + 1 && turnBottom > stickLine + 1
 }
 
+/** Where a user bubble sits. A turn box that includes the previous turn is
+ *  already above the stick line on send; that must not lift the bubble off
+ *  the bottom while the previous turn is still in view. */
+export function seatedPromptTop(input: {
+  promptTop: number
+  promptBottom: number
+  turnTop: number
+  turnBottom: number
+  previousTop: number
+  previousBottom: number | null
+  viewportTop: number
+  viewportBottom: number
+  stickyOffset: number
+}): number {
+  const stickLine = input.viewportTop + input.stickyOffset
+  const previousStillInView =
+    input.previousBottom != null && input.previousBottom > stickLine + 1 && input.previousTop < input.viewportBottom
+  const promptReached = input.promptTop <= stickLine + 1 && input.promptBottom > stickLine + 1
+
+  if (previousStillInView || !promptReached) {
+    return input.promptTop
+  }
+
+  return stickLine
+}
+
 function stickyOffsetOf(prompt: HTMLElement): number {
   const cached = prompt.dataset[OFFSET]
 
@@ -46,15 +72,31 @@ function releaseStickyOverride(prompt: HTMLElement) {
   delete prompt.dataset[OFFSET]
 }
 
-function syncStickyEngagement(prompt: HTMLElement, viewportTop: number) {
+function syncStickyEngagement(prompt: HTMLElement, viewport: HTMLElement) {
   const turn = prompt.closest<HTMLElement>(TURN) ?? prompt.closest<HTMLElement>(GROUP)
 
   if (!turn) {
     return
   }
 
+  const viewportRect = viewport.getBoundingClientRect()
   const turnRect = turn.getBoundingClientRect()
-  const engaged = stickyPromptEngaged(turnRect.top, turnRect.bottom, viewportTop, stickyOffsetOf(prompt))
+  const promptRect = prompt.getBoundingClientRect()
+  const previous = prompt.closest<HTMLElement>(GROUP)?.previousElementSibling
+  const previousRect = previous instanceof HTMLElement ? previous.getBoundingClientRect() : null
+  const offset = stickyOffsetOf(prompt)
+  const seat = seatedPromptTop({
+    promptTop: promptRect.top,
+    promptBottom: promptRect.bottom,
+    turnTop: turnRect.top,
+    turnBottom: turnRect.bottom,
+    previousTop: previousRect?.top ?? viewportRect.top,
+    previousBottom: previousRect?.bottom ?? null,
+    viewportTop: viewportRect.top,
+    viewportBottom: viewportRect.bottom,
+    stickyOffset: offset
+  })
+  const engaged = seat <= viewportRect.top + offset + 1 && promptRect.top <= viewportRect.top + offset + 1
   const next = engaged ? 'true' : 'false'
 
   if (prompt.dataset[ENGAGED] === next) {
@@ -144,7 +186,7 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
         continue
       }
 
-      syncStickyEngagement(prompt, viewportTop)
+      syncStickyEngagement(prompt, viewport)
       engaged.add(prompt)
 
       const promptRect = prompt.getBoundingClientRect()

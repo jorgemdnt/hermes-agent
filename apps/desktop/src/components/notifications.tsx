@@ -1,7 +1,8 @@
 import { useStore } from '@nanostores/react'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import { focusNotifiedSession } from '@/app/focus-notified-session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CardStack, type CardStackAction } from '@/components/ui/card-stack'
@@ -240,12 +241,37 @@ export function toastTitleClassName() {
   return 'col-start-auto line-clamp-none max-h-[4.5em] overflow-y-auto overscroll-contain whitespace-normal wrap-break-word'
 }
 
+function opensConversation(notification: AppNotification): boolean {
+  return Boolean(notification.onOpen || notification.sessionId)
+}
+
+function clickTargetIsControl(event: MouseEvent): boolean {
+  const target = event.target
+
+  if (!(target instanceof Element)) {
+    return false
+  }
+
+  return Boolean(target.closest('button, a, summary, [data-selectable-text]'))
+}
+
+function openToastConversation(notification: AppNotification) {
+  if (notification.onOpen) {
+    notification.onOpen()
+  } else if (notification.sessionId) {
+    focusNotifiedSession(notification.sessionId)
+  }
+
+  dismissNotification(notification.id)
+}
+
 function NotificationItem({ notification, stack }: { notification: AppNotification; stack: CardStackAction }) {
   const styles = tone[notification.kind]
   const Icon = styles.icon
   const hasDetail = Boolean(notification.detail && notification.detail !== notification.message)
   const { t } = useI18n()
   const copy = t.notifications
+  const openable = opensConversation(notification)
 
   // Nudge the icon down to sit on the first text line, in `ch` so it tracks the
   // toast's font size instead of a fixed rem. `accentColor` (when set) tints the
@@ -256,7 +282,23 @@ function NotificationItem({ notification, stack }: { notification: AppNotificati
   return (
     <Alert
       aria-live={!stack.active ? 'off' : notification.kind === 'error' ? 'assertive' : 'polite'}
-      className="grid-cols-[auto_minmax(0,1fr)_auto] border-0 bg-transparent pr-2.5 shadow-none"
+      className={cn(
+        'grid-cols-[auto_minmax(0,1fr)_auto] border-0 bg-transparent pr-2.5 shadow-none',
+        openable && 'cursor-pointer'
+      )}
+      onClick={event => {
+        if (
+          !openable ||
+          stack.busy ||
+          !stack.active ||
+          clickTargetIsControl(event) ||
+          window.getSelection()?.toString()
+        ) {
+          return
+        }
+
+        void stack.depart(() => openToastConversation(notification))
+      }}
       role={notification.kind === 'error' ? 'alert' : 'status'}
       variant={styles.variant}
     >

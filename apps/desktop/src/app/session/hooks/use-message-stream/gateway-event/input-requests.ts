@@ -143,12 +143,13 @@ export function handleInputRequestEvent(ctx: GatewayEventContext): boolean {
         ]
       }))
       notify({
-        kind: 'warning',
-        message: line,
         action: {
           label: translateNow('assistant.approval.openSafetySettings'),
           onClick: () => requestRoute(SAFETY_SETTINGS_ROUTE)
-        }
+        },
+        kind: 'warning',
+        message: line,
+        sessionId
       })
     }
   } else if ($sudoRequests.get()[key]?.requestId === id) {

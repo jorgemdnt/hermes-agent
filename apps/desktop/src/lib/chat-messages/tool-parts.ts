@@ -427,6 +427,34 @@ export function toolCallOwnerMessageId(
     }
   }
 
+  // A replay of a call this turn already finished must not seed a second row
+  // under the sealed answer. Only an interim row can own that replay — a
+  // completed turn's call stays free for the next turn, which may reuse the id.
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex]
+
+    if (message.role === 'user' && !message.hidden) {
+      break
+    }
+
+    if (!message.interim) {
+      continue
+    }
+
+    for (const part of message.parts) {
+      if (part.type !== 'tool-call' || part.toolCallId !== stableId || payload?.args === undefined) {
+        continue
+      }
+
+      // Same id is not the same call. A later call in this turn may reuse the
+      // id with different args; only an identical replay belongs on the row
+      // that already finished.
+      if (JSON.stringify(part.args) === JSON.stringify(payload.args)) {
+        return message.id
+      }
+    }
+  }
+
   return null
 }
 

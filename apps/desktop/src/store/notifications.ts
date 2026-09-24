@@ -28,6 +28,17 @@ export interface AppNotification {
   action?: NotificationAction
   /** Second, quieter button beside `action` (e.g. "Disable" next to "Sign in"). */
   secondaryAction?: NotificationAction
+  /**
+   * Conversation that caused this toast. A body click opens it the same way an
+   * OS notification click does. Absent for credits, settings, and other toasts
+   * that are not about a chat.
+   */
+  sessionId?: string
+  /**
+   * Body-click landing when the conversation is not a stored session id.
+   * Bot activity passes `openRosterBot` — a session-id pin is not that door.
+   */
+  onOpen?: () => void
   onDismiss?: () => void
   createdAt: number
   placement?: NotificationPlacement
@@ -44,6 +55,10 @@ export interface NotificationInput {
   detail?: string
   action?: NotificationAction
   secondaryAction?: NotificationAction
+  /** See `AppNotification.sessionId`. */
+  sessionId?: string
+  /** See `AppNotification.onOpen`. */
+  onOpen?: () => void
   onDismiss?: () => void
   durationMs?: number
   placement?: NotificationPlacement
@@ -225,6 +240,8 @@ export function notify(input: NotificationInput): string {
     detail: input.detail,
     action: input.action,
     secondaryAction: input.secondaryAction,
+    sessionId: input.sessionId || undefined,
+    onOpen: input.onOpen,
     onDismiss: input.onDismiss,
     createdAt: Date.now(),
     placement: input.placement ?? defaultPlacement(kind, input.action)

@@ -3,8 +3,9 @@ import { useEffect, useRef } from 'react'
 
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { commandFocusedPreview } from '@/app/chat/right-rail/preview-nav'
-import { openSession } from '@/app/open-session'
+import { bindNotifiedSessionFocus, focusNotifiedSession } from '@/app/focus-notified-session'
 import { openConnectionDoneLink } from '@/components/assistant-ui/connector-tool'
+import { isPaneVisible } from '@/components/pane-shell/tree/store'
 import { $diskPluginsScanPending } from '@/contrib/runtime-loader'
 import { resolveDeepLinkAction } from '@/lib/deeplink-routes'
 import { pathFromHermesDeepLink, resolveHermesOpenPath } from '@/lib/hermes-open-target'
@@ -22,7 +23,6 @@ import { requestPluginCatalogInstallFromDeepLink } from '@/store/plugin-catalog-
 import { openPluginInstallRequest } from '@/store/plugin-install-request'
 import { openFolderAsProject } from '@/store/projects'
 import {
-  $selectedStoredSessionId,
   getRememberedRoute,
   getRememberedSessionId,
   resolveComposerSessionKey,
@@ -30,9 +30,7 @@ import {
   setRememberedRoute,
   setRememberedSessionId
 } from '@/store/session'
-import { $botChatScopes, $sessionTiles, storedSessionIdForRuntimeId } from '@/store/session-states'
-import { isPaneVisible } from '@/components/pane-shell/tree/store'
-import { revealThreadSidebar } from '@/store/sidebar-follow'
+import { storedSessionIdForRuntimeId } from '@/store/session-states'
 import { onSessionsChanged } from '@/store/session-sync'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
 import { isBrowserWindow, isHudWindow, isSecondaryWindow } from '@/store/windows'
@@ -240,39 +238,27 @@ export function useDesktopIntegrations({
     }
   }, [activeProfile, profileReady, resumeExhaustedSessionId])
 
-  // Native-notification click -> jump to the session WHERE IT ALREADY IS (open
-  // tile / main), else beside what's loaded rather than over it — the click
-  // came from outside the app and shouldn't cost the user the chat they left
-  // on screen. Runtime id is translated to the stored id the chat route is
-  // keyed by; action buttons resolve in place.
+  // Native-notification click and an in-app toast body click share one landing:
+  // jump to the session where it already is (open tile / main), else beside
+  // what's loaded rather than over it. Runtime id is translated to the stored
+  // id the chat route is keyed by.
   useEffect(() => {
+    const unbind = bindNotifiedSessionFocus({
+      locationPathname,
+      navigate,
+      runtimeMap: () => runtimeIdByStoredSessionId.current
+    })
+
     const unsubscribe = window.hermesDesktop?.onFocusSession?.(sessionId => {
       if (sessionId) {
-        // Reloads and runtime recovery can leave only the shared mirror bound.
-        const viaLocalMap = storedSessionIdForNotification(sessionId, runtimeIdByStoredSessionId.current)
-        const storedId = viaLocalMap !== sessionId ? viaLocalMap : (storedSessionIdForRuntimeId(sessionId) ?? sessionId)
-
-        // A notification reveals a tab; it must not reclassify a Bot chat.
-        const scope =
-          $sessionTiles.get().find(tile => tile.storedSessionId === storedId) ?? $botChatScopes.get()[storedId]
-
-        if (isOverlayView(appViewForPath(locationPathname))) {
-          navigate(sessionRoute($selectedStoredSessionId.get() ?? ''), { replace: true })
-        }
-
-        openSession(
-          storedId,
-          navigate,
-          'stack',
-          scope && { ...scope, workspaceMode: scope.workspaceMode ?? 'sessions' }
-        )
-        // The click already focused the conversation. The sidebar tab has to
-        // follow, or Bots stays up over a Sessions thread.
-        revealThreadSidebar(scope?.workspaceMode ?? 'sessions')
+        focusNotifiedSession(sessionId)
       }
     })
 
-    return () => unsubscribe?.()
+    return () => {
+      unbind()
+      unsubscribe?.()
+    }
   }, [locationPathname, navigate, runtimeIdByStoredSessionId])
 
   useEffect(() => {

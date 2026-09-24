@@ -364,7 +364,7 @@ export function handleMessageStreamEvent(ctx: GatewayEventContext): boolean {
 
     // History-commit note (e.g. a mid-turn desync) the gateway chose to surface.
     if (typeof payload?.warning === 'string' && payload.warning.trim()) {
-      notify({ kind: 'warning', message: payload.warning })
+      notify({ kind: 'warning', message: payload.warning, sessionId: sessionId ?? undefined })
     }
 
     if (isActiveEvent) {

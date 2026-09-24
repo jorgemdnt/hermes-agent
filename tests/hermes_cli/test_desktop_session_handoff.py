@@ -89,7 +89,12 @@ def test_run_handoff_submits_to_the_created_session_and_hides_the_token():
     assert calls[0][0] == "session.create"
     assert calls[0][1]["hidden"] is False
     assert calls[0][1]["source"] == "desktop"
-    assert calls[1] == ("prompt.submit", {"session_id": "runtime", "text": "fix it", "title_preview": "Allow"})
+    submitted = calls[1][1]
+    assert calls[1][0] == "prompt.submit"
+    assert submitted["session_id"] == "runtime"
+    assert submitted["title_preview"] == "Allow"
+    assert "Do not call `hermes sessions handoff`" in submitted["text"]
+    assert submitted["text"].endswith("fix it")
     printed = public_result(result)
     assert "secret-token" not in printed
     assert result["link"] == "@session:default/stored"

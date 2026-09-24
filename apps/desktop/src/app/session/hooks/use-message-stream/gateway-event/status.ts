@@ -242,6 +242,7 @@ export function handleStatusEvent(ctx: GatewayEventContext): boolean {
         id: `gateway-error:${errorMessage}`,
         kind: 'error',
         message: toastMessage,
+        sessionId: sessionId ?? undefined,
         title: translateNow('assistant.thread.errorToastTitle')
       })
     }

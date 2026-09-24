@@ -34,4 +34,5 @@ A bot stays the short thread. Coding and investigation go to a Desktop session t
 
 - Do not scrape the Desktop serve token, and do not print it.
 - Do not spawn Cursor, a headless `hermes chat -q`, or a hidden subagent and call it this pipe.
+- If you are already that Desktop session, do the work in this thread. Do not call handoff again.
 - Do not restart Hermes.app to make the row appear. `hidden` is already false.
