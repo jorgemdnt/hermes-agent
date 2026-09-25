@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { group, split } from '@/components/pane-shell/tree/model'
+import * as tree from '@/components/pane-shell/tree/store'
 import { __resetSessionLinkTitleCache } from '@/lib/session-link-title'
 import { $previewTabs, closeRightRail } from '@/store/preview'
 
@@ -15,12 +17,22 @@ vi.mock('@/app/open-session', () => ({
 
 const desktopWindow = window as unknown as { hermesDesktop?: Window['hermesDesktop'] }
 
+function showBotsSidebar() {
+  tree.$layoutTree.set(
+    split('row', [
+      group(['sessions', 'hermes-bots:pane'], { active: 'hermes-bots:pane', id: 'sidebar' }),
+      group(['workspace'], { active: 'workspace', id: 'main' })
+    ])
+  )
+}
+
 afterEach(() => {
   cleanup()
   closeRightRail()
   openSession.mockClear()
   delete desktopWindow.hermesDesktop
   __resetSessionLinkTitleCache()
+  tree.$layoutTree.set(null)
 })
 
 // Both surfaces render a session ref differently — an inline link in agent
@@ -44,6 +56,30 @@ describe('session refs open the session', () => {
     fireEvent.click(chip)
 
     await vi.waitFor(() => expect(openSession).toHaveBeenCalledWith('20260101_abc123', expect.any(Function), 'tab'))
+  })
+
+  it('leaves Bots for Sessions from an agent-written link', async () => {
+    showBotsSidebar()
+    render(<MarkdownTextContent isRunning={false} text="Picked up in @session:work/20260101_abc123 last night." />)
+
+    fireEvent.click(await screen.findByTitle('work/20260101_abc123'))
+
+    await vi.waitFor(() => expect(tree.isPaneVisible('sessions')).toBe(true))
+    expect(tree.isPaneVisible('hermes-bots:pane')).toBe(false)
+    expect(tree.isPaneVisible('workspace')).toBe(true)
+    expect(openSession).toHaveBeenCalledWith('20260101_abc123', expect.any(Function), 'tab')
+  })
+
+  it('leaves Bots for Sessions from a chip in the user transcript', async () => {
+    showBotsSidebar()
+    render(<DirectiveContent text="pick up @session:work/20260101_abc123 please" />)
+
+    fireEvent.click(screen.getByTitle('work/20260101_abc123'))
+
+    await vi.waitFor(() => expect(tree.isPaneVisible('sessions')).toBe(true))
+    expect(tree.isPaneVisible('hermes-bots:pane')).toBe(false)
+    expect(tree.isPaneVisible('workspace')).toBe(true)
+    expect(openSession).toHaveBeenCalledWith('20260101_abc123', expect.any(Function), 'tab')
   })
 })
 

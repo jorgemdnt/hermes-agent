@@ -14,6 +14,7 @@ import { gatewayMediaDataUrl, isRemoteGateway } from '@/lib/media'
 import { useSessionLinkTitle } from '@/lib/session-link-title'
 import { parseSessionRefValue, sessionRefFallbackLabel } from '@/lib/session-refs'
 import { cn } from '@/lib/utils'
+import { revealThreadSidebar } from '@/store/sidebar-follow'
 
 import { referenceKind, referenceRe, referenceStyle, WIRE_REFERENCE_KINDS } from './reference-kinds'
 
@@ -461,8 +462,13 @@ export function openSessionRef(value: string) {
   }
 
   triggerHaptic('selection')
-  // navigate is unused for the `tab` intent (focus-or-tile only).
-  void import('@/app/open-session').then(({ openSession }) => openSession(sessionId, () => undefined, 'tab'))
+  // `tab` focuses an open chat or stacks one. It does not navigate or pop a
+  // window. Front Sessions after that open so a click from Bots leaves Bots
+  // without the hide-listener restoring a different remembered chat.
+  void import('@/app/open-session').then(({ openSession }) => {
+    openSession(sessionId, () => undefined, 'tab')
+    revealThreadSidebar('sessions')
+  })
 }
 
 /** What activating a directive of a given kind does. The single source of truth
