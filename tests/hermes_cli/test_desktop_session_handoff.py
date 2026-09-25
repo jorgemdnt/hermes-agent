@@ -11,6 +11,9 @@ from hermes_cli.desktop_session_handoff import (
     public_result,
     run_handoff,
     session_link,
+    visible_prompt,
+    is_leaf,
+    mark_leaf,
 )
 
 
@@ -93,8 +96,8 @@ def test_run_handoff_submits_to_the_created_session_and_hides_the_token():
     assert calls[1][0] == "prompt.submit"
     assert submitted["session_id"] == "runtime"
     assert submitted["title_preview"] == "Allow"
-    assert "Do not call `hermes sessions handoff`" in submitted["text"]
-    assert submitted["text"].endswith("fix it")
+    assert submitted["text"] == "fix it"
+    assert "handoff" not in submitted["text"]
     printed = public_result(result)
     assert "secret-token" not in printed
     assert result["link"] == "@session:default/stored"
@@ -104,6 +107,23 @@ def test_run_handoff_submits_to_the_created_session_and_hides_the_token():
 def test_public_result_refuses_a_token_field():
     with pytest.raises(Exception):
         public_result({"token": "nope"})
+
+
+def test_visible_prompt_strips_a_pasted_stay_here_paragraph():
+    pasted = (
+        "You are the Desktop session. Do the work in this thread. "
+        "Do not call hermes sessions handoff.\n\n"
+        "fix the spaces"
+    )
+    assert visible_prompt(pasted) == "fix the spaces"
+    assert visible_prompt("fix the spaces") == "fix the spaces"
+
+
+def test_leaf_marker_blocks_only_that_session(tmp_path):
+    mark_leaf(str(tmp_path), "leaf-id", None)
+    assert is_leaf(str(tmp_path), "leaf-id")
+    assert not is_leaf(str(tmp_path), "parent-id")
+    assert not is_leaf(str(tmp_path), "")
 
 
 def test_session_link_matches_the_desktop_chip_and_drops_custom():

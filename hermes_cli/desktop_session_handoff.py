@@ -72,17 +72,39 @@ def session_link(session_id: str, profile: str = "") -> str:
     return f"@session:{session_id}"
 
 
-def session_prompt(prompt: str) -> str:
-    """The handed session does the work. It must not hand off again."""
-    stay = (
-        "You are the Desktop session this brief was handed to. "
-        "Do the work in this thread. Do not call `hermes sessions handoff` "
-        "and do not spawn another session.\n\n"
-    )
+def visible_prompt(prompt: str) -> str:
+    """The brief the person sees. A stay-here paragraph is not part of it."""
     body = prompt or ""
-    if body.startswith("You are the Desktop session this brief was handed to."):
-        return body
-    return stay + body
+    while body.lstrip().startswith("You are the Desktop session"):
+        rest = body.lstrip().split("\n\n", 1)
+        body = rest[1] if len(rest) > 1 else ""
+    return body
+
+
+def session_prompt(prompt: str) -> str:
+    """Back-compat name. Does not prepend a stay-here paragraph."""
+    return visible_prompt(prompt)
+
+
+def leaf_dir(home: str):
+    from pathlib import Path
+
+    return Path(home) / "cache" / "handoff-leaves"
+
+
+def mark_leaf(home: str, *session_ids: Optional[str]) -> None:
+    """Remember a session that was handed a brief, so it cannot hand off again."""
+    root = leaf_dir(home)
+    root.mkdir(parents=True, exist_ok=True)
+    for session_id in session_ids:
+        if session_id:
+            (root / str(session_id)).touch()
+
+
+def is_leaf(home: str, session_id: str) -> bool:
+    if not session_id:
+        return False
+    return (leaf_dir(home) / str(session_id)).is_file()
 
 
 def run_handoff(
@@ -119,7 +141,7 @@ def run_handoff(
     submitted = rpc(
         serve,
         "prompt.submit",
-        {"session_id": session_id, "text": session_prompt(prompt), "title_preview": title},
+        {"session_id": session_id, "text": visible_prompt(prompt), "title_preview": title},
     )
     if "error" in submitted:
         raise HandoffError("prompt.submit failed")
@@ -179,9 +201,14 @@ def cmd_handoff(args) -> int:
     if not prompt.strip():
         print("handoff needs a prompt (--prompt or --prompt-file)")
         return 1
+    home = str(get_hermes_home())
+    current = os.environ.get("HERMES_SESSION_ID") or os.environ.get("HERMES_SESSION_KEY") or ""
+    if is_leaf(home, current):
+        print("This session was handed a brief. Do the work here.")
+        return 1
     title = getattr(args, "title", None) or "Desktop session"
     cwd = getattr(args, "cwd", None) or os.getcwd()
-    serve = find_desktop_serve(psutil.process_iter(), home=str(get_hermes_home()))
+    serve = find_desktop_serve(psutil.process_iter(), home=home)
     if serve is None:
         print("No single Desktop serve for this profile. Open Hermes and retry.")
         return 1
@@ -198,5 +225,6 @@ def cmd_handoff(args) -> int:
     except HandoffError as exc:
         print(str(exc))
         return 1
+    mark_leaf(home, result.get("session_id"), result.get("stored_session_id"))
     print(public_result(result))
     return 0
