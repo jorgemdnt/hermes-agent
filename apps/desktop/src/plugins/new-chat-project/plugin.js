@@ -22,7 +22,7 @@ import {
   host,
   useValue
 } from '@hermes/plugin-sdk'
-import { $projectScope, ALL_PROJECTS, exitProjectScope } from '@/store/projects'
+import { $projectScope, ALL_PROJECTS, exitProjectScope } from '@/store/project-scope'
 
 const PREFS = 'prefs'
 const NONE_ID = ''
