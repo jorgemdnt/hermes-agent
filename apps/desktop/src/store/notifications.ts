@@ -274,6 +274,20 @@ export function notify(input: NotificationInput): string {
   return id
 }
 
+// Toast copy can omit the stack or shorten the message. Keep both in desktop.log.
+function logErrorToDesktopLog(error: unknown, fallback: string): void {
+  try {
+    const label: string = new URLSearchParams(window.location.search).get('win') ?? 'main'
+
+    const raw: string =
+      error instanceof Error ? (error.stack ?? error.message) : typeof error === 'string' ? error : fallback
+
+    window.hermesDesktop?.logLine?.(`[renderer error:${label}] ${fallback}: ${raw}`)
+  } catch {
+    // A missing or closed IPC bridge must not prevent the error toast.
+  }
+}
+
 export function notifyError(
   error: unknown,
   fallback: string,
@@ -281,6 +295,7 @@ export function notifyError(
 ): string {
   const readable = readableError(error, fallback)
   const poolSlotTimeout = isLocalBackendSlotWaitTimeout(error)
+  logErrorToDesktopLog(error, fallback)
 
   return notify({
     action: poolSlotTimeout

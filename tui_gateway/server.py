@@ -132,6 +132,11 @@ def _resolve_ws_orphan_reap_grace() -> float:
 
 
 _WS_ORPHAN_REAP_GRACE_S = _resolve_ws_orphan_reap_grace()
+# A reap Timer whose wall-clock wait outlasted its awake-time (monotonic) wait by more than
+# this fired early because the host slept through it (#44183); re-arm for the remaining
+# awake grace instead of reaping. Large enough to ignore timer jitter and NTP slew, small
+# relative to any real sleep.
+_WS_ORPHAN_REAP_SLEEP_SLACK_S = 0.5
 # A detached RUNNING turn is interrupted only once its activity clock (API waits, stream tokens, tool
 # heartbeats) idled this long; 600s = the turn-liveness watchdog so "wedged" means the same. 0 disables.
 _WS_ORPHAN_ACTIVITY_STALE_S = _ws_orphan_setting("HERMES_TUI_WS_ORPHAN_ACTIVITY_STALE_S", "ws_orphan_activity_stale_s", 600.0)
@@ -382,15 +387,21 @@ _start_idle_reaper()
 # ── Plumbing ──────────────────────────────────────────────────────────
 
 
-def _launch_state_db_path() -> Path:
-    """Launch profile's ``state.db`` at call time: the patched ``_hermes_home`` when a test changed
+def _launch_home() -> Path:
+    """The launch profile's home at call time: the patched ``_hermes_home`` when a test changed
     it, else the live process home — resolved through :func:`get_process_hermes_home`, which honours
     ``HERMES_HOME`` but ignores the context-local override. The desktop multiplex cron ticker sets
-    that override per profile at startup, and a first touch inside a foreign window would bind this
-    process-wide handle to another profile's ``state.db`` (#102526). Resolving here rather than at
-    import time lets a harness that redirects ``HERMES_HOME`` after import be honoured (#112692)."""
+    that override per profile at startup, and a first touch inside a foreign window would bind
+    process-wide launch state (the shared ``state.db`` handle, the launch ``.env`` secrets) to
+    another profile (#102526). Resolving here rather than at import time lets a harness that
+    redirects ``HERMES_HOME`` after import be honoured (#112692)."""
     home = _hermes_home if _hermes_home != _HERMES_HOME_AT_IMPORT else get_process_hermes_home()
-    return Path(home) / "state.db"
+    return Path(home)
+
+
+def _launch_state_db_path() -> Path:
+    """Launch profile's ``state.db`` (see :func:`_launch_home`)."""
+    return _launch_home() / "state.db"
 
 
 def _get_db():
@@ -1713,7 +1724,7 @@ def _append_model_switch_marker(session: dict | None, *, model: str, provider: s
         "metadata when answering questions about what model/provider is active.]")
     # A user message, not system: strict OpenAI-compatible providers (vLLM, Qwen) reject non-leading system messages.
     # See #48338.
-    entry = {"role": "user", "content": marker, "display_kind": "model_switch"}
+    entry: dict[str, Any] = {"role": "user", "content": marker, "display_kind": "model_switch"}
     with session.get("history_lock") or contextlib.nullcontext():
         history = session.setdefault("history", [])
         history[:] = [h for h in history if not _is_model_switch_marker(h)]
@@ -1726,7 +1737,10 @@ def _append_model_switch_marker(session: dict | None, *, model: str, provider: s
             _ensure_session_db_row(session)
         with (contextlib.nullcontext(db) if db is not None else _session_db(session)) as db:
             if db is not None:
-                db.append_message(session_id=session_key, role="user", content=marker, display_kind="model_switch")
+                from agent.context_compressor import _DB_PERSISTED_MARKER
+                entry["_row_id"] = db.append_message(
+                    session_id=session_key, role="user", content=marker, display_kind="model_switch")
+                entry[_DB_PERSISTED_MARKER] = True
     except Exception:
         logger.debug("failed to persist model switch marker", exc_info=True)
 
@@ -1943,6 +1957,28 @@ def _load_enabled_toolsets(platform: str | None = None) -> list[str] | None:
     except Exception:
         if fallback_notice is not None:
             _tui_notice("[tui] no valid HERMES_TUI_TOOLSETS entries and configured CLI toolsets could not be loaded; enabling all toolsets")
+        return None
+
+
+def _load_disabled_toolsets() -> list[str] | None:
+    """``agent.disabled_toolsets`` from config.yaml, or ``None``.
+
+    The classic CLI (``cli_init_mixin``) and the messaging gateway both forward this list to
+    AIAgent, where ``get_tool_definitions`` strips the named toolsets even out of composite
+    defaults like ``hermes-cli`` (#17309). The desktop/TUI gateway historically dropped it, so
+    e.g. ``disabled_toolsets: [browser]`` silently had no effect on Desktop — the only consumer
+    was ``_get_platform_tools``'s name-level subtraction, which can't reach inside a composite
+    default toolset (#44499).
+    """
+    try:
+        from agent.skill_utils import parse_config_string_list
+
+        from hermes_cli.config import load_config
+
+        agent_cfg = load_config().get("agent") or {}
+        disabled = parse_config_string_list(agent_cfg.get("disabled_toolsets"))
+        return [str(ts) for ts in disabled] or None
+    except Exception:
         return None
 
 
@@ -2183,8 +2219,10 @@ def _session_info(agent, session: dict | None = None) -> dict:
         "profile_name": profile_name_for_home(sess.get("profile_home")) or _current_profile_name(),
     }
     with contextlib.suppress(Exception):
-        from hermes_cli import __version__, __release_date__
-        info.update(version=__version__, release_date=__release_date__)
+        from hermes_cli import __release_date__
+        from hermes_cli.version_info import get_version_info
+
+        info.update(version=get_version_info().base_version, release_date=__release_date__)
     live_agent = agent is not None and not sess.get("_compute_host_active")
     if live_agent:
         with contextlib.suppress(Exception):
@@ -2347,8 +2385,10 @@ def _resolve_agent_model_runtime(model_override, provider_override) -> tuple[str
         # Same pre-agent switch the messaging gateway surfaces (#74349); _make_agent pops it onto the
         # agent's one-shot notice so the TUI/Desktop user sees which provider actually answered.
         from hermes_cli.fallback_config import pre_agent_fallback_notice
-        # requested_provider=None means resolve_runtime_provider read the persisted config provider.
-        primary_provider = requested_provider or (_load_cfg().get("model") or {}).get("provider")
+        # requested_provider=None means resolve_runtime_provider read the persisted config provider;
+        # ``model: <id>`` (string shorthand) names no provider.
+        cfg_model = _load_cfg().get("model")
+        primary_provider = requested_provider or (cfg_model.get("provider") if isinstance(cfg_model, dict) else None)
         resolution.runtime["_fallback_notice"] = pre_agent_fallback_notice(
             primary_provider, model, resolution.runtime.get("provider"), resolution.selected_model)
         return resolution.selected_model, resolution.runtime
@@ -2457,6 +2497,7 @@ def _make_agent(
             reasoning_config_override if reasoning_config_override is not None else _load_reasoning_config(str(model or ""))),
         service_tier=service_tier_override if service_tier_override is not None else _load_service_tier(),
         enabled_toolsets=_load_enabled_toolsets(platform),
+        disabled_toolsets=_load_disabled_toolsets(),
         # OpenRouter provider_routing prefs (gateway + CLI parity).
         providers_allowed=_pr.get("only"), providers_ignored=_pr.get("ignore"), providers_order=_pr.get("order"),
         provider_sort=_pr.get("sort"), provider_require_parameters=_pr.get("require_parameters", False),
@@ -3164,7 +3205,7 @@ def _append_spawn_tree_index(session_dir, entry: dict) -> None:
 def _read_spawn_tree_index(session_dir) -> list[dict]:
     out: list[dict] = []
     try:
-        with (session_dir / _SPAWN_TREE_INDEX).open("r", encoding="utf-8") as f:
+        with (session_dir / _SPAWN_TREE_INDEX).open("r", encoding="utf-8-sig") as f:
             for line in f:
                 if line := line.strip():
                     with contextlib.suppress(json.JSONDecodeError):
@@ -3359,6 +3400,7 @@ from .mcp_rpc_helpers import summarize_server as _mcp_summarize_server  # noqa: 
 from . import (  # noqa: E402
     methods_voice as _methods_voice, methods_browser as _methods_browser, methods_slash as _methods_slash,
     methods_complete_helpers as _methods_complete_helpers, session_auto_continue as _session_auto_continue,
+    plugin_inject as _plugin_inject,
     rpc_dispatch as _rpc_dispatch,
     agent_callbacks as _agent_callbacks, session_history as _session_history,
     prompt_attachments as _prompt_attachments, session_notifications as _session_notifications,
@@ -3382,7 +3424,7 @@ from . import (  # noqa: E402
 for _m in (
     _session_transports, _session_reaper, _session_lifecycle, _session_workdir, _compute_host_bridge, _model_switch,
     _session_compression, _change_watcher, _tool_progress, _session_notifications,
-    _prompt_attachments, _session_history, _agent_callbacks, _session_auto_continue, _rpc_dispatch,
+    _prompt_attachments, _session_history, _agent_callbacks, _session_auto_continue, _plugin_inject, _rpc_dispatch,
     _methods_complete_helpers, _methods_slash, _methods_voice, _methods_browser,
     _methods_browser_control, _methods_session, _methods_prompt, _methods_config,
     _methods_config_set, _methods_complete, _methods_tools, _methods_profiles, _methods_images,

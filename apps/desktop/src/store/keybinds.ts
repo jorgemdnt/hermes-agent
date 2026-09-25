@@ -95,10 +95,9 @@ function loadBindings(): KeybindBindings {
   const base = defaultBindings()
 
   for (const id of Object.keys(base)) {
-    // An empty array is an explicit unbind. A truthy check treats `[]` as
-    // "no override" and the shipped chord stays — that is how ⌘1–9 kept
-    // switching top tabs after the sidebar plugin stored `profile.switch.N: []`.
-    if (Object.prototype.hasOwnProperty.call(storedOverrides, id)) {
+    // Empty combos are a cleared binding, not a missing one. Object.hasOwn
+    // keeps a stored [] (sidebar unbound) from falling back to the shipped default.
+    if (Object.hasOwn(storedOverrides, id)) {
       base[id] = storedOverrides[id]
     }
   }
@@ -158,6 +157,11 @@ export function setBinding(actionId: string, combos: string[]): void {
   $bindings.set({ ...$bindings.get(), [actionId]: [...combos] })
 }
 
+/** Drop every combo. Empty is persisted, so a shipped default stays unbound. */
+export function clearBinding(actionId: string): void {
+  setBinding(actionId, [])
+}
+
 export function resetBinding(actionId: string): void {
   const action = keybindAction(actionId)
 
@@ -193,4 +197,25 @@ export function beginCapture(actionId: string): void {
 
 export function endCapture(): void {
   $capture.set(null)
+}
+
+export type CaptureStep = { type: 'cancel' } | { type: 'set'; combos: string[] } | { type: 'wait' }
+
+// Capture-mode keydown. Backspace/Delete record an empty combo so a shipped
+// chord (sidebar mod+b) can be unbound. Escape cancels. A modifier-only press
+// (`combo == null`) keeps waiting for a real key.
+export function captureStep(key: string, combo: string | null): CaptureStep {
+  if (key === 'Escape') {
+    return { type: 'cancel' }
+  }
+
+  if (key === 'Backspace' || key === 'Delete') {
+    return { type: 'set', combos: [] }
+  }
+
+  if (!combo) {
+    return { type: 'wait' }
+  }
+
+  return { type: 'set', combos: [combo] }
 }

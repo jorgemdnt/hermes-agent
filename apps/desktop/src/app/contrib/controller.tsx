@@ -21,6 +21,7 @@ import {
   bindToolPaneCollapse,
   declareDefaultTree,
   dismissTreePane,
+  hydrateContributedPanes,
   isPaneVisible,
   markActivePreset,
   markCollapsePane,
@@ -35,8 +36,7 @@ import {
   targetZoneTabStripVisible,
   togglePaneVisible,
   toggleTargetZoneTabStrip,
-  treeLooksLikeWork,
-  watchContributedPanes
+  treeLooksLikeWork
 } from '@/components/pane-shell/tree/store'
 import { $workspaceOwnerLabels, workspaceOwnerTitle } from '@/components/pane-shell/workspace-scope'
 import { SidebarProvider } from '@/components/ui/sidebar'
@@ -53,7 +53,6 @@ import {
   PanelBottom,
   PanelTop,
   SlidersHorizontal,
-  Terminal,
   Upload,
   Users,
   Zap
@@ -109,6 +108,7 @@ import { startSessionDrag } from '../chat/session-drag'
 import {
   SessionTileCloseConfirm,
   stackSessionTilesIntoMain,
+  startTileBackendIdentityGuard,
   startUnrestoredTileTitleBackfill,
   watchSessionTiles,
   WorkspaceTabMenu
@@ -116,6 +116,7 @@ import {
 import { AppContextMenu } from '../context-menu/app-context-menu'
 import { HudShell } from '../hud/hud-shell'
 import { $terminalTakeover, setTerminalTakeover } from '../right-sidebar/store'
+import { terminalPaletteToggle } from '../right-sidebar/terminal/reveal-focus'
 import { $workspaceIsPage, WORKSPACE_PAGE_HEADER_AREA } from '../routes'
 
 import { BASIC_TREE, DEFAULT_TREE, registerLayoutPresets, WORK_LAYOUT_ID, WORK_TREE } from './layout-presets'
@@ -472,8 +473,10 @@ if (!hadPersistedLayout) {
 discoverBundledPlugins()
 
 // Plugin panes join the tree by their `placement` hint the moment they
-// register — incl. runtime plugins arriving seconds after boot.
-watchContributedPanes()
+// register — incl. runtime plugins arriving seconds after boot. The FIRST
+// pass runs as layout hydration: the reload prune→re-register cycle must not
+// record split shares (#108679).
+hydrateContributedPanes()
 
 // Session + route (page) tiles: persisted splits register panes docked beside
 // main. A popped-out Browser and the HUD have no layout tree — registering
@@ -483,6 +486,7 @@ watchContributedPanes()
 if (!isBrowserWindow() && !isHudWindow()) {
   watchSessionTiles()
   startUnrestoredTileTitleBackfill()
+  startTileBackendIdentityGuard()
   watchRouteTiles()
   watchPreviewTiles()
 }
@@ -598,22 +602,8 @@ bindToolPaneCollapse(
 // Without the statusbar, the rail is the only way to switch profiles or gateways.
 $profiles.subscribe(profiles => setModeContext({ profileCount: profiles.length }))
 $connectionsRegistry.subscribe(registry => setModeContext({ connectionCount: registry?.connections.length ?? 0 }))
-// ⌘K door onto the same pane the keybind and statusbar pill flip — was a
-// one-way "open" row under Go to, so it never showed on/off and couldn't hide.
-// Reads the TREE like every other pane toggle: `$terminalTakeover` stays true
-// behind a stacked sibling tab or a minimized zone, which would light the row
-// "on" for a terminal that isn't on screen.
-registry.register(
-  paletteToggle({
-    id: 'view.showTerminal',
-    label: 'Toggle terminal',
-    action: 'view.showTerminal',
-    icon: Terminal,
-    keywords: ['terminal', 'shell', 'console', 'pty'],
-    get: () => isPaneVisible('terminal'),
-    set: () => togglePaneVisible('terminal')
-  })
-)
+// ⌘K door onto the same pane the keybind and statusbar pill flip.
+registry.register(terminalPaletteToggle)
 
 // Logs are ⌘K-ONLY chrome: the pane contribution EXISTS only while $logsOpen
 // is on. Off (the default) keeps logs out of the registry and the tree

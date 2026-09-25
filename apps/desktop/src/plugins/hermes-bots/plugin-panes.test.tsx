@@ -40,7 +40,7 @@ const mocks = vi.hoisted(() => ({
   ),
   paneVisibility: vi.fn(),
   pinChatToLatest: vi.fn(),
-  selectedRosterBot: vi.fn(() => null),
+  selectedRosterBot: vi.fn((): null | { name: string; canonical_session?: { id: string } } => null),
   sessionOwnsWorkspace: vi.fn(() => false),
   setWorkspaceScope: vi.fn(),
   undismissPane: vi.fn()
@@ -234,6 +234,26 @@ describe('the Scheduled jobs pane', () => {
     await settle()
 
     expect(harness.find('routines')).toBeUndefined()
+
+    harness.dispose()
+  })
+})
+
+describe('returning to Sessions', () => {
+  it('drops a cold bot open still pending (#120277)', async () => {
+    const store = paneStores()
+    const harness = recordingContext()
+    const { $pendingBotOpen } = await import('./shared')
+
+    plugin.register(harness.ctx)
+    await settle()
+    store(`hermes-bots:pane`).set(true)
+    $pendingBotOpen.set({ generation: 1, key: 'local::bravo' })
+
+    store(`hermes-bots:pane`).set(false)
+
+    expect($pendingBotOpen.get()).toBeNull()
+    expect(mocks.setWorkspaceScope).toHaveBeenCalledWith('sessions')
 
     harness.dispose()
   })

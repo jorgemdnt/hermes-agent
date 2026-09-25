@@ -18,6 +18,7 @@ import {
   shouldResettleTranscript,
   shouldSnapOnRunStart,
   subscribeToThreadForeground,
+  transcriptSettleAdvance,
   transcriptPaneBudget
 } from './list'
 

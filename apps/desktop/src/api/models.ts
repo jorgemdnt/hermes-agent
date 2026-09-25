@@ -40,7 +40,7 @@ export function getGlobalModelOptions(
     includeUnconfigured?: boolean
     explicitOnly?: boolean
   },
-  profile?: null | string
+  profile?: ProfileScope
 ): Promise<ModelOptionsResult> {
   const params = new URLSearchParams()
 
@@ -56,8 +56,8 @@ export function getGlobalModelOptions(
     params.set('explicit_only', '1')
   }
 
-  return hermesApi<ModelOptionsResult>({
-    ...profileScoped(profile),
+  return window.hermesDesktop.api<ModelOptionsResult>({
+    ...capabilityScoped(profile),
     path: params.size > 0 ? `/api/model/options?${params.toString()}` : '/api/model/options',
     timeoutMs: STARTUP_REQUEST_TIMEOUT_MS
   })
@@ -73,12 +73,9 @@ export interface RecommendedDefaultModel {
 // Recommended default model for a freshly-authenticated provider. Mirrors the
 // curation `hermes model` does — for Nous it honors the free/paid tier so a
 // free user gets a free model instead of a paid default.
-export function getRecommendedDefaultModel(
-  provider: string,
-  profile?: null | string
-): Promise<RecommendedDefaultModel> {
-  return hermesApi<RecommendedDefaultModel>({
-    ...profileScoped(profile),
+export function getRecommendedDefaultModel(provider: string, profile?: ProfileScope): Promise<RecommendedDefaultModel> {
+  return window.hermesDesktop.api<RecommendedDefaultModel>({
+    ...capabilityScoped(profile),
     path: `/api/model/recommended-default?provider=${encodeURIComponent(provider)}`
   })
 }
@@ -127,10 +124,10 @@ export function saveMoaModels(
 
 export function setModelAssignment(
   body: ModelAssignmentRequest,
-  profile?: null | string
+  profile?: ProfileScope
 ): Promise<ModelAssignmentResponse> {
-  return hermesApi<ModelAssignmentResponse>({
-    ...profileScoped(profile),
+  return window.hermesDesktop.api<ModelAssignmentResponse>({
+    ...capabilityScoped(profile),
     path: '/api/model/set',
     method: 'POST',
     body

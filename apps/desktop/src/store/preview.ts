@@ -5,6 +5,7 @@ import { readKey, writeKey } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, setFileBrowserOpen } from './layout'
+import { clearExplicitPreviewOpen, noteExplicitPreviewOpen } from './preview-explicit'
 import { $activeSessionId, $selectedStoredSessionId } from './session'
 import { canOpenBrowserWindow, openBrowserInNewWindow } from './windows'
 
@@ -672,6 +673,7 @@ export function openPreview(
   writeTabsForOwner(owner, index === -1 ? [...current, tab] : current.map((item, i) => (i === index ? tab : item)), id)
 
   if (owner === previewOwnerKey()) {
+    noteExplicitPreviewOpen(id)
     selectRightRailTab(id)
     setFileBrowserOpen(true)
   }
@@ -695,6 +697,7 @@ export function newBrowserTab() {
   const id = mintBrowserTabId()
 
   writeVisiblePreviewTabs([...$previewTabs.get(), { id, target: blankPage() }])
+  noteExplicitPreviewOpen(id)
   selectRightRailTab(id)
 }
 
@@ -711,7 +714,15 @@ export function closeRightRailTab(tabId: string) {
   writeVisiblePreviewTabs(next)
 
   if ($rightRailActiveTabId.get() === tabId) {
-    selectRightRailTab(next[Math.min(index, next.length - 1)]?.id ?? null)
+    const nextId = next[Math.min(index, next.length - 1)]?.id ?? null
+
+    if (nextId) {
+      noteExplicitPreviewOpen(nextId)
+    } else {
+      clearExplicitPreviewOpen()
+    }
+
+    selectRightRailTab(nextId)
   }
 
   if (next.length === 0) {
@@ -778,6 +789,7 @@ export function closeArtifactPreviewTabs() {
 
 /** Close every tab so the rail's panes leave the tree. */
 export function closeRightRail() {
+  clearExplicitPreviewOpen()
   writeVisiblePreviewTabs([])
   selectRightRailTab(null)
 }
