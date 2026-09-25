@@ -23,12 +23,14 @@ const message = (rowId: number): ChatMessage => ({
 describe('workspace runtime getSnapshot loop', () => {
   it('does not throw on an idle ChatRuntimeBoundary mount', async () => {
     const $messages = atom(Array.from({ length: 8 }, (_, index) => message(index + 1)))
+
     const view = {
       ...PRIMARY_SESSION_VIEW,
       $messages,
       $runtimeId: atom<string | null>('runtime'),
       $storedId: atom<string | null>('stored')
     }
+
     const mutations = {
       onEdit: vi.fn(),
       onReload: vi.fn(),

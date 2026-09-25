@@ -20,7 +20,6 @@ import { ToolIcon } from '@/components/ui/tool-icon'
 import { translateNow } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { $rightRailActiveTabId, type RightRailTabId, selectRightRailTab, WORK_PANE_ID, WORK_SLOT_DEFAULT_WIDTH } from '@/store/layout'
-import { $threadChrome, threadPreviewOpen } from '@/store/thread-chrome'
 import {
   $allDockedPreviewTabs,
   $browserPages,
@@ -38,6 +37,7 @@ import {
   type PreviewTarget
 } from '@/store/preview'
 import { explicitOpenBlocksZone, PREVIEW_TILE_PREFIX } from '@/store/preview-explicit'
+import { $threadChrome, threadPreviewOpen } from '@/store/thread-chrome'
 import { canOpenBrowserWindow } from '@/store/windows'
 
 import { paneMirror } from './pane-mirror'

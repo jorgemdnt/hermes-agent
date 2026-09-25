@@ -38,6 +38,7 @@ const getThreadListAdapter = (store: ExternalStoreAdapter) => store.adapters?.th
 
 function stabilizeThreadListGetState(threads: AssistantRuntime['threads']): void {
   const read = threads.getState.bind(threads)
+
   let cached = read()
 
   ;(threads as { getState: typeof read }).getState = () => {

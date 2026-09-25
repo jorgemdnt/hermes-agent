@@ -167,6 +167,7 @@ function loadPreviewTabsBySession(): PreviewTabsBySession {
           record.activeBySession && typeof record.activeBySession === 'object' && !Array.isArray(record.activeBySession)
             ? (record.activeBySession as Record<string, unknown>)
             : {}
+
         const activeBySession: Record<string, null | string> = {}
 
         for (const [owner, value] of Object.entries(activeIn)) {
@@ -273,6 +274,7 @@ export const $previewTabs = atom<PreviewTab[]>(visibleTabsForOwner(previewOwnerK
 
 function writeTabsForOwner(owner: string, tabs: PreviewTab[], activeId?: RightRailTabId | null) {
   const state = $previewTabsBySession.get()
+
   const next: PreviewTabsBySession = {
     activeBySession: {
       ...state.activeBySession,
@@ -326,6 +328,7 @@ $selectedStoredSessionId.listen(id => {
     if (draft?.length && !(state.tabs[id] ?? []).length) {
       const existing = state.tabs[id] ?? []
       const merged = [...draft, ...existing.filter(tab => !draft.some(item => item.id === tab.id))]
+
       const next: PreviewTabsBySession = {
         activeBySession: {
           ...state.activeBySession,
@@ -664,6 +667,7 @@ export function openPreview(
   const resolved = previewTargetForSource(target, source)
   const id = resolved.kind === 'url' ? browserTabId(current) : previewTabId(resolved)
   const index = current.findIndex(tab => tab.id === id)
+
   const tab: PreviewTab = {
     id,
     target: withRenderMode(resolved, current[index]?.target),
@@ -754,6 +758,7 @@ function closePreviewMatchingForOwner(owner: string, candidates: string[]): bool
   }
 
   const current = $previewTabsBySession.get().tabs[owner] ?? []
+
   const index = current.findIndex(item => {
     const fields = [item.target.source, item.target.url, item.target.label]
 

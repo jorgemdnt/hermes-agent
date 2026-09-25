@@ -8,7 +8,6 @@
 // `$focusedStoredSessionId` exists — preview must not import session-states.
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { $selectedStoredSessionId } from './session'
 import {
   $allDockedPreviewTabs,
   $previewTabs,
@@ -17,6 +16,7 @@ import {
   openPreview,
   type PreviewTarget
 } from './preview'
+import { $selectedStoredSessionId } from './session'
 
 function fileTarget(path: string): PreviewTarget {
   return {

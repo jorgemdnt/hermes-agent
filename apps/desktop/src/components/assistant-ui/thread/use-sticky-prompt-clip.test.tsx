@@ -1,8 +1,8 @@
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { StickyHumanMessageContainer } from './user-message'
 import { seatedPromptTop, stickyPromptEngaged, useStickyPromptClip } from './use-sticky-prompt-clip'
+import { StickyHumanMessageContainer } from './user-message'
 
 const rect = (top: number, height: number) => ({ top, bottom: top + height, height }) as DOMRect
 
@@ -198,6 +198,7 @@ it('keeps a below-the-fold prompt in flow and releases the override once the tur
   )
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     frame = callback
+
     return 1
   })
   vi.stubGlobal('cancelAnimationFrame', () => {

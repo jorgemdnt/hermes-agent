@@ -88,8 +88,10 @@ describe('macOS client wiring', () => {
     client.checkForUpdates.mockImplementationOnce(async () => {
       expect(client.currentVersion.version).toBe('0.0.0')
       const info = { version, files: [], releaseDate: '', path: '', sha512: '' }
+
       return { isUpdateAvailable: true, updateInfo: info, versionInfo: info }
     })
+
     const strategy = createMacStrategy({
       ...deps('https://updates.example', false, 'canary'),
       appVersion: '0.21.4+canary.20260922T001400Z',

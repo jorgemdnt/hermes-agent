@@ -182,6 +182,7 @@ export function useRouteResume({
 
         const requested =
           sessionResumeRequest?.sessionId === routedSessionId ? sessionResumeRequest.ownerRoute : undefined
+
         // A bare hash change has no request route. The open-time hint is the
         // only owner a hidden Bot Chat has. Without it the resume asks the
         // pane you are leaving (Hermes, Gandalf) and the click looks dead.

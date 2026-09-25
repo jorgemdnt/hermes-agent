@@ -1106,6 +1106,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
       if (!node) {
         rafId = requestAnimationFrame(settle)
+
         return
       }
 
@@ -1113,6 +1114,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
       if (target.kind === 'bottom') {
         node.scrollTop = threadScrollTargetTop(target, node)
+
         const next = transcriptSettleAdvance({
           clientHeight: node.clientHeight,
           frame,
@@ -1122,6 +1124,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
           scrollHeight: height,
           stableFrames
         })
+
         frame = next.frame
         lastHeight = next.lastHeight
         stableFrames = next.stableFrames
@@ -1129,16 +1132,19 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
         if (next.done) {
           void scrollToBottom('instant')
           loadSettledRef.current = true
+
           return
         }
 
         rafId = requestAnimationFrame(settle)
+
         return
       }
 
       if (node.clientHeight < TRANSCRIPT_MIN_VIEWPORT_PX) {
         node.scrollTop = threadScrollTargetTop(target, node)
         rafId = requestAnimationFrame(settle)
+
         return
       }
 

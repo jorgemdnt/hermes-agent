@@ -211,6 +211,7 @@ interface ChatRuntimeBoundaryProps {
 }
 
 const NO_MESSAGES: ChatMessage[] = []
+
 const IGNORE_RUNTIME_SUBMIT = async () => {}
 const RuntimeChildrenContext = createContext<React.ReactNode>(null)
 
@@ -489,6 +490,7 @@ export function ChatRuntimeBoundary({
       ),
     [runtimeMessageRepository, isHistorical, busy, onThreadMessagesChange, onEdit, onCancel, onReload]
   )
+
   const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>(adapter)
   // AssistantRuntimeProvider is memo'd on `children`. ChatView re-renders on
   // many non-transcript stores and would pass a new Thread element each time,

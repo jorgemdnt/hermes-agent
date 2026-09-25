@@ -37,8 +37,8 @@ vi.mock('./routes', () => ({
   sessionRoute: (id: string) => `/c/${encodeURIComponent(id)}`
 }))
 
-import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 import { revealTreePane } from '@/components/pane-shell/tree/store'
+import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 
 import { openSession, openSessionFromPicker, openSessionIntentFromModifiers } from './open-session'
 

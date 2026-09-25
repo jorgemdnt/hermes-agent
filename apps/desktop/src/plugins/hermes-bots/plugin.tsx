@@ -26,26 +26,26 @@ import {
 } from '@hermes/plugin-sdk'
 import type { ChatEmptyProps, PluginContext, ProfileGroupRoute } from '@hermes/plugin-sdk'
 
-import { pinChatToLatest } from '@/store/thread-scroll'
-import { consumeSessionsFollowOpen } from '@/store/sidebar-follow'
-import { $newChatProfile, requestFreshSession } from '@/store/profile'
 import { revealTreePane } from '@/components/pane-shell/tree/store'
+import { $newChatProfile, requestFreshSession } from '@/store/profile'
+import { consumeSessionsFollowOpen } from '@/store/sidebar-follow'
+import { pinChatToLatest } from '@/store/thread-scroll'
 
 import { startFaceClock, stopFaceClock } from './avatar'
 import { installBotProfileSwitch } from './bot-profile-switch'
-import { botsLandingAction, BOTS_LOADING_ROUTE, centerIsWorkspacePage, firstOpenableBot } from './bots-landing'
-import { BotsLoadingPage } from './bots-loading-page'
 import {
   $botChatFocused,
   $botsPaneVisible,
   $focusedBotOwner,
   $openBotChat,
-  $selectedBot,
   $rosterHydrated,
+  $selectedBot,
   $selectedRosterHydrated,
   $selectedRosterKey,
   focusedMentionProfile
 } from './bot-state'
+import { BOTS_LOADING_ROUTE, botsLandingAction, centerIsWorkspacePage, firstOpenableBot } from './bots-landing'
+import { BotsLoadingPage } from './bots-loading-page'
 import { isCanonicalChatOnScreen, openBotCanonicalChat } from './canonical-chat'
 import { BotChatEmpty } from './chat-empty'
 import { bindProfileSync } from './cron'
@@ -82,7 +82,6 @@ import { displayName } from './labels'
 import { startBotRelay, stopBotRelay } from './relay'
 import { $activityToasts, openRosterBot } from './roster-actions'
 import {
-  botChatOwnsWorkspace,
   BotsPane,
   releaseStaleOpenBotChat,
   selectedRosterBot,
@@ -150,6 +149,7 @@ async function visibleSessionIds(): Promise<string[]> {
   const tree = (await host.request('projects.tree', { preview_limit: 50 })) as {
     projects?: Array<{ previewSessions?: Array<{ id?: string }> }>
   } | null
+
   const ids: string[] = []
 
   for (const project of tree?.projects || []) {
@@ -209,6 +209,7 @@ export function claimBotsBoot(): void {
   const rows = Array.isArray(roster) ? roster : []
   const bot = firstOpenableBot(rows, selectedRosterBot(rows, $selectedRosterKey.get()))
   const hash = typeof window === 'undefined' ? '' : window.location.hash
+
   const action = botsLandingAction({
     paneVisible: true,
     groupOpen: false,
@@ -563,6 +564,7 @@ export default {
     // the meta/room storage hydrates above have landed; idempotent after that.
     // (Feature-guarded: bare vm test harnesses have no setTimeout global.)
     startHideSweepScheduler(ctx)
+
     const onRosterSlot = (event: Event) => {
       const slot = Number((event as CustomEvent<{ slot?: number }>).detail?.slot)
 
@@ -573,12 +575,14 @@ export default {
       const roster = [...document.querySelectorAll('[data-slot="bots-roster"]')].find(
         el => el.getClientRects().length > 0 && !el.closest('[data-pane-hidden]')
       )
+
       const key = roster
         ? [...roster.querySelectorAll('[data-roster-key]')]
             .filter(el => el.getClientRects().length > 0 && !el.closest('[data-pane-hidden]'))
             .map(el => el.getAttribute('data-roster-key') || '')
             .filter(Boolean)[slot - 1]
         : ''
+
       const bot = key ? ($lastRoster.get() || []).find(row => botRosterKey(row) === key) : null
 
       if (!bot) {
@@ -742,6 +746,7 @@ export default {
           // returned to Sessions.
           bumpBotOpenGeneration()
           host.setWorkspaceScope?.('sessions')
+
           // A notification already focused the conversation. Restoring the
           // chat remembered from the last Bots visit would replace it.
           if (consumeSessionsFollowOpen()) {
@@ -837,6 +842,7 @@ export default {
           claimBotsBoot()
         }
       })
+
       const onBootHash = () => claimBotsBoot()
       window.addEventListener('hashchange', onBootHash)
 

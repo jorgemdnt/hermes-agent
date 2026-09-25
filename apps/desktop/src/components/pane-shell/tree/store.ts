@@ -329,6 +329,7 @@ function rememberPaneShare(tree: LayoutNode, paneId: string) {
     // partner-validated, so it records without a partner and falls back to
     // even on any mismatched recall.
     const partnerGroup = parent.children[partner] as LayoutNode
+
     const partnerPane =
       partnerGroup.type === 'group' && partnerGroup.panes.length === 1 ? partnerGroup.panes[0] : null
 

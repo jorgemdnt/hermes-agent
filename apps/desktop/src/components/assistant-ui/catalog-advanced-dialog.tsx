@@ -62,6 +62,7 @@ function installEnv(options: InstallEnvOptions): InstallEnv {
     force: flag(options.force),
     target_profile: options.targetProfile
   }
+
   if (options.kind === 'skill') {
     return env
   }

@@ -7,6 +7,7 @@ function tab(id: string) {
   const el = document.createElement('button')
   el.setAttribute('data-tree-tab', id)
   el.setAttribute('role', 'tab')
+
   return el
 }
 
@@ -14,6 +15,7 @@ function row(label: string) {
   const el = document.createElement('button')
   el.setAttribute('data-slot', 'row-button')
   el.textContent = label
+
   return el
 }
 
@@ -121,10 +123,12 @@ describe('cmd-number-sessions sidebar slots', () => {
     document.body.append(tab, roster)
 
     const claimed: number[] = []
+
     const onSlot = (event: Event) => {
       claimed.push((event as CustomEvent).detail.slot)
       event.preventDefault()
     }
+
     window.addEventListener('hermes:sidebar-roster-slot', onSlot)
 
     await openSidebarSlot(1, document)

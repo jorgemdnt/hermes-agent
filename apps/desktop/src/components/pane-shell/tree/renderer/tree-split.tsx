@@ -24,12 +24,12 @@ import {
   $hiddenTreePanes,
   $narrowViewport,
   isCollapsePane,
+  isWorkLayout,
   paneRootSide,
   persistTree,
   presetSplitWeights,
   setTreeGroupMinimized,
-  setTreeSplitWeights,
-  isWorkLayout
+  setTreeSplitWeights
 } from '../store'
 
 import {

@@ -9,17 +9,17 @@ import {
   LIVE_TAIL_PARTS,
   liveTailStart,
   type MessageGroup,
+  prependAnchorFromBottom,
   resolveThreadScrollTarget,
   RUN_START_SNAP_THRESHOLD_PX,
   shouldAnchorBeforePrepend,
   shouldClampTranscriptBudget,
-  prependAnchorFromBottom,
   shouldRePinOnTranscriptReload,
   shouldResettleTranscript,
   shouldSnapOnRunStart,
   subscribeToThreadForeground,
-  transcriptSettleAdvance,
-  transcriptPaneBudget
+  transcriptPaneBudget,
+  transcriptSettleAdvance
 } from './list'
 
 afterEach(() => {

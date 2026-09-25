@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { group } from '../model'
 
-import { MINIMIZED_TRACK, fixedTrackSize, type TrackContext } from './track-model'
+import { fixedTrackSize, MINIMIZED_TRACK, type TrackContext } from './track-model'
 
 const ctx: TrackContext = {
   overrides: {},

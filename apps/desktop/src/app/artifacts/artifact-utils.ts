@@ -440,6 +440,7 @@ function collectArtifactsFromMessage(message: SessionMessage, pushValue: PushVal
       const segments = keyPath
         .split('.')
         .filter(segment => segment && !/^\d+$/.test(segment))
+
       const shellOutput = terminalTool && segments.some(segment => SHELL_OUTPUT_KEY_RE.test(segment))
 
       if (!shellOutput && !explicitToolArtifactKey(keyPath, producerTool)) {

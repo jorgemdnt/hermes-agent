@@ -56,10 +56,10 @@ import { NotificationsSettings } from './notifications-settings'
 import { SettingsBreadcrumbContext } from './primitives'
 import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './providers-settings'
 import { SessionsSettings } from './sessions-settings'
-import { UsageSettings } from './usage-settings'
 import { SettingsSubpageHeader } from './subpage-navigation'
 import { resolveSettingsSubpage, settingsSubpageIcon, settingsSubpages } from './subpages'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
+import { UsageSettings } from './usage-settings'
 import { vaultOwnerKey, VaultSettings } from './vault-settings'
 
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [

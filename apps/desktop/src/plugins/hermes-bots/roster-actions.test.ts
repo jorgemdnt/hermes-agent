@@ -305,6 +305,7 @@ describe('openRosterBot paints before it waits', () => {
       name: 'frodo',
       sourceScoped: true
     } as RosterRow
+
     const opened = openRosterBot(bot)
     await Promise.resolve()
 

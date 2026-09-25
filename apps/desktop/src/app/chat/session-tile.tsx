@@ -528,6 +528,7 @@ export function SessionTilePane({ storedSessionId }: { storedSessionId: string }
         const durableSession = await resolveStoredSession(storedSessionId, ownerRoute).catch(() => undefined)
         const current = $sessionTiles.get().find(candidate => candidate.storedSessionId === storedSessionId)
         const identityChanged = tileBackendIdentityChanged(ownerRoute?.connectionId, $connection.get())
+
         const error = sessionTileResumeFailure(
           message,
           Boolean(durableSession),

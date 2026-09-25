@@ -221,6 +221,7 @@ describe('preview tiles stay a right rail', () => {
       render: () => null,
       title: 'Chat'
     })
+
     const disposeWork = registry.register({
       area: 'panes',
       data: { placement: 'right' },

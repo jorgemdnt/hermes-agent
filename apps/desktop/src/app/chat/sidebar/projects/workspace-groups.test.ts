@@ -1322,6 +1322,7 @@ describe('overlayLivePreviews', () => {
 
   it('overlays every live session when the PROJECTS view is unbounded', () => {
     const project = projectNode({ id: '/www/app', previewSessions: [] })
+
     const live = [1, 2, 3, 4, 5].map(n =>
       makeCwdSession('/www/app', { id: `s${n}`, last_active: n, started_at: n })
     )

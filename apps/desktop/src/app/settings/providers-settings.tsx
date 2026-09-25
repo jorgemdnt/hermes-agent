@@ -34,9 +34,9 @@ import { CustomEndpointsSettings } from './custom-endpoints-settings'
 import { SettingsCategoryHeading, useEnvCredentials } from './env-credentials'
 import { providerGroup, providerMeta, providerPriority } from './helpers'
 import { LocalModelsSettings } from './local-models-settings'
+import { CAN_ADD_SUBSCRIPTION, PoolAccounts } from './pool-accounts'
 import { SettingsContent, SettingsSkeleton } from './primitives'
 import { SettingsProfileScope } from './profile-scope'
-import { CAN_ADD_SUBSCRIPTION, PoolAccounts } from './pool-accounts'
 
 // The embedded terminal (and thus the "run disconnect command" path) only
 // exists in the Electron desktop shell, not the web dashboard.

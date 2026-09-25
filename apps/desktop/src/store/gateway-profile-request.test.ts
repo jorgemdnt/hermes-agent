@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { deferred } from '../test/deferred'
+
 import { clearLocalPrimaryMultiplexCache } from './local-primary-multiplex'
 
 const secondaryGateways: Array<{
@@ -675,9 +676,11 @@ describe('attached shared-remote group turns (#96493)', () => {
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     setPrimaryGatewayConnection({ connectionId: 'local', mode: 'local' })
+
     const getConnectionFor = vi.fn(async () => {
       throw new Error('pooled dial')
     })
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
       getConnection: vi.fn(async () => {
         throw new Error('pooled dial')
@@ -713,12 +716,15 @@ describe('attached shared-remote group turns (#96493)', () => {
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     setPrimaryGatewayConnection({ connectionId: 'local', mode: null } as never)
+
     const getConnection = vi.fn(async () => {
       throw new Error('pooled dial')
     })
+
     const getConnectionFor = vi.fn(async () => {
       throw new Error('pooled dial')
     })
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
       getConnection,
       getConnectionConfig: vi.fn(async () => ({ mode: 'local' })),
@@ -767,9 +773,11 @@ describe('attached shared-remote group turns (#96493)', () => {
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     setPrimaryGatewayConnection({ connectionId: 'local', mode: 'local' })
+
     const getConnectionFor = vi.fn(async () => {
       throw new Error('Timed out connecting to profile "sean"')
     })
+
     ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
       getConnection: vi.fn(async () => ({ mode: 'local', port: 4242, profile: 'sean', token: 't' })),
       getConnectionFor,

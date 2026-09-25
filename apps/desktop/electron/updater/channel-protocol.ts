@@ -391,6 +391,7 @@ function request(fields: Fields): ChannelRequest {
     'releaseTag',
     /^v\d+\.\d+\.\d+(?:\+canary\.20\d{6}T\d{6}Z)?$/
   )
+
   const canaryRelease: boolean = /\+canary\./.test(releaseTag || '')
 
   const windowsVersion = fields.text(

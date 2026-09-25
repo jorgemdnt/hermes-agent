@@ -89,6 +89,7 @@ describe('HUD sheet CSS contract', () => {
     const focused = of(
       "[data-hud-shell]:not([data-hud-game]):has([data-slot='composer-rich-input']:focus) [data-hud-glass]"
     )
+
     const recent = of('[data-hud-shell][data-hud-recent]:not([data-hud-game]) [data-hud-glass]')
 
     expect(focused.background).toBe('var(--ui-bg-elevated)')
@@ -130,6 +131,7 @@ describe('HUD sheet CSS contract', () => {
     // recent/focus is higher). Overlay ink is #fff, so those losses put
     // white text on --ui-bg-elevated.
     const scrim = /rgb\(12 14 18\s*\/\s*0\.\d+\)/
+
     const gameStates = [
       '[data-hud-shell][data-hud-game] [data-hud-glass]',
       '[data-hud-shell][data-hud-game][data-hud-recent] [data-hud-glass]',

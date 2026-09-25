@@ -7,7 +7,9 @@ function statusContext(text: string, kind = 'lifecycle') {
   const updateSessionState = vi.fn((_id: string, updater: (state: { messages: unknown[] }) => unknown) =>
     updater({ messages: [] })
   )
+
   const payload = { kind, text } as GatewayEventContext['payload']
+
   const ctx: GatewayEventContext = {
     deps: {
       compactedTurnRef: { current: new Set<string>() },

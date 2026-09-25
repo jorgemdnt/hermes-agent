@@ -37,9 +37,9 @@ import { broadcastTranscriptChanged } from '@/store/transcript-sync'
 import type { ClientSessionState } from '../../../types'
 
 import { collapseDuplicateFinalAfterToolInterim, type DuplicateFinalCollapse } from './collapse-duplicate-final'
-import { replayedInterimTarget } from './replayed-interim'
 import { useGatewayEventHandler } from './gateway-event'
 import { handleServerRequest as dispatchServerRequest } from './gateway-event/server-requests'
+import { replayedInterimTarget } from './replayed-interim'
 import { currentResponseParts, mergeCurrentResponseText } from './response-parts'
 import { completionErrorText, delegateTaskPayloads, MAX_STREAM_FLUSH_GAP_MS, STREAM_DELTA_FLUSH_MS } from './utils'
 
@@ -251,6 +251,7 @@ export function useMessageStream({
           .filter(delta => delta.type === 'assistant')
           .map(delta => delta.text)
           .join('')
+
         const occurredAt = queued[0]?.occurredAt
         let paintText = incoming
         let decision: ReturnType<typeof replayedInterimTarget> = null

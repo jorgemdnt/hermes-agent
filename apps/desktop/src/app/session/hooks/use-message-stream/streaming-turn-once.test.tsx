@@ -41,6 +41,7 @@ it('paints one streaming turn when the sealed answer and its tools are replayed'
   send('tool.start', { args: { path: 'kanban.md' }, name: 'read_file', tool_id: 'call-read' })
 
   const messages = stream.state(SID).messages
+
   const painted = messages
     .filter(message => message.role === 'assistant' && !message.hidden)
     .map(message => chatMessageText(message))
