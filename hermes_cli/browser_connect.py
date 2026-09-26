@@ -550,32 +550,74 @@ def _real_profile_autoclose() -> bool:
     return bool(_browser_setting("real_profile_autoclose") or False)
 
 
+def _holder_names() -> dict[str, _Browser]:
+    """Exact main-binary basename (lowercased) → browser, derived from ``_BROWSERS``."""
+    names: dict[str, _Browser] = {}
+    for b in _BROWSERS:
+        paths = (b.mac_app, *b.win_bins, *b.linux_bins, *b.linux_paths, *(b.linux_exec or ()))
+        for p in paths:
+            names.setdefault(os.path.basename(p).lower(), b)
+    return names
+
+
+def _norm_dir(path: str) -> str:
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _argv_user_data_dirs(cmd: list[str]) -> list[str]:
+    """Every ``--user-data-dir`` value in ``cmd`` (``=value`` and split forms), normalized."""
+    out = []
+    for i, arg in enumerate(cmd):
+        if arg.startswith("--user-data-dir="):
+            out.append(_norm_dir(arg.split("=", 1)[1]))
+        elif arg == "--user-data-dir" and i + 1 < len(cmd):
+            out.append(_norm_dir(cmd[i + 1]))
+    return out
+
+
 def _processes_holding_profile(src: str):
-    """Yield psutil.Process instances holding ``src`` open: Chromium-family binaries whose
-    cmdline references THIS user-data-dir — never an unrelated same-PID process. An unreadable
-    cmdline is skipped."""
+    """Yield the main psutil.Process of each browser holding ``src`` open. Identity is the exact
+    main-binary basename from ``_BROWSERS``; binding is ``--user-data-dir`` == ``src`` on the
+    process or any descendant (a Dock-launched Dia carries the flag only on its helpers). For a
+    ``launch_subdir`` browser the parent of ``src`` also binds (Dia runs on ``X/User Data`` for
+    ``--user-data-dir=X``). Unreadable processes are skipped."""
     try:
         import psutil
     except ImportError:  # hard dep; defensive
         return
-    norm = os.path.normcase(os.path.normpath(src))
-    browser_bins = (
-        "chrome", "chrome.exe", "chromium", "chromium.exe", "chrome_crashpad",
-        "brave", "brave.exe", "msedge", "msedge.exe", "google chrome")
+    norm = _norm_dir(src)
+    names = _holder_names()
+    gone = (psutil.NoSuchProcess, psutil.AccessDenied, OSError)
     for proc in psutil.process_iter(["name", "cmdline"]):
         try:
             name = (proc.info.get("name") or "").lower()
             cmd = proc.info.get("cmdline") or []
-            joined = " ".join(cmd)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+        except gone:
             continue
-        argv0 = cmd[0].lower() if cmd else ""  # some platforms report a generic name
-        if not any(b in name or b in argv0 for b in browser_bins):
+        # some platforms report a generic name; fall back to argv[0]'s basename
+        b = names.get(name) or (names.get(os.path.basename(cmd[0]).lower()) if cmd else None)
+        if b is None:
             continue
-        # Binding: the exact user-data-dir must appear in the cmdline, normalized.
-        if (norm in os.path.normcase(os.path.normpath(joined))
-                or f"--user-data-dir={src}".lower() in joined.lower()):
+        bound = {norm}
+        if b.launch_subdir and os.path.basename(norm) == _norm_dir(b.launch_subdir):
+            bound.add(os.path.dirname(norm))
+        own = _argv_user_data_dirs(cmd)
+        if bound & set(own):
             yield proc
+            continue
+        if own:
+            continue  # explicitly bound to another dir; don't borrow a child's
+        try:
+            kids = proc.children(recursive=True)
+        except gone:
+            continue
+        for kid in kids:
+            try:
+                if bound & set(_argv_user_data_dirs(kid.cmdline())):
+                    yield proc
+                    break
+            except gone:
+                continue
 
 
 def close_browser_holding_profile(src: str, timeout: float = 15.0) -> tuple[bool, str]:

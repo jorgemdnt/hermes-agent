@@ -807,6 +807,49 @@ class TestReviewRound3:
         assert matched[0].info["name"] == "chrome.exe"
         assert f"--user-data-dir={ud}" in " ".join(matched[0].info["cmdline"])
 
+    def test_processes_holding_profile_finds_dia(self, tmp_path, monkeypatch):
+        """Dia's real shapes: a Dock-launched main process with no flag whose helpers carry
+        ``--user-data-dir=<Dia>/User Data``, and a launch on the PARENT dir (Dia appends
+        ``User Data``). Both hold the profile; a Dia on another root does not."""
+        import hermes_cli.browser_connect as bc
+
+        dia_bin = "/Applications/Dia.app/Contents/MacOS/Dia"
+        helper = ("/Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/"
+                  "Browser Helper.app/Contents/MacOS/Browser Helper")
+        root = tmp_path / "Application Support" / "Dia"
+        ud = str(root / "User Data")
+
+        class FakeProc:
+            def __init__(self, name, cmdline, kids=()):
+                self.info = {"name": name, "cmdline": cmdline}
+                self._kids = list(kids)
+
+            def cmdline(self):
+                return self.info["cmdline"]
+
+            def children(self, recursive=False):
+                return self._kids
+
+        dock = FakeProc("Dia", [dia_bin],
+                        [FakeProc("Browser Helper", [helper, "--type=gpu-process",
+                                                     f"--user-data-dir={ud}"])])
+        parent_launch = FakeProc("Dia", [dia_bin, f"--user-data-dir={root}"])
+        other = FakeProc("Dia", [dia_bin, f"--user-data-dir={tmp_path / 'elsewhere'}"],
+                         [FakeProc("Browser Helper", [helper, f"--user-data-dir={ud}"])])
+        procs = [dock, parent_launch, other, *dock._kids]
+
+        class FakePsutil:
+            NoSuchProcess = type("E", (Exception,), {})
+            AccessDenied = type("E2", (Exception,), {})
+
+            def process_iter(self, attrs=None):
+                return iter(procs)
+
+        import sys as _sys
+        monkeypatch.setitem(_sys.modules, "psutil", FakePsutil())
+        matched = list(bc._processes_holding_profile(ud))
+        assert matched == [dock, parent_launch]
+
     def test_consent_off_triggers_cleanup(self, tmp_path, monkeypatch):
         called = {"n": 0}
         with patch.object(bt_cloud, "_use_real_profile", return_value=False), \
