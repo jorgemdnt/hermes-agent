@@ -209,7 +209,7 @@ function MediaPlaybackAttachment({ path }: { path: string }) {
 
   if (kind === 'audio' && src) {
     return (
-      <span className="my-3 block max-w-md rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
+      <span className="not-prose my-3 block max-w-md rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
         <audio className="block w-full" controls onError={() => setFailed(true)} preload="metadata" src={src} />
         {failed && <OpenMediaButton kind="audio" path={path} />}
@@ -219,7 +219,7 @@ function MediaPlaybackAttachment({ path }: { path: string }) {
 
   if (kind === 'video' && src) {
     return (
-      <span className="my-3 block max-w-2xl rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
+      <span className="not-prose my-3 block max-w-2xl rounded-xl border border-(--ui-stroke-tertiary) bg-muted/35 p-3">
         <span className="mb-2 block truncate text-xs font-medium text-muted-foreground">{name}</span>
         <TranscriptVideo
           className="block max-h-112 w-full rounded-lg bg-black"
@@ -421,8 +421,11 @@ function MarkdownImageContent({
   // time) it lays out as a plain capped image, like before frames existed.
   const framed = Boolean(image.frameStyle)
 
+  // `not-prose` is load-bearing: Typography's `.prose :where(img)` adds 2em of
+  // margin that outranks `m-0`, and inside the fixed frame that margin pushes
+  // the image past the frame's reserved height onto the text below it.
   return (
-    <span className="relative my-2 block max-w-full" data-slot="aui_markdown-image" style={image.frameStyle}>
+    <span className="not-prose relative my-2 block max-w-full" data-slot="aui_markdown-image" style={image.frameStyle}>
       {image.src ? (
         <ZoomableImage
           {...props}
