@@ -102,6 +102,8 @@ class TestDetectDefaultDarwin:
             ("com.brave.Browser.origin", "brave-origin"),
             ("com.microsoft.edgemac", "edge"),
             ("org.chromium.Chromium", "chromium"),
+            ("company.thebrowser.dia", "dia"),
+            ("company.thebrowser.browser", None),  # Arc: Chromium, but not supported
             ("com.brave.Browser.origin.beta", bc.UNSUPPORTED_CHANNEL),
             ("com.brave.Browser.origin.nightly", bc.UNSUPPORTED_CHANNEL),
         ],
@@ -184,3 +186,18 @@ class TestLinuxProfileDir:
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("XDG_CONFIG_HOME", "/home/t/.config")
         assert bc.real_profile_data_dir("edge", "Linux") == "/home/t/.config/microsoft-edge"
+
+
+class TestDiaIsMacOnly:
+    """Dia ships for macOS only: its detected key must resolve to its own profile and
+    binary there, and to nothing (never another browser's path) elsewhere."""
+
+    def test_darwin_profile_is_dia_user_data(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(bc.os.path, "expanduser", lambda _p: tmp_path.as_posix())
+        assert bc.real_profile_data_dir("dia", "Darwin") == posixpath.join(
+            tmp_path.as_posix(), "Library", "Application Support", "Dia", "User Data")
+
+    @pytest.mark.parametrize("system", ["Windows", "Linux"])
+    def test_no_profile_or_binary_off_macos(self, system):
+        assert bc.real_profile_data_dir("dia", system) is None
+        assert bc.chromium_executable("dia", system) is None

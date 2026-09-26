@@ -106,6 +106,11 @@ _BROWSERS = (
         ("/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable",
          "/opt/microsoft/msedge/microsoft-edge", "/opt/microsoft/msedge/msedge"),
         "microsoft-edge", linux_exec=("microsoft-edge", "microsoft-edge-stable")),
+    # Dia (The Browser Company) ships for macOS only; empty Windows/Linux fields make every
+    # non-Darwin lookup resolve to None instead of a made-up path. Keychain item: "Dia Safe Storage".
+    _Browser(
+        "dia", "/Applications/Dia.app/Contents/MacOS/Dia",
+        ("Dia", "User Data"), (), (), (), (), (), ""),
 )
 _BROWSER_BY_KEY = {b.key: b for b in _BROWSERS}
 
@@ -163,7 +168,7 @@ _LINUX_SNAP_PROFILE_PARTS = {
 _DARWIN_BUNDLE_MAP = (
     ("com.google.chrome", "chrome"), ("com.microsoft.edgemac", "edge"),
     ("com.brave.browser", "brave"), ("com.brave.browser.origin", "brave-origin"),
-    ("org.chromium.chromium", "chromium"))
+    ("org.chromium.chromium", "chromium"), ("company.thebrowser.dia", "dia"))
 
 _DARWIN_CHANNEL_BUNDLES = (
     "com.google.chrome.beta", "com.google.chrome.dev", "com.google.chrome.canary",
@@ -189,8 +194,12 @@ def real_profile_data_dir(browser: str, system: str | None = None) -> str | None
     if system == "Darwin":
         return posixpath.join(home, "Library", "Application Support", *b.mac_support)
     if system == "Windows":
+        if not b.win_profile:
+            return None
         local = os.environ.get("LOCALAPPDATA") or ntpath.join(home, "AppData", "Local")
         return ntpath.join(local, *b.win_profile)
+    if not b.linux_config:
+        return None
     config = os.environ.get("XDG_CONFIG_HOME") or posixpath.join(home, ".config")
     linux_parts = b.linux_config.split("/")
     candidates = [posixpath.join(config, *linux_parts)]
