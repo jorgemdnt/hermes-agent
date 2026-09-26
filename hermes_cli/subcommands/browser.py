@@ -21,7 +21,7 @@ def build_browser_parser(subparsers) -> None:
              "run only with the user's explicit OK; loses unsaved tabs)")
     browser_close.add_argument(
         "--browser",
-        help="Override detected default browser (chrome/edge/brave/brave-origin/chromium)")
+        help="Override detected default browser (chrome/edge/brave/brave-origin/chromium/dia)")
 
     def _dispatch_browser(_args):
         from hermes_cli.browser_connect import (

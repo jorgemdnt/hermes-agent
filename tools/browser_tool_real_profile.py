@@ -131,11 +131,11 @@ def _real_profile_unsupported_reason(browser) -> Optional[str]:
     from hermes_cli.browser_connect import UNSUPPORTED_CHANNEL
     if browser is None:
         return (_RP + "your default browser is not a supported Chromium browser (Chrome, Edge, Brave, "
-                "Brave Origin, Chromium). Real-profile browsing requires a Chromium default; set one or turn the toggle off.")
+                "Brave Origin, Chromium, Dia). Real-profile browsing requires a Chromium default; set one or turn the toggle off.")
     if browser == UNSUPPORTED_CHANNEL:
         return (_RP + "your default browser is a pre-release Chromium channel (Beta / Dev / Canary), which "
                 "real-profile browsing does not support. Set your default to a "
-                "stable Chrome / Edge / Brave / Brave Origin / Chromium, or turn the toggle off.")
+                "stable Chrome / Edge / Brave / Brave Origin / Chromium / Dia, or turn the toggle off.")
     return None
 
 
@@ -149,7 +149,8 @@ def _real_profile_snapshot_error(err: str) -> str:
     return f"{_RP}{err}"
 
 
-def _launch_real_profile_chrome(real_binary: str, copy_dir: str) -> Tuple[Optional[int], Optional[str]]:
+def _launch_real_profile_chrome(real_binary: str, copy_dir: str,
+                                launch_dir: Optional[str] = None) -> Tuple[Optional[int], Optional[str]]:
     """Launch the user's REAL browser binary on the profile COPY; return (debug_port, error).
 
     agent-browser's own launch force-adds --use-mock-keychain / --password-store=basic, which makes
@@ -158,13 +159,15 @@ def _launch_real_profile_chrome(real_binary: str, copy_dir: str) -> Tuple[Option
     Headless by default (a focus-stealing window defeats a background capability); Chrome's NEW
     headless shares the profile's cookie store (legacy --headless does not). browser.headed /
     AGENT_BROWSER_HEADED opts into a window, except on a display-less Linux host (launch would die).
+    ``launch_dir`` is the ``--user-data-dir`` value when the binary nests its profile root under it
+    (Dia); ``copy_dir`` stays the profile root, where Chromium writes ``DevToolsActivePort``.
     """
     _bt = _origin()
     try:
         os.unlink(os.path.join(copy_dir, "DevToolsActivePort"))  # stale port confuses reuse probes
     except OSError:
         pass
-    chrome_argv = [real_binary, f"--user-data-dir={copy_dir}", *_REAL_PROFILE_CHROME_FLAGS]
+    chrome_argv = [real_binary, f"--user-data-dir={launch_dir or copy_dir}", *_REAL_PROFILE_CHROME_FLAGS]
     _session._ensure_screen_for_headed_chromium()
     browser_env = _bt._build_browser_env()  # carries the Bot Desktop DISPLAY when one is running
     _has_display = bool(browser_env.get("DISPLAY") or browser_env.get("WAYLAND_DISPLAY"))
@@ -250,7 +253,8 @@ def _real_profile_cdp() -> tuple:
                       "Set browser.engine to 'auto' or 'chrome' to use real-profile browsing, or turn the toggle off.")
 
     from hermes_cli.browser_connect import (chromium_executable, detect_default_chromium,
-                                            real_profile_copy_dir, snapshot_real_profile)
+                                            real_profile_copy_dir, real_profile_launch_dir,
+                                            snapshot_real_profile)
 
     with _bt._real_profile_cdp_lock:
         cached = _bt._real_profile_cdp_cache.get("cdp")
@@ -295,7 +299,8 @@ def _real_profile_cdp() -> tuple:
         real_binary = chromium_executable(browser)
         if real_binary is None:
             return None, f"{_RP}the real browser binary for '{browser}' could not be found. Reinstall it or turn the toggle off."
-        port, err = _launch_real_profile_chrome(real_binary, copy_dir)
+        port, err = _launch_real_profile_chrome(real_binary, copy_dir,
+                                                real_profile_launch_dir(browser, copy_dir))
         if port is None:
             return None, err
         cdp, err = _attach_agent_browser_to_real_profile(port, copy_dir)
