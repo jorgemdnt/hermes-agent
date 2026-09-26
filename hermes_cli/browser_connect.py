@@ -413,6 +413,10 @@ def _secure_snapshot(path: str, *, contents: bool = False) -> None:
 # exclusive lock, so a raw copy raises WinError 32 and a best-effort skip leaves the copy
 # signed-out. They are copied via SQLite's online-backup API instead. Matched by basename.
 _SQLITE_AUTH_DBS = frozenset({"Cookies", "Login Data", "Login Data For Account", "Web Data"})
+# The DBs the signed-in session actually needs. The rest (saved passwords, autofill) are not
+# needed for agent browsing, and a running browser holds them with a write lock on macOS/Linux,
+# so a failed backup of one is skipped (the snapshot stays cookie-only) instead of failing closed.
+_SESSION_AUTH_DBS = frozenset({"Cookies"})
 # Budget for one auth DB's online backup. A running browser holds Login Data / Login Data For
 # Account / Web Data with a hot write lock, so backup makes no progress and this deadline is
 # what fails — the reason users see, so it is a named constant rather than a bare string.
@@ -423,8 +427,10 @@ _AUTH_DB_LOCKED = ("SQLite backup made no progress within five seconds — "
 
 def _copy_auth_file(src_file: str, dst_file: str) -> str | None:
     """Copy auth state; returns None on success, else WHY the file could not be snapshotted.
-    A DB that cannot be backed up consistently within the deadline is refused, never raw-copied."""
+    A DB that cannot be backed up consistently within the deadline is refused, never raw-copied.
+    A failed copy leaves an existing destination untouched and never creates a new (empty) one."""
     os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+    existed = os.path.exists(dst_file)
     try:
         if os.path.basename(src_file) in _SQLITE_AUTH_DBS:
             deadline = time.monotonic() + _AUTH_BACKUP_DEADLINE_S
@@ -455,28 +461,35 @@ def _copy_auth_file(src_file: str, dst_file: str) -> str | None:
     except (OSError, sqlite3.Error) as e:
         # A raw DB copy can lose committed WAL or overwrite a locked destination.
         logger.debug("real-profile: could not copy %s: %s", src_file, e)
+        if not existed:
+            with contextlib.suppress(OSError):
+                os.unlink(dst_file)
         return str(e) or type(e).__name__
 
 
 def _mirror_profile_auth(src: str, dst: str, source_profile: str) -> dict[str, str]:
     """Mirror ``source_profile``'s auth files into the copy's ``Default`` (agent-browser opens it);
-    returns ``{relative name: reason}`` for the DB auth files that could NOT be copied ({} = clean)."""
+    returns ``{relative name: reason}`` for the session DBs that could NOT be copied ({} = usable).
+    An optional DB that fails is logged and skipped: the snapshot keeps its previous copy, if any."""
     failed: dict[str, str] = {}
     for rel in _AUTH_REFRESH_PROFILE_FILES:
         s = os.path.join(src, source_profile, rel)
         if not os.path.isfile(s):
             continue
         reason = _copy_auth_file(s, os.path.join(dst, "Default", rel))
-        if reason and os.path.basename(rel) in _SQLITE_AUTH_DBS:
+        if not reason or os.path.basename(rel) not in _SQLITE_AUTH_DBS:
+            continue
+        if os.path.basename(rel) in _SESSION_AUTH_DBS:
             failed[rel] = reason
+        else:
+            logger.info("real-profile snapshot: skipped %s (not needed for the session): %s", rel, reason)
     return failed
 
 
 def _unavailable_auth_dbs_error(browser: str, failed: dict[str, str]) -> str:
-    """Fail-closed message naming WHICH auth databases could not be snapshotted and WHY. On
-    macOS/Linux a running browser typically lets Cookies back up but holds Login Data / Login Data
-    For Account / Web Data with a write lock, so the message must not read as "close the browser"
-    when the real cause is an unreadable file (and vice versa)."""
+    """Fail-closed message naming WHICH session databases could not be snapshotted and WHY. Only
+    the ``_SESSION_AUTH_DBS`` reach here; the message must not read as "close the browser" when
+    the real cause is an unreadable file (and vice versa)."""
     names = ", ".join(failed)
     if all(reason == _AUTH_DB_LOCKED for reason in failed.values()):
         return (f"{browser} is running and holds the profile's {names} with a write lock, so their "
@@ -761,7 +774,7 @@ def snapshot_real_profile(browser: str, src: str | None = None) -> tuple[str | N
             _copy_profile_tree(src, dst, source_profile)
         # Both paths: lock-aware auth DB copy into Default — also the per-launch re-sync.
         failed_dbs = _mirror_profile_auth(src, dst, source_profile)
-        if failed_dbs:  # even online-backup failed: never launch a silently signed-out session
+        if failed_dbs:  # Cookies unreadable: never launch a silently signed-out session
             return None, _unavailable_auth_dbs_error(browser, failed_dbs)
         # Never carry live-instance leftovers into the copy.
         for leftover in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
