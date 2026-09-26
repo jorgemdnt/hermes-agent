@@ -20,15 +20,52 @@ export function profileScopeForSessionOwner(owner: SessionOwnerScope): ProfileSc
   }
 }
 
+function lastDurableIndex(messages: ChatMessage[], atMostRowId = Number.POSITIVE_INFINITY): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const rowId = messages[index].rowId
+
+    if (rowId !== undefined && rowId <= atMostRowId) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+/**
+ * True when the remote page carries more messages after this window's newest
+ * stored row than this window holds unstored (the turn it streamed itself).
+ * Messages before that row are ignored: the store releases paged-through
+ * history (#77311), so the window is routinely shorter than the latest page
+ * without being behind it. Null when either side has no stored row to anchor.
+ */
+function aheadOfNewestDurableRow(localMessages: ChatMessage[], remoteChat: ChatMessage[]): boolean | null {
+  const localIndex = lastDurableIndex(localMessages)
+
+  if (localIndex < 0) {
+    return null
+  }
+
+  const localNewest = localMessages[localIndex].rowId as number
+  const remoteIndex = lastDurableIndex(remoteChat, localNewest)
+
+  // The whole page is newer than anything this window holds.
+  if (remoteIndex < 0) {
+    return lastDurableIndex(remoteChat) >= 0 ? true : null
+  }
+
+  return remoteChat.length - remoteIndex > localMessages.length - localIndex
+}
+
 /**
  * Chat messages to install when the authoritative latest page is ahead of the
  * local view. Null when the local view is current.
  *
- * Length is compared after `toChatMessages`, so tool rows folded into an
+ * Counts are compared after `toChatMessages`, so tool rows folded into an
  * assistant bubble are not "ahead". A backfilled prefix is kept when the
- * refreshed tail anchors inside it. Live stream ids that do not anchor still
- * use length, so the window that just finished the turn is not blocked when
- * the counts match.
+ * refreshed tail anchors inside it. Live stream ids that have no stored row
+ * yet count against the page's newer rows, so the window that just finished
+ * the turn is not blocked.
  */
 export function messagesIfTranscriptBehind(
   localMessages: ChatMessage[],
@@ -43,12 +80,9 @@ export function messagesIfTranscriptBehind(
   }
 
   const grafted = graftRefreshedTailOntoBackfill(remoteChat, localMessages)
+  const ahead = aheadOfNewestDurableRow(localMessages, remoteChat) ?? grafted.length > localMessages.length
 
-  if (grafted === remoteChat) {
-    return remoteChat.length > localMessages.length ? remoteChat : null
-  }
-
-  return grafted.length > localMessages.length ? grafted : null
+  return ahead ? grafted : null
 }
 
 /**
