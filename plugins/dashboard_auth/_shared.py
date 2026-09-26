@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import secrets
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional
 
@@ -24,6 +25,8 @@ from hermes_cli.dashboard_auth import (
 # JWKS Cache-Control max-age (nous contract C7); self-hosted mirrors it.
 JWKS_CACHE_SECONDS = 300
 TOKEN_ENDPOINT_TIMEOUT_SEC = 10.0
+# OIDC issuers can mint tokens just ahead of this host's clock; allow bounded skew.
+JWT_CLOCK_SKEW_SECONDS = 60
 JSON_HEADERS = {"Accept": "application/json"}
 
 
@@ -195,9 +198,9 @@ def verify_jwt(
 
     Unreachable JWKS → ``ProviderError`` (503); a bearer that is not one of our JWTs
     (opaque peer key, foreign kid) → ``InvalidCodeError`` (None / next provider); folding
-    both into 503 broke peer-key bearers. Expiry raises ``InvalidCodeError`` (verify_session
-    maps it to None); any other claim failure raises ``ProviderError`` with the unverified
-    iss/aud appended so operators can spot config drift.
+    both into 503 broke peer-key bearers. Expiry and immature timestamps raise
+    ``InvalidCodeError`` (verify_session maps them to None); other claim failures
+    raise ``ProviderError`` with unverified iss/aud for diagnosing config drift.
     """
     import jwt  # lazy — keeps startup fast for the ungated path
 
@@ -210,11 +213,18 @@ def verify_jwt(
         # foreign kid) -> InvalidCodeError (None / next provider). Folding both into 503 produced #94558.
         raise classify_jwks_lookup_error(exc) from exc
     try:
-        return jwt.decode(
+        claims = jwt.decode(
             token, signing_key.key, algorithms=algorithms, audience=audience, issuer=issuer,
+            leeway=JWT_CLOCK_SKEW_SECONDS,
             options={"require": ["exp", "iat", "aud", "iss", "sub"]})
+        # PyJWT applies leeway to exp too; retain strict session expiration.
+        if int(claims["exp"]) <= time.time():
+            raise jwt.ExpiredSignatureError("Signature has expired")
+        return claims
     except jwt.ExpiredSignatureError as exc:
         raise InvalidCodeError(f"{label} expired: {exc}") from exc
+    except jwt.ImmatureSignatureError as exc:
+        raise InvalidCodeError(f"{label} not yet valid: {exc}") from exc
     except jwt.InvalidTokenError as exc:
         # Decoding without verification is safe here: verification already failed and
         # these values are surfaced for diagnostics only, never trusted.

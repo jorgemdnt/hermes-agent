@@ -684,6 +684,18 @@ class TestVerifySession:
         token = _mint_id_token(rsa_keypair, ttl_seconds=-1)
         assert provider.verify_session(access_token=token) is None
 
+    def test_recently_issued_token_with_small_clock_skew_verifies(self, provider, rsa_keypair):
+        token = _mint_id_token(rsa_keypair, extra_claims={"iat": int(time.time()) + 5})
+        session = provider.verify_session(access_token=token)
+        assert session is not None
+        assert session.email == "alice@example.com"
+
+    def test_token_issued_far_in_future_is_rejected_not_unreachable(self, provider, rsa_keypair):
+        token = _mint_id_token(rsa_keypair, extra_claims={"iat": int(time.time()) + 600})
+        with pytest.raises(InvalidCodeError, match="not yet valid"):
+            provider._verify_id_token(token)
+        assert provider.verify_session(access_token=token) is None
+
     def test_wrong_audience_raises(self, provider, rsa_keypair):
         token = _mint_id_token(rsa_keypair, aud="some-other-client")
         with pytest.raises(ProviderError, match="verification failed"):
