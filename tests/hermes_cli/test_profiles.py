@@ -1318,6 +1318,19 @@ class TestRenameProfile:
 
         assert new_dir.is_dir()
 
+    def test_rename_onto_a_previously_deleted_name_is_live_and_records_history(self, profile_env):
+        # An earlier delete of the target name leaves profiles/.deleted/<name>. The rename must
+        # clear it, or the renamed profile reads as deleted and its previous_names never land.
+        create_profile("gandalf", no_alias=True)
+        with patch("hermes_cli.profiles.check_alias_collision", return_value="skip"):
+            delete_profile("gandalf", yes=True)
+            create_profile("frodo", no_alias=True)
+            rename_profile("frodo", "gandalf")
+
+        assert profiles.profile_exists("gandalf")
+        info = next(p for p in list_profiles() if p.name == "gandalf")
+        assert info.previous_names == ["frodo"]
+
 
 
 class TestExportImport:

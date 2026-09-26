@@ -85,6 +85,7 @@ import {
   $gatewayState,
   $messages,
   $selectedStoredSessionId,
+  $sessionOwnerHintsRevision,
   $sessions,
   getSessionOwnerHints,
   rememberedSessionProfile,
@@ -159,7 +160,7 @@ export interface PluginFocusedSessionOwner {
  * owner. `focusedSessionProfile` remains the profile-only compatibility ladder.
  */
 const $focusedSessionOwner = computed(
-  [$focusedStoredSessionId, $sessions, $activeGatewayProfile, $connection],
+  [$focusedStoredSessionId, $sessions, $activeGatewayProfile, $connection, $sessionOwnerHintsRevision],
   (focused, sessions, activeProfile, connection): PluginFocusedSessionOwner | null => {
     const activeConnectionId = String(connection?.connectionId || (connection?.mode === 'local' ? 'local' : '')).trim()
 

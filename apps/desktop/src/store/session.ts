@@ -1107,7 +1107,14 @@ function normalizeOwnerRoute(route: SessionOwnerRoute): SessionOwnerRoute {
   }
 }
 
+/** Bumped on every hint write. The hints live in a plain Map, so a derived
+ *  owner (the focused chat's) must depend on this to re-resolve after a
+ *  rename migration or a forget; otherwise it holds the old answer until an
+ *  unrelated focus or session-list change. */
+export const $sessionOwnerHintsRevision = atom(0)
+
 function persistSessionOwnerHints(): void {
+  $sessionOwnerHintsRevision.set($sessionOwnerHintsRevision.get() + 1)
   writeJson(
     SESSION_OWNER_HINTS_KEY,
     sessionOwnerHints.size === 0 ? null : [...sessionOwnerHints.values()].map(entry => [entry.id, entry.route])
