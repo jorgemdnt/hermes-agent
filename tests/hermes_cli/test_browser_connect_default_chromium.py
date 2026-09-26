@@ -197,6 +197,17 @@ class TestDiaIsMacOnly:
         assert bc.real_profile_data_dir("dia", "Darwin") == posixpath.join(
             tmp_path.as_posix(), "Library", "Application Support", "Dia", "User Data")
 
+    def test_launch_dir_is_the_parent_of_the_profile_root(self):
+        """Dia runs on ``<--user-data-dir>/User Data``: launching on the parent is what makes
+        the snapshot's ``Default`` (the signed-in profile) the one Dia actually opens."""
+        copy = bc.real_profile_copy_dir("dia")
+        assert posixpath.basename(copy) == "User Data"
+        assert posixpath.join(bc.real_profile_launch_dir("dia", copy), "User Data") == copy
+
+    def test_other_browsers_launch_on_the_copy_itself(self):
+        copy = bc.real_profile_copy_dir("chrome")
+        assert bc.real_profile_launch_dir("chrome", copy) == copy
+
     @pytest.mark.parametrize("system", ["Windows", "Linux"])
     def test_no_profile_or_binary_off_macos(self, system):
         assert bc.real_profile_data_dir("dia", system) is None

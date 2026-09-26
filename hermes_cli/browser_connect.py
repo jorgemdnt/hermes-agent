@@ -50,6 +50,9 @@ class _Browser:
     # PATH names tried by chromium_executable() when they differ from linux_bins
     # (channel/alias binaries are launch candidates only).
     linux_exec: tuple[str, ...] | None = None
+    # Dir the binary appends to ``--user-data-dir`` before it reaches the Chromium profile
+    # root (Dia: ``User Data``). Empty for browsers that use the flag as the root itself.
+    launch_subdir: str = ""
 
 
 # Launch-candidate order (chrome, chromium, brave, brave-origin, edge) is the tuple
@@ -108,9 +111,10 @@ _BROWSERS = (
         "microsoft-edge", linux_exec=("microsoft-edge", "microsoft-edge-stable")),
     # Dia (The Browser Company) ships for macOS only; empty Windows/Linux fields make every
     # non-Darwin lookup resolve to None instead of a made-up path. Keychain item: "Dia Safe Storage".
+    # Dia reads ``--user-data-dir=X`` as its Application Support root and runs on ``X/User Data``.
     _Browser(
         "dia", "/Applications/Dia.app/Contents/MacOS/Dia",
-        ("Dia", "User Data"), (), (), (), (), (), ""),
+        ("Dia", "User Data"), (), (), (), (), (), "", launch_subdir="User Data"),
 )
 _BROWSER_BY_KEY = {b.key: b for b in _BROWSERS}
 
@@ -358,8 +362,17 @@ _AUTH_REFRESH_PROFILE_FILES = (
 
 
 def real_profile_copy_dir(browser: str) -> str:
-    """Return the hermes-owned snapshot dir for ``browser``'s real profile."""
-    return str(get_hermes_home() / "browser-profile" / browser)
+    """Return the hermes-owned snapshot dir for ``browser``'s real profile (the Chromium profile
+    root: ``Local State`` + ``Default`` live directly in it)."""
+    b = _BROWSER_BY_KEY.get(browser)
+    root = get_hermes_home() / "browser-profile" / browser
+    return str(root / b.launch_subdir if b and b.launch_subdir else root)
+
+
+def real_profile_launch_dir(browser: str, copy_dir: str) -> str:
+    """``--user-data-dir`` value that makes ``browser`` run on ``copy_dir`` as its profile root."""
+    b = _BROWSER_BY_KEY.get(browser)
+    return os.path.dirname(copy_dir) if b and b.launch_subdir else copy_dir
 
 
 def _last_used_profile(src: str) -> str:
