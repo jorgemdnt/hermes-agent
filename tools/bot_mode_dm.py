@@ -585,7 +585,13 @@ def _delivery_command(argv: list[str], dm_file: str, *, stdin_file: bool,
                       profile_home: Path | None = None, author: Optional[dict] = None) -> str:
     """Build an argv-safe command for the cleanup-owning background runner:
     ``--run-delivery [--author <json>] <mode> <dm_file> [--profile-home <path>] <argv...>``."""
-    runner_argv = [sys.executable, str(Path(__file__).resolve()), "--run-delivery",
+    cli = Path(argv[0]) if argv else Path("")
+    sibling_python = cli.parent / ("python.exe" if sys.platform == "win32" else "python3")
+    # A Desktop-spawned backend can run on PM's bare toolchain Python while
+    # `hermes` resolves to an install venv. The runner imports the same Hermes
+    # modules as the CLI (including ruamel.yaml), so it must use that venv too.
+    runner_python = str(sibling_python) if cli.is_absolute() and sibling_python.is_file() else sys.executable
+    runner_argv = [runner_python, str(Path(__file__).resolve()), "--run-delivery",
                    "stdin" if stdin_file else "query-file", dm_file]
     if profile_home is not None:
         runner_argv.extend(["--profile-home", str(Path(profile_home).resolve())])

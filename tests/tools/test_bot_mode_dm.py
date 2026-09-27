@@ -905,6 +905,34 @@ def test_real_delivery_command_round_trip(tmp_path, stdin_file):
     assert not dm_file.exists()
 
 
+@pytest.mark.platforms("posix")
+def test_delivery_runner_uses_cli_venv_when_host_interpreter_lacks_dependencies(tmp_path, monkeypatch):
+    """The live-owner admission imports utils -> hermes_yaml -> ruamel before running the CLI."""
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python3").symlink_to(sys.executable)
+    cli = venv_bin / "hermes"
+    cli.write_text("#!/bin/sh\nprintf 'delivered\\n'\n", encoding="utf-8")
+    cli.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bare-python"))
+
+    home = tmp_path / "home"
+    home.mkdir()
+    dm_file = tmp_path / "message.txt"
+    dm_file.write_text("delivery test", encoding="utf-8")
+    command = bot_mode_dm._delivery_command(
+        [str(cli), "-p", "default", "chat", "-c", "Bot Chat"],
+        str(dm_file), stdin_file=False, profile_home=home,
+    )
+    assert shlex.split(command)[0] == str(venv_bin / "python3")
+    result = subprocess.run(shlex.split(command), cwd=Path(bot_mode_dm.__file__).resolve().parent.parent,
+                            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout.strip() == "delivered"
+    assert not dm_file.exists()
+
+
 @pytest.mark.platforms("windows")
 def test_delivery_command_round_trip_through_windows_local_shell(tmp_path):
     """Native runner paths must survive the Git Bash process boundary."""
