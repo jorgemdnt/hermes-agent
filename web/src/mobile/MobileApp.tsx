@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
@@ -75,6 +75,12 @@ export default function MobileApp() {
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
   const [connection, setConnection] = useState("connecting");
   const skipBackAnimation = useRef(false);
+  const swipeSource = useRef<Exclude<MobileView, "bots">>("chat");
+  const [offsets] = useState(() => ({
+    chat: motionValue<number | string>(0), board: motionValue<number | string>(0),
+    screen: motionValue<number | string>(0), settings: motionValue<number | string>(0),
+  }));
+  const panX = view === "bots" ? offsets.chat : offsets[view];
   const reducedMotion = useReducedMotion();
   const navigate = (next: MobileView, targetProfile = profile, targetSession = selected) => {
     const path = next === "chat" ? chatPath(targetProfile, targetSession) : next === "bots" ? "/m" : `/m/${next}`;
@@ -87,7 +93,7 @@ export default function MobileApp() {
   }, [routerNavigate, view, route.task]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [conversationsOpen, setConversationsOpen] = useState(false);
-  const { swiping, preview: swipePreview } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen, () => { skipBackAnimation.current = true; });
+  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
   useLayoutEffect(() => {
     if (swiping) {
       const list = swipePreview.current?.querySelector<HTMLElement>(".m-bot-list");
@@ -446,6 +452,16 @@ export default function MobileApp() {
   </>;
 
   const skipExit = view === "bots" && skipBackAnimation.current;
+  useLayoutEffect(() => {
+    if (skipBackAnimation.current && (view === "bots" || (view === "board" && !route.task))) {
+      const sourceOffset = offsets[swipeSource.current];
+      sourceOffset.stop();
+      sourceOffset.set(0);
+      finishSwipe();
+      const detail = shellRef.current?.querySelector<HTMLElement>(".m-detail");
+      if (detail) detail.style.boxShadow = "";
+    }
+  }, [view, route.task, offsets, finishSwipe]);
   useEffect(() => { if (view === "bots" || (view === "board" && !route.task)) skipBackAnimation.current = false; }, [view, route.task]);
 
   return <div className="m-shell" data-theme={theme} ref={shellRef}>
@@ -459,7 +475,7 @@ export default function MobileApp() {
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
       </div>}
       <AnimatePresence initial={false} custom={skipExit}>
-        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit}
+        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit} style={{ x: panX }}
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>

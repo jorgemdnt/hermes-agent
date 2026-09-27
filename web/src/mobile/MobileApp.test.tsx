@@ -106,9 +106,65 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => touch("touchstart", 10));
   expect(host.querySelector(".m-swipe-preview")?.textContent).toContain(target === "board task" ? "Board" : "Your bots");
   await act(async () => touch("touchmove", 190));
-  expect(host.querySelector('.m-detail')?.getAttribute("style")).toContain("180px");
-  await act(async () => { touch("touchend", 190); await new Promise(resolve => setTimeout(resolve, 220)); });
-  expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m");
+  await act(async () => { await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/translateX\(\d+(?:\.\d+)?px\)/)); });
+  const duringGesture = (host.querySelector('.m-detail') as HTMLElement).style.transform;
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+  expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toBe(duringGesture);
+  await act(async () => { touch("touchend", 190); await vi.waitFor(() => expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m")); });
+  if (target === "board task") {
+    await vi.waitFor(() => {
+      expect(host.querySelector('.m-swipe-preview')).toBeNull();
+      expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/);
+      expect(host.querySelector('.m-detail')?.textContent).toContain("Open task");
+    });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+    expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/);
+  }
+});
+
+it("slides a settled board task with the finger and leaves its board panel in view", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle();
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Board") as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
+  await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
+  const shell = host.querySelector(".m-shell") as HTMLElement;
+  Object.defineProperty(shell, "clientWidth", { value: 393 });
+  const touch = (type: string, x: number) => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: 250 }] });
+    shell.dispatchEvent(event);
+  };
+  await act(async () => touch("touchstart", 10));
+  await act(async () => touch("touchmove", 190));
+  await act(async () => { await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toBe("translateX(180px)")); });
+  await act(async () => { touch("touchend", 190); await vi.waitFor(() => expect(window.location.pathname).toBe("/m/board")); });
+  expect(host.querySelector('.m-swipe-preview')).toBeNull();
+  expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/);
+  expect(host.querySelector('.m-detail')?.textContent).toContain("Open task");
+});
+
+it("returns the board task to its original position after cancelling an early edge swipe", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle();
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Board") as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
+  const shell = host.querySelector(".m-shell") as HTMLElement;
+  Object.defineProperty(shell, "clientWidth", { value: 393 });
+  const touch = (type: string, x: number) => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: 250 }] });
+    shell.dispatchEvent(event);
+  };
+  await act(async () => touch("touchstart", 10));
+  await act(async () => touch("touchmove", 60));
+  await act(async () => touch("touchend", 60));
+  await act(async () => {
+    await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
+  });
+  expect(host.querySelector('.m-swipe-preview')).toBeNull();
+  expect(window.location.pathname).toBe("/m/board/t-1");
+  expect(host.querySelector('.m-detail')?.textContent).toContain("Task t-1");
 });
 
 it("shows only data-loading placeholders on the first frame of a stored-chat deep link", async () => {
@@ -237,6 +293,9 @@ it("sends Continue to Samwise's selected chat after a screen hand-back", async (
     profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
   });
   expect(host.textContent).toContain("Earlier");
+  await vi.waitFor(() => expect(host.querySelectorAll('.m-detail')).toHaveLength(1));
+  await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
+  expect(host.querySelector('.m-detail .m-messages')?.textContent).toContain("Earlier");
 });
 
 it("steers the running Samwise turn instead of starting a second one", async () => {

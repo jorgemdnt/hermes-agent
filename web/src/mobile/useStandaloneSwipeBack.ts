@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { animate, type MotionValue } from "motion/react";
 
-interface Gesture { x: number; y: number; at: number; distance: number; cancelled: boolean }
+interface Gesture { x: number; y: number; at: number; distance: number; origin: number; cancelled: boolean }
 
-export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, view: string, goBack: () => void, enabled: boolean, onCommit: () => void = () => {}) {
+export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, view: string, goBack: () => void, enabled: boolean, offset: MotionValue<number | string>, onCommit: () => void = () => {}) {
   const [swiping, setSwiping] = useState(false);
   const preview = useRef<HTMLDivElement>(null);
   const commit = useRef(onCommit);
@@ -13,28 +14,44 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
     if (!element || !enabled || view === "bots" ||
         !(window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone)) return;
     let gesture: Gesture | null = null;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    let committing = false;
+    let animation: ReturnType<typeof animate> | undefined;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const panel = () => element.querySelector<HTMLElement>(".m-view:not([aria-hidden])");
-    const position = (distance: number, animate = false) => {
+    const panel = () => element.querySelector<HTMLElement>(".m-detail:not([aria-hidden])");
+    const position = (distance: number) => {
+      offset.set(distance);
       const current = panel();
-      if (current) {
-        current.style.transition = animate && !reducedMotion ? "transform 180ms ease-out" : "none";
-        current.style.transform = `translate3d(${distance}px, 0, 0)`;
-        current.style.boxShadow = distance ? "-12px 0 32px var(--shadow)" : "none";
-      }
+      if (current) current.style.boxShadow = distance ? "-12px 0 32px var(--shadow)" : "";
       if (preview.current) preview.current.style.transform = `translate3d(${(distance / element.clientWidth - 1) * 24}%, 0, 0)`;
     };
-    const clear = () => { setSwiping(false); const current = panel(); if (current) { current.style.transition = ""; current.style.transform = ""; current.style.boxShadow = ""; } if (preview.current) preview.current.style.transform = ""; };
+    const clear = () => {
+      offset.set(0);
+      setSwiping(false);
+      const current = panel();
+      if (current) current.style.boxShadow = "";
+      if (preview.current) preview.current.style.transform = "";
+    };
     const reset = () => {
+      if (committing) return;
       gesture = null;
       if (reducedMotion) clear();
-      else { position(0, true); timeout = setTimeout(clear, 180); }
+      else {
+        const settling = animate(offset, 0, { duration: .18, ease: "easeOut" });
+        animation = settling;
+        void settling.then(() => { if (alive && animation === settling) clear(); });
+      }
     };
     const start = (event: TouchEvent) => {
-      if (event.touches.length !== 1 || event.touches[0].clientX >= 24 || element.querySelector('[role="dialog"]')) return;
+      if (committing || event.touches.length !== 1 || event.touches[0].clientX >= 24 || element.querySelector('[role="dialog"]')) return;
+      animation?.stop();
+      animation = undefined;
+      offset.stop(); // Motion's enter animation must not overwrite the finger's position.
+      const current = offset.get();
+      const origin = typeof current === "string" && current.endsWith("%")
+        ? parseFloat(current) * element.clientWidth / 100 : Number(current) || 0;
       const touch = event.touches[0];
-      gesture = { x: touch.clientX, y: touch.clientY, at: performance.now(), distance: 0, cancelled: false };
+      gesture = { x: touch.clientX, y: touch.clientY, at: performance.now(), distance: 0, origin, cancelled: false };
       setSwiping(true);
     };
     const move = (event: TouchEvent) => {
@@ -45,16 +62,21 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
       if (gesture.cancelled || dx < 8) return;
       event.preventDefault();
       gesture.distance = Math.min(element.clientWidth, dx);
-      position(gesture.distance);
+      position(Math.min(element.clientWidth, gesture.origin + gesture.distance));
     };
     const end = () => {
       if (!gesture) return;
       const { distance, at } = gesture;
       gesture = null;
       if (distance >= element.clientWidth * .35 || (distance > 60 && distance / Math.max(1, performance.now() - at) > .55)) {
+        committing = true;
         commit.current();
-        if (reducedMotion) { goBack(); setSwiping(false); }
-        else { position(element.clientWidth, true); timeout = setTimeout(() => { goBack(); setSwiping(false); }, 180); }
+        if (reducedMotion) goBack();
+        else {
+          const settling = animate(offset, element.clientWidth, { duration: .18, ease: "easeOut" });
+          animation = settling;
+          void settling.then(() => { if (alive && animation === settling) goBack(); });
+        }
       } else reset();
     };
     element.addEventListener("touchstart", start, { passive: true });
@@ -62,12 +84,14 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
     element.addEventListener("touchend", end);
     element.addEventListener("touchcancel", reset);
     return () => {
-      clearTimeout(timeout);
+      alive = false;
+      animation?.stop();
       element.removeEventListener("touchstart", start);
       element.removeEventListener("touchmove", move);
       element.removeEventListener("touchend", end);
       element.removeEventListener("touchcancel", reset);
     };
-  }, [shell, view, goBack, enabled]);
-  return { swiping, preview };
+  }, [shell, view, goBack, enabled, offset]);
+  const finish = useCallback(() => setSwiping(false), []);
+  return { swiping, preview, finish };
 }
