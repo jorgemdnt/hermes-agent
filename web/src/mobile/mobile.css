@@ -57,6 +57,5 @@
 .m-screen { display:flex; flex-direction:column; flex:1; min-height:0; gap:8px; padding:10px; }
 .m-screen h2,.m-screen p { margin:0; }
 .m-screen-frame { background:#080b10; border:1px solid var(--m-line); border-radius:8px; overflow:hidden; flex:1; min-height:180px; touch-action:none; }
-.m-screen-frame canvas { width:100%; height:100%; object-fit:contain; }
 .m-screen-actions { display:flex; gap:8px; flex-wrap:wrap; }
 @media (min-width:750px) { .m-shell { max-width:750px; margin:auto; border-left:1px solid var(--m-line); border-right:1px solid var(--m-line); } }
