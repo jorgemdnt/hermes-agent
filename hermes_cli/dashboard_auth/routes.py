@@ -8,7 +8,7 @@ allowlists the public ones.
   GET  /auth/native/authorize  RFC 8252 native-app (desktop) login start
   GET  /auth/callback          completes login, sets session cookies
   POST /auth/password-login    username/password login (JSON)
-  POST /auth/logout            clears this browser's cookies (no upstream revoke)
+  POST /auth/logout            revokes the upstream grant (best-effort), clears cookies
   POST /auth/native/token      loopback code -> bearer tokens
   POST /auth/native/refresh    desktop-held refresh token rotation
   GET  /api/auth/providers     list registered providers (login bootstrap)
@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from hermes_cli.dashboard_auth import (
-    get_provider, list_session_providers, native_flow)
+    get_provider, list_providers, list_session_providers, native_flow)
 from hermes_cli.dashboard_auth import prefix as _prefix_mod
 from hermes_cli.dashboard_auth.audit import AuditEvent, audit_log
 from hermes_cli.dashboard_auth.base import (
@@ -424,9 +424,16 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
 
 @router.post("/auth/logout", name="auth_logout")
 async def auth_logout(request: Request):
-    # Sign out this browser only. Revoking the upstream grant logs out other devices too.
     from hermes_cli.dashboard_auth.local_logout import revoke
     access, refresh = read_session_cookies(request)
+    # Preserve the dashboard's upstream-revoking logout contract. The mobile
+    # app uses /api/mobile/logout to leave other browsers' grants untouched.
+    if refresh:
+        for provider in list_providers():
+            try:
+                provider.revoke_session(refresh_token=refresh)
+            except Exception as e:  # noqa: BLE001 — best-effort
+                _log.warning("dashboard-auth: revoke on %r failed: %s", provider.name, e)
     revoke(access or "", refresh or "", read_session_browser_id(request))
     sess = getattr(request.state, "session", None)
     _audit(request, AuditEvent.LOGOUT, provider=(sess.provider if sess else "unknown"),

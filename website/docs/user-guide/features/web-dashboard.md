@@ -874,7 +874,7 @@ The provider verifies the OpenID Connect **ID token** (RS256/ES256) against the 
 | `display_name` | `name` → `preferred_username` → `nickname` → `email` |
 | `org_id` | `org_id` / `organization`, else joined `groups` |
 
-The ID token is what establishes identity — the access token is treated as opaque (the OIDC spec does not require it to be a JWT). Endpoint URLs are required to be HTTPS (loopback `http://` is allowed for local-dev IDPs), and the discovery document's advertised `issuer` must match your configured one (a trailing-slash difference is tolerated). Refresh tokens, when the IDP issues them, are used for silent re-auth via the standard `refresh_token` grant. Dashboard sign-out only clears this browser's cookies; it does not revoke the upstream grant or sign out other devices. To revoke a grant, use your identity provider's account controls. Browser WebSocket tickets expire with the access session, and open ticket-authenticated sockets close with 4401 at that deadline.
+The ID token is what establishes identity — the access token is treated as opaque (the OIDC spec does not require it to be a JWT). Endpoint URLs are required to be HTTPS (loopback `http://` is allowed for local-dev IDPs), and the discovery document's advertised `issuer` must match your configured one (a trailing-slash difference is tolerated). Refresh tokens, when the IDP issues them, are used for silent re-auth via the standard `refresh_token` grant. Dashboard `/auth/logout` attempts to revoke that upstream grant and invalidates the local cookie tokens even if revocation fails; it may affect other devices using the same grant. The phone's `/api/mobile/logout` only invalidates its browser-bound tokens and unsubscribes its push endpoint, leaving other devices signed in. Browser WebSocket tickets expire with the access session, and open ticket-authenticated sockets close with 4401 at that deadline.
 
 > **Confidential clients** can authenticate to the token endpoint using `client_secret_basic` or `client_secret_post` as advertised by discovery; PKCE remains required.
 
@@ -1051,7 +1051,7 @@ All three are `Path=/`. The session cookies are `SameSite=Lax`; the PKCE cookie 
 
 ### Logout
 
-The sidebar widget shows `Logged in as <user_id…> via nous` with a logout icon. Clicking it POSTs `/auth/logout`, which clears all dashboard-auth cookies and redirects back to `/login`.
+The sidebar widget shows `Logged in as <user_id…> via nous` with a logout icon. Clicking it POSTs `/auth/logout`, which best-effort revokes the provider's refresh grant, invalidates this browser's tokens, clears the dashboard-auth cookies and redirects to `/login`. The phone's Sign out instead POSTs `/api/mobile/logout` to sign out only that browser without revoking the shared provider grant.
 
 ### Audit log
 

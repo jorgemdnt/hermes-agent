@@ -97,7 +97,8 @@ class DashboardAuthProvider(ABC):
 
     Lifecycle: ``start_login`` (redirect URL + PKCE state) -> IDP -> ``complete_login`` (code +
     verifier -> Session) -> ``verify_session`` per request -> ``refresh_session`` near expiry ->
-    ``revoke_session`` for an explicit upstream revoke (logout is local-only). Failure semantics: ``start_login``
+    ``revoke_session`` for the dashboard's best-effort upstream revoke; the phone's
+    ``/api/mobile/logout`` is browser-local and does not call it. Failure semantics: ``start_login``
     / ``complete_login`` raise ``ProviderError`` when the IDP is unreachable, ``complete_login``
     ``InvalidCodeError`` on a bad code/state; ``verify_session`` returns ``None`` for
     expired/unknown tokens (middleware refreshes) and raises ``ProviderError`` when unreachable

@@ -23,7 +23,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from hermes_cli import web_server
 import hermes_cli.web_server_chat as _web_server_chat
-from hermes_cli.dashboard_auth import clear_providers, register_provider
+from hermes_cli.dashboard_auth import clear_providers, get_provider, register_provider
 from hermes_cli.dashboard_auth.ws_tickets import (
     _reset_for_tests,
     consume_internal_credential,
@@ -144,31 +144,44 @@ class TestWsTicketEndpoint:
                 socket.receive_text()
         assert exc.value.code == 4401
 
-    def test_logout_does_not_revoke_upstream(self, gated_app, monkeypatch):
+    def test_dashboard_logout_attempts_upstream_revoke_and_invalidates_local_tokens(
+        self, gated_app, monkeypatch,
+    ):
         _logged_in(gated_app)
-        provider = __import__("hermes_cli.dashboard_auth", fromlist=["get_provider"]).get_provider("stub")
-        def fail_revoke(**kwargs):
-            raise AssertionError("logout must not revoke the shared upstream grant")
-        monkeypatch.setattr(provider, "revoke_session", fail_revoke)
+        provider = get_provider("stub")
         old_cookies = dict(gated_app.cookies)
+        refresh = next(value for name, value in old_cookies.items()
+                       if name.endswith("hermes_session_rt"))
+        revoked = []
+
+        def fail_revoke(*, refresh_token):
+            revoked.append(refresh_token)
+            raise RuntimeError("IdP unavailable")
+
+        monkeypatch.setattr(provider, "revoke_session", fail_revoke)
         response = gated_app.post("/auth/logout", follow_redirects=False)
+        assert revoked == [refresh]
         assert response.status_code == 302
         assert gated_app.get("/api/auth/me", follow_redirects=False).status_code == 401
         replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
         replay.cookies.update(old_cookies)
         assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
 
-    def test_mobile_logout_revokes_only_this_browser_tokens(self, gated_app):
+    def test_mobile_logout_revokes_only_this_browser_tokens(self, gated_app, monkeypatch):
         _logged_in(gated_app)
+        other = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        _logged_in(other)
+        provider = get_provider("stub")
+        revoked = []
+        monkeypatch.setattr(provider, "revoke_session", lambda **kwargs: revoked.append(kwargs))
         old_cookies = dict(gated_app.cookies)
         assert gated_app.post("/api/mobile/logout").status_code == 200
+        assert revoked == []
         assert gated_app.get("/api/auth/me", follow_redirects=False).status_code == 401
         # A replayed old refresh cookie cannot silently re-create a logged-out session.
         replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
         replay.cookies.update(old_cookies)
         assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
-        other = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
-        _logged_in(other)
         assert other.get("/api/auth/me").status_code == 200
 
     def test_mobile_logout_prunes_only_its_own_push_subscription(self, gated_app):
