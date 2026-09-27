@@ -2,8 +2,9 @@ import { useCallback, useLayoutEffect, useRef, useState, type UIEvent } from "re
 
 const BOTTOM_THRESHOLD = 56;
 
-export function useChatScroll(identity: string, content: string) {
+export function useChatScroll(identity: string, content: string, active = true) {
   const container = useRef<HTMLDivElement>(null);
+  const positions = useRef(new Map<string, number>());
   const [position, setPosition] = useState({ identity, atBottom: true });
   const atBottom = position.identity !== identity || position.atBottom;
   const anchored = useRef(true);
@@ -17,26 +18,31 @@ export function useChatScroll(identity: string, content: string) {
     const node = event.currentTarget;
     const bottom = node.scrollHeight - node.scrollTop - node.clientHeight <= BOTTOM_THRESHOLD;
     anchored.current = bottom;
+    if (bottom) positions.current.delete(identity);
+    else positions.current.set(identity, node.scrollTop);
     setPosition({ identity, atBottom: bottom });
   }, [identity]);
 
   useLayoutEffect(() => {
-    anchored.current = true;
-    if (container.current) container.current.scrollTop = container.current.scrollHeight;
-  }, [identity]);
+    if (!active || !container.current) return;
+    const saved = positions.current.get(identity);
+    anchored.current = saved === undefined;
+    container.current.scrollTop = saved ?? container.current.scrollHeight;
+    setPosition({ identity, atBottom: saved === undefined });
+  }, [identity, active]);
   useLayoutEffect(() => {
     if (anchored.current && container.current) container.current.scrollTop = container.current.scrollHeight;
   }, [content]);
   useLayoutEffect(() => {
     const node = container.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!active || !node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       if (anchored.current) node.scrollTop = node.scrollHeight;
     });
     observer.observe(node);
     if (node.firstElementChild) observer.observe(node.firstElementChild);
     return () => observer.disconnect();
-  }, [identity]);
+  }, [identity, active]);
 
   return { container, atBottom, onScroll, scrollToLatest };
 }

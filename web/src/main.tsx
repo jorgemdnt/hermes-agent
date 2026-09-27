@@ -14,6 +14,11 @@ import MobileRoot from "./mobile/MobileRoot";
 exposePluginSDK();
 
 const mobileRoute = /^\/m(?:\/|$)/.test(window.location.pathname.slice(HERMES_BASE_PATH.length));
+if (mobileRoute) {
+  const saved = window.localStorage.getItem("hermes-mobile-theme");
+  const dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0a0a0a" : "#ffffff");
+}
 
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter basename={HERMES_BASE_PATH || undefined}>

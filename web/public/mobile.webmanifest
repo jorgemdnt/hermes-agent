@@ -3,10 +3,10 @@
   "short_name": "Hermes",
   "description": "Hermes on your phone",
   "start_url": "/m",
-  "scope": "/",
+  "scope": "/m",
   "display": "standalone",
-  "background_color": "#131b29",
-  "theme_color": "#131b29",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     { "src": "/mobile-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/mobile-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
