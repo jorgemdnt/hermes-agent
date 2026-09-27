@@ -58,3 +58,10 @@
     --screen: #000000; --scrim: #000000b8; --shadow: #00000040;
   }
 }
+
+/* The page behind the shell tints Safari's status bar and toolbar; keep it on the shell palette. */
+html:has(.m-shell), html:has(.m-shell) body { background: #ffffff; }
+html:has(.m-shell[data-theme="dark"]), html:has(.m-shell[data-theme="dark"]) body { background: #0a0a0a; }
+@media (prefers-color-scheme: dark) {
+  html:has(.m-shell[data-theme="system"]), html:has(.m-shell[data-theme="system"]) body { background: #0a0a0a; }
+}
