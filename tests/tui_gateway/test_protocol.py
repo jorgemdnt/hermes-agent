@@ -88,6 +88,28 @@ def test_unknown_method(server):
     assert resp["error"]["code"] == -32601
 
 
+def test_active_session_list_respects_explicit_profile(server, monkeypatch):
+    """A waiting session from another bot must not become this bot's mobile default."""
+    snapshot = [("a", {"profile_home": None}),
+                ("b", {"profile_home": "/profiles/gandalf"})]
+    monkeypatch.setattr(server, "_snapshot_sessions", lambda rid: (snapshot, None))
+    monkeypatch.setattr(server, "_profile_home", lambda name: Path("/profiles/gandalf") if name == "gandalf" else None)
+    monkeypatch.setattr(server, "_session_live_item", lambda sid, session, current: {
+        "current": False, "id": sid, "last_active": 1.0, "message_count": 0,
+        "model": "test", "preview": "", "session_key": sid, "started_at": 1.0,
+        "status": "waiting", "title": "test",
+    })
+    def listed(profile):
+        params = {"profile": profile} if profile is not None else {}
+        return [item["id"] for item in server.handle_request({
+            "id": "1", "method": "session.active_list", "params": params,
+        })["result"]["sessions"]]
+
+    assert listed("gandalf") == ["b"]
+    assert listed("default") == ["a"]
+    assert listed(None) == ["a", "b"]
+
+
 
 
 

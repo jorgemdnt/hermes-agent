@@ -38,6 +38,9 @@ def mint_ticket(*, user_id: str, provider: str, extra: Optional[Dict[str, Any]] 
     hands the ``info`` dict back to the WS handler. ``extra`` rides along for routes that need
     server-chosen context (the Bot Desktop bridge pins the RFB socket's profile home here so a
     client can never pick another profile's screen)."""
+    if extra and "session_expires_at" in extra and (not isinstance(extra["session_expires_at"], (int, float)) or
+                                                     extra["session_expires_at"] <= time.time()):
+        raise TicketInvalid("session expired")
     ticket = secrets.token_urlsafe(32)
     info = {"user_id": user_id, "provider": provider, "minted_at": int(time.time()), **(extra or {})}
     with _lock:
@@ -58,6 +61,10 @@ def consume_ticket(ticket: str) -> Dict[str, Any]:
         expires_at, info = entry
         if expires_at < now:
             raise TicketInvalid("expired")
+        session_expires_at = info.get("session_expires_at")
+        if session_expires_at is not None and (not isinstance(session_expires_at, (int, float)) or
+                                               session_expires_at <= time.time()):
+            raise TicketInvalid("session expired")
         return info
 
 

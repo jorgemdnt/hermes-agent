@@ -64,8 +64,10 @@ def _refresh_provider(provider: DashboardAuthProvider, token: str) -> Session | 
         with flight.lock:
             with _guard:
                 cached = _cache.get(key)
-                if cached is not None and cached[0] > time.monotonic():
-                    return cached[2]
+            if cached is not None and cached[0] > time.monotonic():
+                if cached[2] is not None and not provider.accepts_cached_session(cached[2]):
+                    return None
+                return cached[2]
             try:
                 session = provider.refresh_session(refresh_token=token)
             except RefreshExpiredError:

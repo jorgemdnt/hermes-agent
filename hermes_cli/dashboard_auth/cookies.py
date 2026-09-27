@@ -18,6 +18,7 @@ import base64
 import binascii
 import json
 import re
+import secrets
 from typing import Literal, Optional, Tuple
 from urllib.parse import unquote
 
@@ -27,6 +28,7 @@ from fastapi.responses import Response
 SESSION_AT_COOKIE = "hermes_session_at"
 SESSION_RT_COOKIE = "hermes_session_rt"
 SESSION_PROVIDER_COOKIE = "hermes_session_provider"
+SESSION_BROWSER_COOKIE = "hermes_session_browser"
 PKCE_COOKIE = "hermes_session_pkce"
 SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"
 
@@ -89,7 +91,7 @@ def set_session_provider_cookie(
 
 def set_session_cookies(
     response: Response, *, access_token: str, refresh_token: str, access_token_expires_in: int,
-    use_https: bool, prefix: str = "", provider: str = "") -> None:
+    use_https: bool, prefix: str = "", provider: str = "", browser_id: str | None = None) -> None:
     """``access_token_expires_in`` is seconds (the provider's reported TTL). An empty
     ``refresh_token`` means "don't persist the RT cookie" — a literal empty cookie would be dead
     state at best, attack surface at worst.
@@ -98,6 +100,11 @@ def set_session_cookies(
     ``Session.refresh_token == ""`` and we simply don't persist the RT cookie — the session then behaves as
     access-token-only until the AT expires. No other branch changes between the two cases.
     """
+    from hermes_cli.dashboard_auth.local_logout import bind
+    browser_id = browser_id or secrets.token_urlsafe(24)
+    bind(access_token, refresh_token, browser_id)
+    _set(response, SESSION_BROWSER_COOKIE, browser_id, max_age=_RT_MAX_AGE,
+         use_https=use_https, prefix=prefix)
     _set(response, SESSION_AT_COOKIE, access_token, max_age=access_token_expires_in,
          use_https=use_https, prefix=prefix)
     if refresh_token:
@@ -123,7 +130,7 @@ def _clear_cookie_variants(
 def clear_session_cookies(response: Response, *, prefix: str = "") -> None:
     """Delete the AT, RT and provider cookies (every name variant, active path)."""
     bare_attrs = _common_attrs(use_https=False, prefix=prefix)
-    for name in (SESSION_AT_COOKIE, SESSION_RT_COOKIE, SESSION_PROVIDER_COOKIE):
+    for name in (SESSION_AT_COOKIE, SESSION_RT_COOKIE, SESSION_PROVIDER_COOKIE, SESSION_BROWSER_COOKIE):
         _clear_cookie_variants(
             response, name, prefix=prefix, https_samesite="lax", bare_attrs=bare_attrs)
 
@@ -162,6 +169,10 @@ def read_session_cookies(request: Request) -> Tuple[Optional[str], Optional[str]
     return (
         _read_with_fallback(request, SESSION_AT_COOKIE),
         _read_with_fallback(request, SESSION_RT_COOKIE))
+
+
+def read_session_browser_id(request: Request) -> Optional[str]:
+    return _read_with_fallback(request, SESSION_BROWSER_COOKIE)
 
 
 def read_session_provider(request: Request) -> Optional[str]:

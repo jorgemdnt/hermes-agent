@@ -252,6 +252,8 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
             # ``minted_at`` is not part of the identity contract.
             ws._hermes_auth_identity = {
                 "user_id": info.get("user_id"), "provider": info.get("provider")}
+            if "session_expires_at" in info:
+                ws.scope["hermes_session_expires_at"] = info["session_expires_at"]
 
         internal = ws.query_params.get("internal", "")
         if internal:

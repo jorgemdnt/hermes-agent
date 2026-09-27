@@ -82,6 +82,21 @@ _emit: Callable[[str, str, dict], Any] = lambda event, sid, payload: None  # noq
 # ``answerable(sid)``: False only when every client attached to the session is a build that never
 # advertised handling server→client requests (session_transports.py::_session_client_answers_requests).
 _answerable: Callable[[str], bool] = lambda sid: True  # noqa: E731
+# Optional consumer for a question that is already replayable but has no attached renderer.
+_on_parked: Callable[[str, str, str], None] | None = None
+
+
+def register_parked_hook(callback: Callable[[str, str, str], None] | None) -> None:
+    global _on_parked
+    _on_parked = callback
+
+
+def _notify_parked(req: ServerRequest) -> None:
+    if _on_parked is not None:
+        try:
+            _on_parked(req.sid, req.method, req.id)
+        except Exception:
+            logger.exception("parked server request notification failed")
 
 # Client transports that sent ``client.capabilities {server_requests: true}`` (identity set: StdioTransport
 # has __slots__ and cannot be weak-referenced; ws.py forgets a peer on disconnect).
@@ -153,6 +168,7 @@ def send(method: str, sid: str, params: dict, *, timeout: float | None,
         return None
     req = ServerRequest(sid, method, params, qids=qids)
     _register(req)
+    _notify_parked(req)
     try:
         req.event.wait(timeout)
     except BaseException:
@@ -188,6 +204,7 @@ def send_async(method: str, sid: str, params: dict, on_result: Callable[[dict | 
         return lambda reason: None
     req = ServerRequest(sid, method, params, on_result=on_result)
     _register(req)
+    _notify_parked(req)
 
     def settle(reason: str) -> None:
         with _lock:

@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, Optional
 import httpx
 
 from hermes_cli.dashboard_auth import (
-    DashboardAuthProvider, InvalidCodeError, LoginStart, ProviderError, RefreshExpiredError, Session,
+    AccountNotAllowedError, DashboardAuthProvider, InvalidCodeError, LoginStart, ProviderError, RefreshExpiredError, Session,
     classify_jwks_lookup_error)
 
 # JWKS Cache-Control max-age (nous contract C7); self-hosted mirrors it.
@@ -104,7 +104,10 @@ def validate_redirect_uri(redirect_uri: str) -> None:
         raise ProviderError(f"redirect_uri path must end with '/auth/callback', got {redirect_uri!r}")
 
 
-def pkce_login_start(authorize_url: str, *, client_id: str, scope: str, redirect_uri: str) -> LoginStart:
+def pkce_login_start(
+    authorize_url: str, *, client_id: str, scope: str, redirect_uri: str,
+    auth_params: Optional[Dict[str, str]] = None,
+) -> LoginStart:
     """Build the authorization-code + PKCE (S256) redirect and cookie payload. Callers
     validate ``redirect_uri`` first. The auth-route layer expects
     ``cookie_payload["hermes_session_pkce"]`` as a flat ``state=…;verifier=…`` string
@@ -115,6 +118,11 @@ def pkce_login_start(authorize_url: str, *, client_id: str, scope: str, redirect
         "response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": scope, "state": state,
         "code_challenge": b64url_no_pad(hashlib.sha256(code_verifier.encode("ascii")).digest()),
         "code_challenge_method": "S256"}
+    if auth_params:
+        overlap = params.keys() & auth_params.keys()
+        if overlap:
+            raise ValueError(f"auth_params cannot override PKCE/OIDC parameters: {sorted(overlap)}")
+        params.update(auth_params)
     return LoginStart(
         redirect_url=f"{authorize_url}?{urllib.parse.urlencode(params)}",
         cookie_payload={"hermes_session_pkce": f"state={state};verifier={code_verifier}"})
@@ -284,8 +292,11 @@ class JwtOAuthProvider(DashboardAuthProvider):
         if not refresh_token:
             raise RefreshExpiredError("no refresh token present in session")
         data, headers = self._refresh_request(refresh_token)
-        return self._grant(
-            data, headers=headers, bad_request_exc=RefreshExpiredError, previous_refresh_token=refresh_token)
+        try:
+            return self._grant(
+                data, headers=headers, bad_request_exc=RefreshExpiredError, previous_refresh_token=refresh_token)
+        except AccountNotAllowedError as exc:
+            raise RefreshExpiredError("account not allowed") from exc
 
     def verify_session(self, *, access_token: str) -> Optional[Session]:
         # None on expiry/invalidity (middleware then tries refresh); a ProviderError

@@ -1014,6 +1014,15 @@ DEFAULT_CONFIG = {
         "oauth": {
             "client_id": "",  # agent:{instance_id} — Portal provisions this
             "portal_url": "",
+            # Generic OIDC provider; unset allowlist preserves existing deployments.
+            # When set, only verified email claims on this list can obtain a session.
+            "self_hosted": {
+                "issuer": "",
+                "client_id": "",
+                "scopes": "openid profile email",
+                "allowed_emails": None,
+                "auth_params": {},
+            },
         },
         # Username/password gate (dashboard_auth/basic plugin, no OAuth IDP). Active when username
         # plus password_hash (preferred) or password (hashed in-memory) are set; empty username =

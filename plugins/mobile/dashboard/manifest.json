@@ -1,0 +1,7 @@
+{
+  "name": "mobile",
+  "label": "Mobile",
+  "description": "Authenticated phone Web Push subscriptions",
+  "version": "1.0.0",
+  "api": "plugin_api.py"
+}
