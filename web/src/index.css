@@ -180,6 +180,20 @@ code { font-size: 0.875rem; }
   --color-popover: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
   --color-popover-foreground: var(--midground);
 
+  /* Mobile primitives use these utility slots; values resolve inside .m-shell. */
+  --color-mobile-background: var(--background);
+  --color-mobile-foreground: var(--foreground);
+  --color-mobile-card: var(--card);
+  --color-mobile-primary: var(--primary);
+  --color-mobile-primary-foreground: var(--primary-foreground);
+  --color-mobile-secondary: var(--secondary);
+  --color-mobile-muted-foreground: var(--muted-foreground);
+  --color-mobile-accent: var(--accent);
+  --color-mobile-destructive: var(--destructive);
+  --color-mobile-destructive-foreground: var(--destructive-foreground);
+  --color-mobile-border: var(--border);
+  --color-mobile-ring: var(--ring);
+
   --radius-sm: calc(var(--theme-radius) - 4px);
   --radius-md: calc(var(--theme-radius) - 2px);
   --radius-lg: var(--theme-radius);

@@ -121,6 +121,16 @@ class SecretRequestParams(ServerRequestParams):
 server_request("secret", params=SecretRequestParams, result=ValueResult,
                doc="Masked value for a named env var (skills / setup flows).")
 
+class GeneralSecretParams(ServerRequestParams):
+    name: str
+    reason: str
+    destination: dict[str, JsonValue]
+    requester: str
+    expires_at: float
+
+server_request("secret.request", params=GeneralSecretParams, result=ValueResult,
+               doc="One-time authenticated phone secret, bound to the server-side destination.")
+
 
 class VaultUnlockRequestParams(ServerRequestParams):
     backend: str

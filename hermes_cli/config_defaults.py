@@ -1014,6 +1014,15 @@ DEFAULT_CONFIG = {
         "oauth": {
             "client_id": "",  # agent:{instance_id} — Portal provisions this
             "portal_url": "",
+            # Generic OIDC provider; unset allowlist preserves existing deployments.
+            # When set, only verified email claims on this list can obtain a session.
+            "self_hosted": {
+                "issuer": "",
+                "client_id": "",
+                "scopes": "openid profile email",
+                "allowed_emails": None,
+                "auth_params": {},
+            },
         },
         # Username/password gate (dashboard_auth/basic plugin, no OAuth IDP). Active when username
         # plus password_hash (preferred) or password (hashed in-memory) are set; empty username =
@@ -2492,6 +2501,9 @@ DEFAULT_CONFIG = {
         # long; it restarts on the next use. Idle Xvnc + Xfce hold ~220 MB, an abandoned browser far more.
         # 0 keeps screens up until stopped.
         "idle_stop_minutes": 30,
+        # Optional Linux SSH terminal host: the dashboard remains on the Mac; only this profile's
+        # Xvnc socket and headed Chromium CDP port are forwarded over its existing SSH path.
+        "remote_ssh": {"host": "", "user": "", "source_dir": "", "cdp_local_port": 0},
     },
     "computer_use": {
         # cua-driver's upstream PostHog telemetry defaults ON; Hermes sets

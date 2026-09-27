@@ -51,6 +51,10 @@ class InvalidCredentialsError(Exception):
     """Username/password rejected. The route answers a generic 401 (no username oracle)."""
 
 
+class AccountNotAllowedError(Exception):
+    """Verified identity does not meet the provider's account policy. Callback -> 403."""
+
+
 class RefreshExpiredError(Exception):
     """This provider rejects the refresh token. Not proof of ownership in a multi-provider
     deployment: middleware tries the rest and forces re-login only after every reachable one
@@ -93,7 +97,8 @@ class DashboardAuthProvider(ABC):
 
     Lifecycle: ``start_login`` (redirect URL + PKCE state) -> IDP -> ``complete_login`` (code +
     verifier -> Session) -> ``verify_session`` per request -> ``refresh_session`` near expiry ->
-    ``revoke_session`` on logout (best-effort, must not raise). Failure semantics: ``start_login``
+    ``revoke_session`` for the dashboard's best-effort upstream revoke; the phone's
+    ``/api/mobile/logout`` is browser-local and does not call it. Failure semantics: ``start_login``
     / ``complete_login`` raise ``ProviderError`` when the IDP is unreachable, ``complete_login``
     ``InvalidCodeError`` on a bad code/state; ``verify_session`` returns ``None`` for
     expired/unknown tokens (middleware refreshes) and raises ``ProviderError`` when unreachable
@@ -127,6 +132,10 @@ class DashboardAuthProvider(ABC):
 
     @abstractmethod
     def revoke_session(self, *, refresh_token: str) -> None: ...
+
+    def accepts_cached_session(self, session: Session) -> bool:
+        """Recheck mutable admission policy before sharing a coalesced refresh result."""
+        return True
 
     def complete_password_login(self, *, username: str, password: str) -> "Session":
         """Verify a username/password pair and mint a :class:`Session` (only called when

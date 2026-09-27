@@ -19,10 +19,10 @@ from starlette.concurrency import run_in_threadpool
 
 from hermes_cli.dashboard_auth import list_session_providers
 from hermes_cli.dashboard_auth.audit import AuditEvent, audit_log
-from hermes_cli.dashboard_auth.base import ProviderError
+from hermes_cli.dashboard_auth.base import AccountNotAllowedError, ProviderError
 from hermes_cli.dashboard_auth.cookies import (
-    clear_session_cookies, clear_sso_attempt_cookie, detect_https, read_session_cookies,
-    read_session_provider, read_sso_attempt_cookie, set_session_cookies,
+    clear_session_cookies, clear_sso_attempt_cookie, detect_https, read_session_browser_id,
+    read_session_cookies, read_session_provider, read_sso_attempt_cookie, set_session_cookies,
     set_session_provider_cookie, set_sso_attempt_cookie)
 from hermes_cli.dashboard_auth.prefix import prefix_from_request
 from hermes_cli.dashboard_auth.public_paths import PUBLIC_API_PATHS
@@ -134,16 +134,17 @@ async def _serve_refreshed(request: Request, call_next, new_session, provider: s
     set_session_cookies(
         response, access_token=new_session.access_token, refresh_token=new_session.refresh_token,
         access_token_expires_in=_expires_in_seconds(new_session), use_https=detect_https(request),
-        prefix=prefix_from_request(request), provider=provider)
+        prefix=prefix_from_request(request), provider=provider,
+        browser_id=read_session_browser_id(request))
     audit_log(AuditEvent.REFRESH_SUCCESS, provider=provider, user_id=new_session.user_id,
               ip=_client_ip(request))
     return response
 
 
-def _session_expired_response(request: Request) -> Response:
+def _session_expired_response(request: Request, *, reason: str = "no_provider_recognises") -> Response:
     """Refresh failed (or no RT): structured 401/redirect and clear the dead cookies under the
     active prefix so the deletion Path matches the set Path."""
-    audit_log(AuditEvent.SESSION_VERIFY_FAILURE, reason="no_provider_recognises",
+    audit_log(AuditEvent.SESSION_VERIFY_FAILURE, reason=reason,
               ip=_client_ip(request))
     response = _unauth_response(request, reason="invalid_or_expired_session")
     clear_session_cookies(response, prefix=prefix_from_request(request))
@@ -165,8 +166,13 @@ async def gated_auth_middleware(
     # following a cookie redirect.
     bearer = _extract_bearer(request)
     if bearer:
+        from hermes_cli.dashboard_auth.local_logout import allowed
+        if not allowed(bearer, None):
+            return _unauth_response(request, reason="invalid_or_expired_session")
         try:
             bearer_session = _verify_access_token(request, access_token=bearer, audit=False)
+        except AccountNotAllowedError:
+            return _unauth_response(request, reason="account_not_allowed")
         except ProviderError as e:
             return unreachable_response(str(e))
         if bearer_session is not None:
@@ -176,6 +182,10 @@ async def gated_auth_middleware(
 
     at, _rt = read_session_cookies(request)
     provider_hint = read_session_provider(request)
+    from hermes_cli.dashboard_auth.local_logout import allowed
+    browser_id = read_session_browser_id(request)
+    if not allowed(at, browser_id) or not allowed(_rt, browser_id):
+        return _session_expired_response(request, reason="local_logout")
     if not at and not _rt:
         # No session at all: try the silent portal bounce before /login.
         auto = _auto_sso_response(request)
@@ -186,6 +196,8 @@ async def gated_auth_middleware(
     if at:
         try:
             session = _verify_access_token(request, access_token=at, provider_hint=provider_hint)
+        except AccountNotAllowedError:
+            return _session_expired_response(request, reason="account_not_allowed")
         except ProviderError as e:
             return unreachable_response(str(e))
     if session is None:
@@ -203,6 +215,15 @@ async def gated_auth_middleware(
 
     request.state.session = session
     response = await call_next(request)
+    if not browser_id and not request.url.path.endswith("/api/mobile/logout"):
+        # Sessions minted before browser-local logout existed have no browser cookie.
+        # Bind on their first authenticated request so subsequent sign-out can revoke
+        # this device without touching the upstream grant or another device.
+        set_session_cookies(
+            response, access_token=at or "", refresh_token=_rt or "",
+            access_token_expires_in=_expires_in_seconds(session),
+            use_https=detect_https(request), prefix=prefix_from_request(request),
+            provider=provider_hint or "")
     if not provider_hint and session.provider:
         set_session_provider_cookie(
             response, provider=session.provider, use_https=detect_https(request),

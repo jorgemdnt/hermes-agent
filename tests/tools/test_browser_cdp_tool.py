@@ -9,18 +9,21 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
-
+import requests
 import websockets
 from websockets.asyncio.server import serve
 
+from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 from tools import browser_cdp_tool
-import requests
+from tools import browser_tool_cdp as bt_cdp
 from tools import browser_tool_eval_policy as bt_eval_policy
 from tools import browser_tool_install as bt_install
-from tools import browser_tool_cdp as bt_cdp
+from tools.bot_desktop import lease
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +595,78 @@ def test_private_guard_inactive_does_not_probe(monkeypatch, cdp_server):
 
     assert result["success"] is True
     assert result["result"]["result"]["value"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Shared remote screen lease (actual raw CDP dispatch, two profile homes)
+# ---------------------------------------------------------------------------
+
+def test_remote_screen_fences_raw_cdp_and_supervisor_paths(cdp_server, monkeypatch, tmp_path: Path):
+    from tools.browser_supervisor import SUPERVISOR_REGISTRY
+
+    endpoint = browser_cdp_tool._resolve_cdp_endpoint()
+    port = int(endpoint.split(":")[2].split("/")[0])
+    home_a, home_b = tmp_path / "a", tmp_path / "b"
+    for home in (home_a, home_b):
+        home.mkdir()
+    (home_a / "config.yaml").write_text(
+        "bot_desktop:\n  remote_ssh:\n    host: 100.92.180.34\n    user: hermes\n"
+        f"    source_dir: /home/hermes/hermes-agent\n    cdp_local_port: {port}\n", encoding="utf-8")
+    cdp_server.on("Browser.getVersion", lambda params, sid: {"product": "test-browser"})
+    frame_calls = []
+    monkeypatch.setattr(SUPERVISOR_REGISTRY, "get", lambda task: SimpleNamespace(cdp_url=endpoint))
+    monkeypatch.setattr(browser_cdp_tool, "_cdp_on_supervisor",
+                        lambda *args: frame_calls.append(args) or json.dumps({"success": True, "result": {"secret": "private"}}))
+
+    def invoke(frame=False):
+        from tools.registry import registry
+        args = {"method": "Runtime.evaluate" if frame else "Browser.getVersion"}
+        if frame:
+            args["frame_id"] = "oopif"
+        entry = registry.get_entry("browser_cdp")
+        assert entry is not None
+        return json.loads(entry.handler(args, task_id="remote-lease"))
+
+    for home, shared in ((home_a, True), (home_b, False), (home_a, True)):
+        token = set_hermes_home_override(home)
+        try:
+            lease.acquire("phone")
+            before_direct, before_frame = len(cdp_server.received()), len(frame_calls)
+            for frame in (False, True):
+                result = invoke(frame)
+                if shared:
+                    assert result["code"] == "human_has_control"
+                else:
+                    assert result["success"] is True
+            if shared:
+                assert len(cdp_server.received()) == before_direct
+                assert len(frame_calls) == before_frame
+            lease.release("phone")
+            assert invoke()["success"] is True
+            assert invoke(frame=True)["success"] is True
+        finally:
+            lease.release("phone")
+            reset_hermes_home_override(token)
+
+    token = set_hermes_home_override(home_a)
+    try:
+        cdp_server.on("Browser.getVersion", lambda params, sid: (
+            lease.acquire("phone", profile_key=str(home_a)), {"product": "private"})[1])
+        result = invoke()
+        assert result["code"] == "human_has_control"
+        assert "private" not in json.dumps(result)
+        lease.release("phone")
+
+        def takeover(*args):
+            lease.acquire("phone")
+            return json.dumps({"success": True, "result": {"secret": "private"}})
+        monkeypatch.setattr(browser_cdp_tool, "_cdp_on_supervisor", takeover)
+        result = invoke(frame=True)
+        assert result["code"] == "human_has_control"
+        assert "private" not in json.dumps(result)
+    finally:
+        lease.release("phone")
+        reset_hermes_home_override(token)
 
 
 # ---------------------------------------------------------------------------

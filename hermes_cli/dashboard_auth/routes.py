@@ -8,7 +8,7 @@ allowlists the public ones.
   GET  /auth/native/authorize  RFC 8252 native-app (desktop) login start
   GET  /auth/callback          completes login, sets session cookies
   POST /auth/password-login    username/password login (JSON)
-  POST /auth/logout            clears cookies, best-effort revoke
+  POST /auth/logout            revokes the upstream grant (best-effort), clears cookies
   POST /auth/native/token      loopback code -> bearer tokens
   POST /auth/native/refresh    desktop-held refresh token rotation
   GET  /api/auth/providers     list registered providers (login bootstrap)
@@ -34,10 +34,11 @@ from hermes_cli.dashboard_auth import (
 from hermes_cli.dashboard_auth import prefix as _prefix_mod
 from hermes_cli.dashboard_auth.audit import AuditEvent, audit_log
 from hermes_cli.dashboard_auth.base import (
-    InvalidCodeError, InvalidCredentialsError, ProviderError, Session)
+    AccountNotAllowedError, InvalidCodeError, InvalidCredentialsError, ProviderError, Session)
 from hermes_cli.dashboard_auth.cookies import (
     clear_pkce_cookie, clear_session_cookies, clear_sso_attempt_cookie, detect_https,
-    parse_pkce_payload, read_pkce_cookie, read_session_cookies, set_pkce_cookie,
+    parse_pkce_payload, read_pkce_cookie, read_session_browser_id, read_session_cookies,
+    set_pkce_cookie,
     set_session_cookies)
 from hermes_cli.dashboard_auth.login_page import (
     render_login_html, render_native_provider_choice_html)
@@ -315,6 +316,9 @@ async def auth_callback(
     except InvalidCodeError as e:
         _login_failure(request, provider_name, "invalid_code")
         raise _http(400, f"Invalid code: {e}")
+    except AccountNotAllowedError:
+        _login_failure(request, provider_name, "account_not_allowed")
+        raise _http(403, "Account not allowed")
     except ProviderError as e:
         _login_failure(request, provider_name, "provider_unreachable")
         raise _http(503, f"Provider unreachable: {e}")
@@ -420,13 +424,17 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
 
 @router.post("/auth/logout", name="auth_logout")
 async def auth_logout(request: Request):
-    _at, rt = read_session_cookies(request)
-    # Best-effort revoke on every provider; failures logged, never raised.
-    for provider in list_providers() if rt else ():
-        try:
-            provider.revoke_session(refresh_token=rt)
-        except Exception as e:  # noqa: BLE001 — best-effort
-            _log.warning("dashboard-auth: revoke on %r failed: %s", provider.name, e)
+    from hermes_cli.dashboard_auth.local_logout import revoke
+    access, refresh = read_session_cookies(request)
+    # Preserve the dashboard's upstream-revoking logout contract. The mobile
+    # app uses /api/mobile/logout to leave other browsers' grants untouched.
+    if refresh:
+        for provider in list_providers():
+            try:
+                provider.revoke_session(refresh_token=refresh)
+            except Exception as e:  # noqa: BLE001 — best-effort
+                _log.warning("dashboard-auth: revoke on %r failed: %s", provider.name, e)
+    revoke(access or "", refresh or "", read_session_browser_id(request))
     sess = getattr(request.state, "session", None)
     _audit(request, AuditEvent.LOGOUT, provider=(sess.provider if sess else "unknown"),
            user_id=(sess.user_id if sess else ""))
@@ -455,13 +463,39 @@ async def api_auth_me(request: Request):
         "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at}
 
 
+@router.post("/api/mobile/logout", name="mobile_logout")
+async def mobile_logout(request: Request):
+    """Clear this browser's cookies without revoking the other devices' Google grant."""
+    sess = _require_session(request)
+    from hermes_cli.dashboard_auth.local_logout import revoke
+    from hermes_constants import get_process_hermes_home
+    from plugins.mobile.push import unsubscribe_browser
+    access, refresh = read_session_cookies(request)
+    browser_id = read_session_browser_id(request)
+    if browser_id:
+        unsubscribe_browser(get_process_hermes_home(), sess.user_id, browser_id)
+    revoke(access or "", refresh or "", browser_id)
+    _audit(request, AuditEvent.LOGOUT, provider=sess.provider, user_id=sess.user_id)
+    response = JSONResponse({"ok": True})
+    clear_session_cookies(response, prefix=_prefix(request))
+    clear_pkce_cookie(response, use_https=detect_https(request), prefix=_prefix(request))
+    return response
+
+
 @router.post("/api/auth/ws-ticket", name="auth_ws_ticket")
 async def api_auth_ws_ticket(request: Request):
     """Mint a 30s single-use ticket for a WS upgrade (browsers cannot set
     ``Authorization`` on the upgrade); one ticket per WS."""
     sess = _require_session(request)
     from hermes_cli.dashboard_auth.ws_tickets import TTL_SECONDS, mint_ticket
-    ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider)
+    from hermes_cli.dashboard_auth.local_logout import _digest, browser_epoch
+    access, _ = read_session_cookies(request)
+    browser_id = read_session_browser_id(request)
+    ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider,
+                         extra={"session_expires_at": sess.expires_at,
+                                "email": sess.email, "browser_id": browser_id,
+                                "access_digest": _digest(access) if access else None,
+                                "browser_epoch": browser_epoch(browser_id) if browser_id else None})
     _audit(request, AuditEvent.WS_TICKET_MINTED, provider=sess.provider, user_id=sess.user_id)
     return {"ticket": ticket, "ttl_seconds": TTL_SECONDS}
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=Hermes Bot Desktop on remote Linux (Xvnc, Xfce, headed Chromium)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/hermes-agent
+Environment=HERMES_HOME=%h/.hermes
+Environment=HERMES_RUNTIME_DIR=%h/.hermes/tools
+ExecStart=/bin/bash -c 'source ./activate >/dev/null 2>&1 && exec python -m tools.bot_desktop.boot_remote'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
