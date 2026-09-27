@@ -3,6 +3,7 @@ import type { GatewayEvent, ServerRequest } from "@hermes/shared";
 export interface ChatRow {
   role: string;
   text: string;
+  timestamp?: number;
 }
 
 export interface MobileChat {
@@ -22,9 +23,9 @@ export const PROMPT_METHODS = new Set([
   "approval", "clarify", "sudo", "secret", "secret.request", "vault.unlock_prompt", "vault.save_login", "vault.code",
 ]);
 
-export function transcriptRows(messages: Array<{ role: string; text?: string | null; display_kind?: string | null }>): ChatRow[] {
+export function transcriptRows(messages: Array<{ role: string; text?: string | null; display_kind?: string | null; timestamp?: number }>): ChatRow[] {
   return messages.filter(m => (m.role === "user" || m.role === "assistant") && m.display_kind !== "hidden" && !!m.text)
-    .map(m => ({ role: m.role, text: m.text! }));
+    .map(m => ({ role: m.role, text: m.text!, timestamp: m.timestamp }));
 }
 
 export function applyChatEvent(chat: MobileChat, event: GatewayEvent): MobileChat {

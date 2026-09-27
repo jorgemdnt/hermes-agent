@@ -1,4 +1,4 @@
-import { RefreshCw, X } from "lucide-react";
+import { LayoutGrid, RefreshCw, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchJSON } from "@/lib/api";
 import { Button, Dialog, Skeleton, Textarea } from "./ui";
@@ -60,7 +60,8 @@ export default function MobileKanban() {
     {boards.length > 1 && <label>Board<select value={boardName} onChange={e => { setTask(null); setBoard(null); setBoardName(e.target.value); }}>{boards.map(b => <option key={b.slug} value={b.slug}>{b.name || b.slug}</option>)}</select></label>}
     {error && <p role="alert">{error}</p>}
     {!board && !error && <div className="m-loading" role="status" aria-label="Loading board"><Skeleton /><Skeleton /><Skeleton /></div>}
-    {board?.columns.map(column => <section key={column.name} className="m-column"><h3>{column.name} <small>{column.tasks.length}</small></h3>
+    {board && !board.columns.some(column => column.tasks.length) && <div className="m-board-empty"><LayoutGrid size={28} strokeWidth={1.5} aria-hidden="true" /><strong>No cards yet</strong><p>New work will appear here.</p></div>}
+    {board?.columns.filter(column => column.tasks.length > 0).map(column => <section key={column.name} className="m-column"><h3>{column.name} <small>{column.tasks.length}</small></h3>
       {column.tasks.map(item => <button type="button" key={item.id} className="m-task" onClick={() => {
         setTask(null); setError("");
         void fetchJSON<TaskDetail>(`${BASE}/tasks/${encodeURIComponent(item.id)}?board=${encodeURIComponent(boardName)}`).then(setTask).catch(e => setError(String(e)));

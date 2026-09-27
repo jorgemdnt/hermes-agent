@@ -3,7 +3,8 @@
   color: var(--foreground);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
-  height: 100dvh;
+  height: calc(100dvh - var(--keyboard-inset, 0px));
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -26,9 +27,10 @@
 .m-shell .m-status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-right: 8px; vertical-align: 1px; }
 .m-shell :is(.m-avatar, .m-avatar-fallback) { display: grid; place-items: center; width: 48px; height: 48px; flex: none; border-radius: 50%; object-fit: cover; }
 .m-shell .m-avatar-fallback { background: var(--secondary); color: var(--foreground); font-size: 20px; font-weight: 600; }
-.m-list-header { padding: 24px 16px 16px; flex: none; }
-.m-list-header .m-overline { color: var(--muted-foreground); font-weight: 600; letter-spacing: .08em; font-size: 10px; }
-.m-list-header h1 { margin: 8px 0 0; font-size: 31px; line-height: 1.2; font-weight: 600; letter-spacing: -.045em; }
+.m-view { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; overflow: hidden; background: var(--background); }
+.m-list-header { padding: 28px 16px 12px; flex: none; display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.m-list-header h1 { margin: 0; font-size: 31px; line-height: 1.2; font-weight: 600; letter-spacing: -.045em; text-wrap: balance; }
+.m-connection { color: var(--muted-foreground); white-space: nowrap; font-size: 11px; padding-bottom: 4px; }
 .m-bot-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
 .m-section-title { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted-foreground); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; margin: 8px 0 12px; }
 .m-section-title [role="status"] { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; }
@@ -48,33 +50,60 @@
 .m-inbox .m-inline-request { margin: 12px 0 24px; }
 .m-inbox .m-request-label { overflow-wrap: anywhere; }
 .m-inbox .m-inline-request > button { margin-bottom: 8px; }
-.m-header { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 16px; min-height: 72px; border-bottom: 1px solid var(--border); }
+.m-header { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 16px; min-height: 64px; border-bottom: 1px solid var(--border); }
 .m-shell .m-icon-button, .m-shell .m-avatar-button { display: grid; place-items: center; background: transparent; border: 0; padding: 0; flex: none; min-width: 44px; min-height: 44px; }
 .m-avatar-button .m-avatar { width: 44px; height: 44px; }
 .m-identity { min-width: 0; display: flex; flex-direction: column; }
-.m-identity strong { font-size: 17px; font-weight: 600; line-height: 1.25; }
+.m-identity h1 { font-size: 17px; font-weight: 600; line-height: 1.25; margin: 0; }
 .m-identity span { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.m-page-title { font-size: 18px; font-weight: 600; }
-.m-main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.m-messages { flex: 1; overflow-y: auto; padding: 24px 16px 16px; min-height: 0; overscroll-behavior: contain; }
+.m-page-title { font-size: 18px; font-weight: 600; margin: 0; }
+.m-main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.m-messages { flex: 1; overflow-y: auto; padding: 24px 16px 20px; min-height: 0; min-width: 0; overscroll-behavior: contain; overflow-anchor: none; }
+.m-message-content { min-width: 0; }
 .m-empty { text-align: center; color: var(--muted-foreground); padding: 14vh 8px 0; font-size: 14px; }
 .m-empty-avatar { display: flex; justify-content: center; }
 .m-empty-avatar .m-avatar { width: 70px; height: 70px; }
-.m-message { width: fit-content; max-width: 88%; margin: 0 0 16px; padding: 12px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); line-height: 1.55; overflow-wrap: anywhere; }
-.m-assistant { border-bottom-left-radius: 4px; }
-.m-user { margin-left: auto; background: var(--chat-bubble); color: var(--chat-bubble-foreground); border-bottom-right-radius: 4px; }
-.m-thinking { color: var(--muted-foreground); font-size: 12px; margin: 12px 0; }
-.m-composer { flex: none; display: flex; align-items: end; gap: 8px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--background); border-top: 1px solid var(--border); }
-.m-shell .m-composer textarea { flex: 1; width: auto; min-width: 0; height: 46px; max-height: 120px; min-height: 46px; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); }
+.m-message { max-width: 100%; min-width: 0; margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.m-message.m-grouped { margin-top: -13px; }
+.m-assistant { width: 100%; padding: 0; color: var(--foreground); }
+.m-user { width: fit-content; max-width: 86%; margin-left: auto; padding: 10px 14px; background: var(--chat-bubble); color: var(--chat-bubble-foreground); border: 1px solid var(--border); border-radius: 18px; }
+.m-message-time { display: block; margin-top: 5px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.m-user .m-message-time { text-align: right; }
+.m-thinking { color: var(--muted-foreground); font-size: 13px; margin: 12px 0; }
+.m-jump-latest { position: absolute; bottom: calc(82px + env(safe-area-inset-bottom)); right: 16px; z-index: 2; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); box-shadow: 0 3px 12px var(--shadow); }
+.m-composer { flex: none; display: flex; align-items: end; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--background); }
+.m-shell .m-composer textarea { flex: 1; width: auto; min-width: 0; height: 46px; max-height: 120px; min-height: 46px; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); font-size: 16px; }
 .m-shell .m-composer button { flex: none; border-radius: 50%; width: 44px; height: 44px; display: grid; place-items: center; border: 0; }
 .m-shell .m-send { background: var(--primary); color: var(--primary-foreground); }
 .m-shell .m-stop { background: var(--secondary); }
 .m-shell .m-other-requests { width: 100%; min-height: 44px; margin: 8px 0 16px; white-space: normal; text-align: left; }
+.m-shell .m-markdown { font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; color: var(--foreground); }
+.m-shell .m-markdown :is(h1, h2, h3, h4) { line-height: 1.3; letter-spacing: -.025em; text-wrap: balance; scroll-margin-top: 80px; }
+.m-shell .m-markdown h1 { font-size: 22px; }
+.m-shell .m-markdown h2 { font-size: 19px; }
+.m-shell .m-markdown h3 { font-size: 17px; }
+.m-shell .m-markdown h4 { font-size: 16px; }
+.m-shell .m-markdown :is(ul, ol) { font-size: 16px; padding-left: 22px; }
+.m-shell .m-markdown :is(ul, ol) :is(ul, ol) { margin: 4px 0; }
+.m-shell .m-markdown li { padding-left: 2px; }
+.m-shell .m-markdown a { display: inline-block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom; text-decoration: underline; text-underline-offset: 3px; color: var(--foreground); }
+.m-shell .m-markdown :is(p, li) code { overflow-wrap: anywhere; font-size: .88em; background: var(--secondary); color: var(--foreground); }
+.m-shell .m-markdown blockquote { border-left: 3px solid var(--border); padding-left: 14px; color: var(--muted-foreground); }
+.m-code-block { min-width: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.m-code-header { display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding-left: 12px; background: var(--secondary); color: var(--muted-foreground); font-size: 12px; }
+.m-shell .m-code-header button { display: flex; gap: 6px; align-items: center; justify-content: center; min-height: 44px; padding: 0 12px; border: 0; background: transparent; font-size: 12px; }
+.m-code-block pre { margin: 0; border: 0; border-radius: 0; white-space: pre; overflow-x: auto; max-width: 100%; background: var(--secondary); color: var(--foreground); }
+.m-code-block pre code { color: inherit; background: transparent; }
+.m-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.m-table-scroll table { border-collapse: collapse; min-width: max-content; width: 100%; font-size: 14px; }
+.m-table-scroll :is(th, td) { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: left; max-width: 240px; overflow-wrap: anywhere; }
+.m-table-scroll th { background: var(--secondary); font-weight: 600; }
+.m-table-scroll tr:last-child td { border-bottom: 0; }
 .m-loading { display: grid; gap: 12px; padding: 12px 0; }
 .m-skeleton { display: block; height: 56px; border-radius: 12px; background: var(--muted); animation: m-pulse 1.8s ease-in-out infinite; }
 .m-badge { display: inline-flex; align-items: center; }
 .m-tooltip { display: block; position: relative; z-index: 70; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--foreground); font-size: 12px; box-shadow: 0 2px 12px var(--shadow); }
-@media (prefers-reduced-motion: reduce) { .m-skeleton { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .m-skeleton, .m-modal-overlay, .m-modal, .m-message, .m-thinking .m-status-dot, .m-streaming-caret { animation: none !important; } }
 @keyframes m-pulse { 50% { opacity: .48; } }
 .m-inline-request { margin: 24px 0; }
 .m-request-label { display: block; color: var(--muted-foreground); font-size: 11px; font-weight: 600; letter-spacing: .04em; margin: 0 0 8px; }
@@ -100,6 +129,9 @@
 .m-shell .m-setting-action { display: flex; align-items: center; gap: 12px; border: 0; border-radius: 0; border-bottom: 1px solid var(--border); background: none; width: 100%; min-height: 52px; padding: 8px 0; text-align: left; font-size: 14px; }
 .m-setting-action svg:last-child { margin-left: auto; color: var(--muted-foreground); }
 .m-board header { display: flex; align-items: center; justify-content: flex-end; }
+.m-board-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 48vh; text-align: center; color: var(--muted-foreground); }
+.m-board-empty strong { color: var(--foreground); margin-top: 14px; font-size: 16px; }
+.m-board-empty p { margin: 4px 0 0; font-size: 13px; }
 .m-board h3 { font-size: 13px; margin: 24px 0 12px; }
 .m-column h3 { text-transform: capitalize; color: var(--muted-foreground); }
 .m-column h3 small { font-weight: 400; }
@@ -132,9 +164,23 @@
 .m-screen-empty strong { color: var(--foreground); font-size: 16px; }
 .m-screen-empty button { margin-top: 12px; }
 .m-screen-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.m-shell button { touch-action: manipulation; }
+.m-board, .m-settings { padding-top: 16px; }
+.m-column { margin-bottom: 22px; }
+.m-column h3 { display: flex; align-items: center; gap: 8px; text-transform: capitalize; font-size: 14px; }
+.m-column h3 small { font-variant-numeric: tabular-nums; border-radius: 10px; background: var(--secondary); padding: 2px 7px; }
+.m-shell .m-task { border-radius: 16px; margin: 8px 0; }
+.m-settings-group:first-child { border-top: 0; padding-top: 8px; }
+.m-screen { padding-top: 16px; gap: 16px; }
+.m-screen-frame, .m-screen-empty { border-radius: 16px; }
+.m-modal-overlay[data-state="open"] { animation: m-fade-in .18s ease-out both; }
+.m-modal[data-state="open"] { animation: m-sheet-in .2s ease-out both; }
+@keyframes m-fade-in { from { opacity: 0; } }
+@keyframes m-sheet-in { from { transform: translate(-50%, 16px); opacity: 0; } }
 @media (min-width: 600px) { .m-shell { width: min(100%, 540px); margin-inline: auto; border-inline: 1px solid var(--border); } }
 @media (prefers-reduced-motion: no-preference) {
   .m-bot-row, .m-destination, .m-shell button { transition: background-color .18s ease, border-color .18s ease; }
-  .m-card { animation: m-enter .22s ease-out; }
+  .m-card, .m-message:not(.m-streaming) { animation: m-enter .2s ease-out both; }
+  .m-thinking .m-status-dot { animation: m-pulse 1s ease-in-out infinite; }
   @keyframes m-enter { from { opacity: 0; transform: translateY(6px); } }
 }

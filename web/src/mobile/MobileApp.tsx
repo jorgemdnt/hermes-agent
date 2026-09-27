@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, Moon, Plus, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Markdown } from "@/components/Markdown";
+import { useChatScroll } from "./useChatScroll";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, Moon, Plus, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo } from "@/lib/api";
@@ -18,7 +21,7 @@ interface LiveSession { id: string; session_key: string; title: string; status: 
 interface SessionSnapshot {
   session_id: string;
   stored_session_id?: string;
-  messages: Array<{ role: string; text?: string | null; display_kind?: string | null }>;
+  messages: Array<{ role: string; text?: string | null; display_kind?: string | null; timestamp?: number }>;
   running?: boolean;
   inflight?: { assistant?: string; user?: string; streaming?: boolean } | null;
 }
@@ -35,6 +38,12 @@ export default function MobileApp() {
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
   const [connection, setConnection] = useState("connecting");
   const [view, setView] = useState<"bots" | "chat" | "board" | "screen" | "settings">(() => profileFromUrl() ? "chat" : "bots");
+  const [navDirection, setNavDirection] = useState(1);
+  const reducedMotion = useReducedMotion();
+  const navigate = (next: typeof view) => {
+    setNavDirection(next === "bots" ? -1 : view === "bots" ? 1 : 0);
+    setView(next);
+  };
   const [activityOpen, setActivityOpen] = useState(false);
   const [theme, setTheme] = useState<"system" | "light" | "dark">(() => {
     const saved = window.localStorage?.getItem("hermes-mobile-theme");
@@ -52,7 +61,6 @@ export default function MobileApp() {
   const skipResume = useRef("");
   const selectedRef = useRef("");
   const chatRef = useRef<MobileChat | null>(null);
-  const end = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     window.localStorage?.setItem("hermes-mobile-theme", theme);
@@ -182,11 +190,25 @@ export default function MobileApp() {
     return () => { alive = false; };
   }, [profile, selected, connection]);
 
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [chat?.rows, chat?.draft, prompts]);
+  const { container: messagesRef, atBottom, onScroll, scrollToLatest } = useChatScroll(`${profile}/${selected}/${view}`, `${chat?.rows.length || 0}:${chat?.draft || ""}:${Object.keys(prompts).join(",")}`);
+
+  useEffect(() => {
+    const shell = document.querySelector<HTMLElement>(".m-shell");
+    const viewport = window.visualViewport;
+    if (!shell || !viewport) return;
+    const resize = () => {
+      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      shell.style.setProperty("--keyboard-inset", inset >= 80 ? `${inset}px` : "0px");
+    };
+    viewport.addEventListener("resize", resize);
+    viewport.addEventListener("scroll", resize);
+    resize();
+    return () => { viewport.removeEventListener("resize", resize); viewport.removeEventListener("scroll", resize); };
+  }, []);
 
   const selectProfile = (name: string) => {
     if (!profiles.some(p => p.name === name)) return;
-    if (name === profile) { setView("chat"); return; }
+    if (name === profile) { navigate("chat"); return; }
     selectedRef.current = "";
     chatRef.current = null;
     setSessions([]); setLiveSessions([]); setSelected(""); setChat(null); setPrompts({}); setError(""); setWorking(""); setActivity([]);
@@ -194,7 +216,7 @@ export default function MobileApp() {
     url.searchParams.set("profile", name);
     window.history.replaceState({}, "", url);
     setProfile(name);
-    setView("chat");
+    navigate("chat");
   };
 
   const send = async (event: FormEvent) => {
@@ -257,47 +279,60 @@ export default function MobileApp() {
     catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
-  return <div key={theme} className="m-shell" data-theme={theme}>
+  return <div className="m-shell" data-theme={theme}>
     <Toaster theme={theme} position="top-center" richColors toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
+    <AnimatePresence initial={false} mode="popLayout" custom={navDirection}>
+      <motion.div key={view} className="m-view" custom={navDirection}
+        variants={{ enter: (direction: number) => ({ opacity: 0, x: direction * 20 }), active: { opacity: 1, x: 0 }, exit: (direction: number) => ({ opacity: 0, x: direction * -20 }) }}
+        initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.2, ease: "easeOut" }}>
     {view === "bots" ? <>
-      <header className="m-list-header"><span className="m-overline">HERMES</span><h1>Your bots</h1></header>
+      <header className="m-list-header"><h1>Your bots</h1><span role="status" className="m-connection"><i className="m-status-dot" />{connection === "open" ? "Connected" : "Reconnecting…"}</span></header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-bot-list">
-        {!!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2>Requests</h2>{activePrompts.map(p => {
+        <AnimatePresence initial={false}>{!!activePrompts.length && <motion.section className="m-inbox" aria-label="Requests" exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><h2>Requests</h2>{activePrompts.map(p => {
           const sid = p.request.params.session_id;
           const owner = liveSessions.find(s => s.id === sid);
           return <div className="m-inline-request" data-method={p.request.method} key={p.request.id}>
             <Badge className="m-request-label">{name} · {owner?.title || "Conversation"} · {sid || "Session unavailable"}</Badge>
-            {owner?.session_key && <Button variant="outline" type="button" onClick={() => { setSelected(owner.session_key); setView("chat"); }}>Open conversation</Button>}
+            {owner?.session_key && <Button variant="outline" type="button" onClick={() => { setSelected(owner.session_key); navigate("chat"); }}>Open conversation</Button>}
             <PromptCard pending={p} onAnswer={answer} onReceived={received} />
           </div>;
-        })}</section>}
-        <div className="m-section-title"><span role="status">{connection === "open" ? "Connected" : "Reconnecting"}</span></div>
+        })}</motion.section>}</AnimatePresence>
         {profiles.map(p => <button className="m-bot-row" type="button" key={p.name} onClick={() => selectProfile(p.name)}>
           {avatar(p)}<span className="m-bot-copy"><strong>{botName(p)}</strong>{p.name === profile && (activePrompts.length || sessions[0]?.preview) && <small>{activePrompts.length ? `${activePrompts.length} request${activePrompts.length === 1 ? "" : "s"} waiting` : sessions[0].preview}</small>}</span><ChevronRight size={18} aria-hidden="true" />
         </button>)}
         {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
-        <button type="button" className="m-destination" onClick={() => setView("board")}><LayoutGrid size={20} aria-hidden="true" />Board<ChevronRight size={18} aria-hidden="true" /></button>
-        {profiles.some(p => p.name === "samwise") && <button type="button" className="m-destination" onClick={() => { if (profile !== "samwise") selectProfile("samwise"); setView("screen"); }}><Monitor size={20} aria-hidden="true" />Screen<ChevronRight size={18} aria-hidden="true" /></button>}
-        <button type="button" className="m-destination" onClick={() => setView("settings")}><Settings2 size={20} aria-hidden="true" />Settings<ChevronRight size={18} aria-hidden="true" /></button>
-        {!!sessions.length && <section className="m-recent"><h2>Recent</h2>{sessions.map(s => <button type="button" key={s.id} onClick={() => { setSelected(s.id); setView("chat"); }}>{s.title || s.preview || "Conversation"}<ChevronRight size={16} aria-hidden="true" /></button>)}<button type="button" onClick={() => { setSelected(""); setChat(null); setView("chat"); }}><Plus size={17} aria-hidden="true" />New conversation</button></section>}
+        <button type="button" className="m-destination" onClick={() => navigate("board")}><LayoutGrid size={20} aria-hidden="true" />Board<ChevronRight size={18} aria-hidden="true" /></button>
+        {profiles.some(p => p.name === "samwise") && <button type="button" className="m-destination" onClick={() => { if (profile !== "samwise") selectProfile("samwise"); navigate("screen"); }}><Monitor size={20} aria-hidden="true" />Screen<ChevronRight size={18} aria-hidden="true" /></button>}
+        <button type="button" className="m-destination" onClick={() => navigate("settings")}><Settings2 size={20} aria-hidden="true" />Settings<ChevronRight size={18} aria-hidden="true" /></button>
+        {!!sessions.length && <section className="m-recent"><h2>Recent</h2>{sessions.map(s => <button type="button" key={s.id} onClick={() => { setSelected(s.id); navigate("chat"); }}>{s.title || s.preview || "Conversation"}<ChevronRight size={16} aria-hidden="true" /></button>)}<button type="button" onClick={() => { setSelected(""); setChat(null); navigate("chat"); }}><Plus size={17} aria-hidden="true" />New conversation</button></section>}
       </main>
     </> : <>
-      <header className="m-header"><button type="button" className="m-icon-button" aria-label="Back to bots" onClick={() => setView("bots")}><ArrowLeft size={22} /></button>
-        {view === "chat" && currentBot ? <><button type="button" className="m-avatar-button" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}</button><div className="m-identity"><strong>{name}</strong><span role="status"><i className="m-status-dot" />{status}</span></div></> : <strong className="m-page-title">{{ board: "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</strong>}
+      <header className="m-header"><button type="button" className="m-icon-button" aria-label="Back to bots" onClick={() => navigate("bots")}><ArrowLeft size={22} /></button>
+        {view === "chat" && currentBot ? <><button type="button" className="m-avatar-button" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}</button><div className="m-identity"><h1>{name}</h1><span role="status"><i className="m-status-dot" />{status}</span></div></> : <h1 className="m-page-title">{{ board: "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
       </header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
         {view === "chat" && <>
-          <div className="m-messages" role="log" aria-live="polite">
-            {!chat && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
-            {chat?.rows.map((row, index) => <article key={index} className={`m-message m-${row.role}`}><div className="m-preserve">{row.text}</div></article>)}
-            {chat?.draft && <article className="m-message m-assistant"><div className="m-preserve">{chat.draft}</div></article>}
-            {chatPrompts.map(p => <div className="m-inline-request" data-method={p.request.method} key={p.request.id}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></div>)}
-            {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => setView("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
-            {chat?.running && !chat.draft && !chatPrompts.length && <p role="status" className="m-thinking"><i className="m-status-dot" />{status}</p>}
-            <div ref={end} />
+          <div className="m-messages" ref={messagesRef} onScroll={onScroll} role="log" aria-live="polite">
+            <div className="m-message-content">
+              {!chat && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
+              {chat?.rows.map((row, index) => {
+                const previous = chat.rows[index - 1];
+                const grouped = previous?.role === row.role;
+                return <article key={index} className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}>
+                  {row.role === "assistant" ? <Markdown content={row.text} /> : <div className="m-preserve">{row.text}</div>}
+                  {row.timestamp && (!grouped || !previous?.timestamp || row.timestamp - previous.timestamp > 300) && <time dateTime={new Date(row.timestamp * 1000).toISOString()} className="m-message-time">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(row.timestamp * 1000)}</time>}
+                </article>;
+              })}
+              {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
+              <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
+                exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
+              {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
+              {chat?.running && !chat.draft && !chatPrompts.length && <p role="status" className="m-thinking"><i className="m-status-dot" />{status}</p>}
+            </div>
           </div>
+          {!atBottom && <button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button>}
           <form className="m-composer" onSubmit={e => void send(e)}><Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
             {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
               : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={!text.trim() || busy || connection !== "open"}><ArrowUp size={20} /></Button>}
@@ -312,7 +347,7 @@ export default function MobileApp() {
             const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
             if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
-          setView("chat");
+          navigate("chat");
         }} />}
         {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
@@ -321,6 +356,8 @@ export default function MobileApp() {
         </section>}
       </main>
     </>}
+      </motion.div>
+    </AnimatePresence>
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>
