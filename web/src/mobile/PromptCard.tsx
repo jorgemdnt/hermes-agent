@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { PendingPrompt } from "./mobile-state";
+import { Button, Card, Input, Textarea } from "./ui";
 
 interface Props {
   pending: PendingPrompt;
@@ -69,12 +70,11 @@ export default function PromptCard({ pending, onAnswer, onReceived }: Props) {
   if (request.method === "approval") {
     const choices = Array.isArray(p.choices) ? p.choices.filter((v): v is string => typeof v === "string") : ["once", "deny"];
     const visible = choices.filter(v => v !== "always" || p.allow_permanent !== false).filter(v => v !== "session" || p.allow_session !== false);
-    return <section className="m-card" aria-label="Command approval">
+    return <Card aria-label="Command approval">
       <h2>Approve command?</h2>
       <p>{text(p.description)}</p><pre>{text(p.command)}</pre>
-      <div className="m-actions">{visible.map(choice => <button key={choice} type="button" onClick={() => respond({ choice })}>{({ once: "Allow once", session: "Allow for session", always: "Always allow", deny: "Deny" } as Record<string, string>)[choice] ?? choice}</button>)}</div>
-
-    </section>;
+      <div className="m-actions">{visible.map(choice => <Button variant={choice === "once" ? "primary" : choice === "deny" ? "outline" : "secondary"} key={choice} type="button" onClick={() => respond({ choice })}>{({ once: "Allow once", session: "Allow for session", always: "Always allow", deny: "Deny" } as Record<string, string>)[choice] ?? choice}</Button>)}</div>
+    </Card>;
   }
 
   if (request.method === "clarify") {
@@ -88,10 +88,10 @@ export default function PromptCard({ pending, onAnswer, onReceived }: Props) {
           const selected = selectedChoices(prev[q.qid]);
           return { ...prev, [q.qid]: JSON.stringify(selected.includes(choice) ? selected.filter(c => c !== choice) : [...selected, choice]) };
         })} />{choice}</label>)}
-        {!q.choices?.length && <textarea aria-label={q.question} value={answers[q.qid] ?? ""} onChange={e => setAnswers(prev => ({ ...prev, [q.qid]: e.target.value }))} />}
+        {!q.choices?.length && <Textarea aria-label={q.question} value={answers[q.qid] ?? ""} onChange={e => setAnswers(prev => ({ ...prev, [q.qid]: e.target.value }))} />}
         {Object.hasOwn(locked, q.qid) && <small>Already answered</small>}
       </fieldset>)}
-      <div className="m-actions"><button type="submit">Answer</button><button type="button" onClick={() => respond(Array.isArray(p.questions) ? { answers: {} } : { answer: "" })}>Skip</button></div>
+      <div className="m-actions"><Button variant="primary" type="submit">Answer</Button><Button variant="outline" type="button" onClick={() => respond(Array.isArray(p.questions) ? { answers: {} } : { answer: "" })}>Skip</Button></div>
     </form>;
   }
 
@@ -109,9 +109,9 @@ export default function PromptCard({ pending, onAnswer, onReceived }: Props) {
   return <form className="m-card" onSubmit={submit} aria-label={details.title}>
     <h2>{details.title}</h2><p>{details.hint}</p>
     {request.method === "secret.request" && <p>Destination: <strong>{text(destination?.kind)} · {text(destination?.path) || text(destination?.origin)}</strong>{destination?.label ? ` · ${text(destination.label)}` : ""}{destination?.identifier ? ` · ${text(destination.identifier)}` : ""}{destination?.kind === "env_file" || destination?.kind === "remote_file" ? " (file mode 0600)" : ""}.</p>}
-    {request.method === "vault.save_login" && <label>Username or email<input autoComplete="username" value={identifier} onChange={e => setIdentifier(e.target.value)} required /></label>}
-    <label>{details.label}<input type={request.method === "vault.code" ? "text" : "password"} autoComplete={request.method === "vault.code" ? "one-time-code" : request.method === "vault.save_login" ? "new-password" : "off"} value={value} onChange={e => setValue(e.target.value)} required /></label>
+    {request.method === "vault.save_login" && <label>Username or email<Input autoComplete="username" value={identifier} onChange={e => setIdentifier(e.target.value)} required /></label>}
+    <label>{details.label}<Input type={request.method === "vault.code" ? "text" : "password"} autoComplete={request.method === "vault.code" ? "one-time-code" : request.method === "vault.save_login" ? "new-password" : "off"} value={value} onChange={e => setValue(e.target.value)} required /></label>
     <p className="m-muted">This value is sent directly to Hermes; it is not added to chat history.{request.method === "secret.request" ? " Clear your clipboard after pasting." : ""}</p>
-    <div className="m-actions"><button type="submit">{request.method === "vault.save_login" || request.method === "secret.request" ? "Save" : "Send"}</button><button type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</button></div>
+    <div className="m-actions"><Button variant="primary" type="submit">{request.method === "vault.save_login" || request.method === "secret.request" ? "Save" : "Send"}</Button><Button variant="outline" type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</Button></div>
   </form>;
 }

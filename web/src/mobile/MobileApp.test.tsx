@@ -36,23 +36,39 @@ import MobileApp from "./MobileApp";
 
 let root: Root;
 let host: HTMLDivElement;
-beforeEach(() => { vi.clearAllMocks(); mocks.running = false; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); });
+beforeEach(() => { vi.clearAllMocks(); mocks.running = false; vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+
+it("opens a bot chat from a notification deep link", async () => {
+  window.history.replaceState({}, "", "/m?profile=frodo");
+  await act(async () => root.render(<MobileApp />));
+  await settle(); await settle();
+  expect(host.querySelector('.m-bot-list')).toBeNull();
+  expect(host.textContent).toContain("Earlier");
+});
 
 it("resumes a profile's stored session, streams its runtime id, stops the turn, and answers a pending approval", async () => {
   await act(async () => root.render(<MobileApp />));
   await settle(); await settle();
-  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "stored" });
+  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "stored", source: "mobile", close_on_disconnect: false });
+  expect(host.querySelector('.m-bot-list')).not.toBeNull();
+  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-nav')).toBeNull();
   expect(host.textContent).toContain("Earlier");
   await act(async () => { for (const handler of mocks.events) handler({ type: "message.delta", session_id: "runtime", payload: { text: "Streaming" } }); });
   expect(host.textContent).toContain("Streaming");
+  await act(async () => (host.querySelector('.m-avatar-button') as HTMLButtonElement).click());
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Frodo activity");
+  await act(async () => (host.querySelector('[aria-label="Close activity"]') as HTMLButtonElement).click());
   const respond = vi.fn();
   await act(async () => { for (const handler of mocks.requests) handler({ id: "srq-1", method: "approval", params: { session_id: "runtime", request_id: "ap-1", choices: ["once", "deny"], command: "ls" }, respond, fail: vi.fn() }); });
   expect(host.textContent).toContain("Approve command?");
+  expect(host.querySelector('.m-inline-request')).not.toBeNull();
+  expect(host.querySelector('.m-prompt-overlay')).toBeNull();
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Allow once") as HTMLButtonElement).click());
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Stop") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('button[aria-label="Stop"]') as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.interrupt", { profile: "frodo", session_id: "runtime" });
 });
 

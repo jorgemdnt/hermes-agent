@@ -1,5 +1,7 @@
+import { RefreshCw, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { fetchJSON } from "@/lib/api";
+import { Button, Dialog, Skeleton, Textarea } from "./ui";
 
 const BASE = "/api/plugins/kanban";
 interface Task { id: string; title: string; status: string; assignee?: string | null; body?: string | null; latest_summary?: string | null }
@@ -54,21 +56,21 @@ export default function MobileKanban() {
   }
 
   return <section className="m-board" aria-label="Kanban board">
-    <header><h2>Board</h2><button type="button" onClick={() => refresh(n => n + 1)}>Refresh</button></header>
+    <header><h2>Board</h2><Button variant="outline" type="button" onClick={() => refresh(n => n + 1)}><RefreshCw size={15} aria-hidden="true" /> Refresh</Button></header>
     {boards.length > 1 && <label>Board<select value={boardName} onChange={e => { setTask(null); setBoard(null); setBoardName(e.target.value); }}>{boards.map(b => <option key={b.slug} value={b.slug}>{b.name || b.slug}</option>)}</select></label>}
     {error && <p role="alert">{error}</p>}
-    {!board && !error && <p role="status">Loading board…</p>}
+    {!board && !error && <div className="m-loading" role="status" aria-label="Loading board"><Skeleton /><Skeleton /><Skeleton /></div>}
     {board?.columns.map(column => <section key={column.name} className="m-column"><h3>{column.name} <small>{column.tasks.length}</small></h3>
       {column.tasks.map(item => <button type="button" key={item.id} className="m-task" onClick={() => {
         setTask(null); setError("");
         void fetchJSON<TaskDetail>(`${BASE}/tasks/${encodeURIComponent(item.id)}?board=${encodeURIComponent(boardName)}`).then(setTask).catch(e => setError(String(e)));
       }}><strong>{item.title}</strong><small>{item.id} · {item.status}{item.assignee ? ` · ${item.assignee}` : ""}</small></button>)}
     </section>)}
-    {task && <div role="dialog" aria-modal="true" aria-label={task.task.title} className="m-dialog"><div className="m-dialog-body">
-      <button type="button" className="m-close" onClick={() => setTask(null)} aria-label="Close task">×</button>
+    {task && <Dialog open onClose={() => setTask(null)} label={task.task.title}>
+      <Button variant="ghost" size="icon" type="button" className="m-close" onClick={() => setTask(null)} aria-label="Close task"><X size={19} /></Button>
       <h2>{task.task.title}</h2><p>{task.task.id} · {task.task.status}</p><p className="m-preserve">{task.task.body}</p>
       <h3>Comments</h3>{task.comments.map((item, index) => <article key={`${item.id}-${index}`} className="m-comment"><strong>{item.author}</strong><p className="m-preserve">{item.body}</p></article>)}
-      <form onSubmit={e => void saveComment(e)}><label>Add comment<textarea value={comment} onChange={e => setComment(e.target.value)} required /></label><button type="submit" disabled={saving}>{saving ? "Posting…" : "Post comment"}</button></form>
-    </div></div>}
+      <form onSubmit={e => void saveComment(e)}><label>Add comment<Textarea value={comment} onChange={e => setComment(e.target.value)} required /></label><Button variant="primary" type="submit" disabled={saving}>{saving ? "Posting…" : "Post comment"}</Button></form>
+    </Dialog>}
   </section>;
 }

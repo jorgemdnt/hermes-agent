@@ -1,0 +1,56 @@
+/* Mobile color contract: isolated to the /m surface. */
+
+.m-shell {
+  color-scheme: light;
+  --background: #fbf7ff;
+  --foreground: #251738;
+  --card: #ffffff;
+  --card-foreground: #251738;
+  --primary: #6836ab;
+  --primary-foreground: #ffffff;
+  --secondary: #eee5fa;
+  --secondary-foreground: #351c59;
+  --muted: #f0eaf8;
+  --muted-foreground: #61576d;
+  --accent: #bd4b32;
+  --accent-foreground: #ffffff;
+  --destructive: #aa3040;
+  --destructive-foreground: #ffffff;
+  --border: #e1d5ed;
+  --input: #d3c3e4;
+  --ring: #6836ab;
+  --success: #276d4b;
+  --warning: #995517;
+  --chat-bubble: #e9def8;
+  --chat-bubble-foreground: #251738;
+  --screen: #090d0c;
+  --scrim: #1a1025a8;
+  --shadow: #25173812;
+}
+
+@media (prefers-color-scheme: dark) {
+  .m-shell[data-theme="system"] { color-scheme: dark;
+    --background: #181221; --foreground: #f6efff; --card: #271d35;
+    --card-foreground: #f6efff; --primary: #caa7ff; --primary-foreground: #231332;
+    --secondary: #332641; --secondary-foreground: #f6efff;
+    --muted: #30273d; --muted-foreground: #c3b4d0;
+    --accent: #7de0cf; --accent-foreground: #132c2b;
+    --destructive: #ff9da9; --destructive-foreground: #30141c;
+    --border: #4d3d60; --input: #635372; --ring: #caa7ff;
+    --success: #86dcb0; --warning: #f4b46e;
+    --chat-bubble: #443052; --chat-bubble-foreground: #f6efff;
+    --screen: #090d0c; --scrim: #090511b8; --shadow: #09051140;
+  }
+}
+.m-shell[data-theme="dark"] { color-scheme: dark;
+  --background: #181221; --foreground: #f6efff; --card: #271d35;
+  --card-foreground: #f6efff; --primary: #caa7ff; --primary-foreground: #231332;
+  --secondary: #332641; --secondary-foreground: #f6efff;
+  --muted: #30273d; --muted-foreground: #c3b4d0;
+  --accent: #7de0cf; --accent-foreground: #132c2b;
+  --destructive: #ff9da9; --destructive-foreground: #30141c;
+  --border: #4d3d60; --input: #635372; --ring: #caa7ff;
+  --success: #86dcb0; --warning: #f4b46e;
+  --chat-bubble: #443052; --chat-bubble-foreground: #f6efff;
+  --screen: #090d0c; --scrim: #090511b8; --shadow: #09051140;
+}

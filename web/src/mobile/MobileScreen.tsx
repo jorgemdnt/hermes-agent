@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MonitorPlay } from "lucide-react";
 import RFB from "@novnc/novnc";
 import { GatewayClient } from "@/lib/gatewayClient";
 import { HERMES_BASE_PATH } from "@/lib/api";
+import { Button } from "./ui";
 
 interface Lease { holder: "human" | "agent"; viewer_hash: string | null }
 interface ScreenStatus { running: boolean; supported: boolean; installed: boolean; lease: Lease }
@@ -124,8 +126,13 @@ export default function MobileScreen({ gateway, onContinue }: { gateway: Gateway
     <h2>Samwise · VPS screen</h2>
     <p className="m-muted">{held ? "You control the browser. Samwise's browser tools are paused." : "Watch only. Take over to handle a check or login."}</p>
     {error && <p role="alert" className="m-error">{error}</p>}
-    {!status?.running && <button type="button" disabled={busy || !gateway} onClick={() => void start()}>Start screen</button>}
-    <div className="m-screen-frame" ref={target} aria-label="Live VPS desktop" />
+    {status?.running ? <div className="m-screen-frame" ref={target} aria-label="Live VPS desktop" />
+      : <div className="m-screen-empty">
+        <MonitorPlay size={30} strokeWidth={1.5} aria-hidden="true" />
+        <strong>Screen is off</strong>
+        <span>Start Samwise's screen to watch his work.</span>
+        <Button variant="primary" type="button" disabled={busy || !gateway} onClick={() => void start()}>{busy ? "Starting…" : "Start screen"}</Button>
+      </div>}
     {status?.running && <div className="m-screen-actions">
       {state !== "live" && <button type="button" disabled={state === "connecting"} onClick={() => void attach()}>{state === "connecting" ? "Connecting…" : "Reconnect"}</button>}
       {held ? <button type="button" disabled={busy} onClick={() => void handBack()}>Hand back</button> : <button type="button" disabled={busy || state !== "live"} onClick={() => void takeOver()}>Take over</button>}
