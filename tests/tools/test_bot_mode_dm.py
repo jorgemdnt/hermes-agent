@@ -294,8 +294,6 @@ def test_local_delivery_command_and_ack(tmp_path, monkeypatch):
         "-p",
         "researcher",
         "chat",
-        "--in",
-        "~",
         "-c",
         "Bot Chat",
         "--create-if-missing",
@@ -503,7 +501,7 @@ def test_delivery_pins_the_hermes_entrypoint_beside_this_interpreter(tmp_path, m
     mode, _dm_file, transport_argv = _runner_parts(calls[0]["command"])
     assert mode == "query-file"
     assert transport_argv[0] == str(hermes_entry)
-    assert transport_argv[1:] == ["-p", "researcher", "chat", "--in", "~", "-c", "Bot Chat",
+    assert transport_argv[1:] == ["-p", "researcher", "chat", "-c", "Bot Chat",
                                   "--create-if-missing", "-Q"]
 
     result2 = json.loads(

@@ -30,6 +30,7 @@ def test_cli_keeps_discovered_home_when_launch_selection_changes(tmp_path, monke
         return None
 
     def run(argv, env, report_path, timeout):
+        assert "--in" not in argv  # The recipient's terminal.cwd remains authoritative.
         # Exercise the actual startup resolver with the production child env/flags.
         code = ('import json,sys; sys.argv=["hermes"]+json.loads(sys.argv[1]); '
                 'import hermes_cli.main; from hermes_constants import get_hermes_home; '

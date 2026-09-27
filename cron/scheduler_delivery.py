@@ -920,7 +920,7 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
             query_file = fh.name
 
         argv += [
-            "chat", "--in", "~", "-c", "Bot Chat", "--create-if-missing",
+            "chat", "-c", "Bot Chat", "--create-if-missing",
             "-Q", "--query-file", query_file,
         ]
         from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV

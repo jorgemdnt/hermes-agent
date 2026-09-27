@@ -115,7 +115,7 @@ def _completed(returncode=0, stdout="", stderr=""):
 
 def test_deliver_runs_canonical_bot_chat_lane():
     """The subprocess must use the Bot Mode agent-to-agent chat lane:
-    chat --in ~ -c "Bot Chat" --create-if-missing -Q --query-file <tmp>."""
+    chat -c "Bot Chat" --create-if-missing -Q --query-file <tmp>."""
     calls = {}
 
     def fake_run(argv, env, report_path, timeout):
@@ -132,6 +132,7 @@ def test_deliver_runs_canonical_bot_chat_lane():
     assert argv[:3] == [sys.executable, "-m", "hermes_cli.main"]
     assert argv[3:5] == ["-p", "default"]  # do not follow active_profile
     assert "chat" in argv
+    assert "--in" not in argv  # No Mac-local cwd override for a remote recipient.
     assert "Bot Chat" in argv
     assert "--create-if-missing" in argv
     assert "-Q" in argv
