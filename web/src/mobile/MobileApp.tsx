@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
-import { useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
+import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
 import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, SquarePen, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
@@ -94,6 +94,41 @@ export default function MobileApp() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [conversationsOpen, setConversationsOpen] = useState(false);
   const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
+  useEffect(() => {
+    let edge: { x: number; y: number } | null = null;
+    let lastEdgeSwipe = 0;
+    const start = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      edge = touch && event.touches.length === 1 && touch.clientX < 24 ? { x: touch.clientX, y: touch.clientY } : null;
+      lastEdgeSwipe = 0;
+    };
+    const move = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (edge && touch && touch.clientX - edge.x > 40 && Math.abs(touch.clientY - edge.y) < touch.clientX - edge.x) lastEdgeSwipe = performance.now();
+    };
+    const end = () => { edge = null; };
+    const pop = (event: PopStateEvent) => {
+      // Safari already slid its history snapshot. Older WebKit may omit the marker.
+      const uaTransition = (event as PopStateEvent & { hasUAVisualTransition?: boolean }).hasUAVisualTransition;
+      if (uaTransition === true || (uaTransition === undefined && isIOSDevice() && lastEdgeSwipe > 0 && performance.now() - lastEdgeSwipe < 700)) {
+        skipBackAnimation.current = true;
+        if (view !== "bots") swipeSource.current = view;
+      }
+      lastEdgeSwipe = 0;
+    };
+    window.addEventListener("touchstart", start, { capture: true, passive: true });
+    window.addEventListener("touchmove", move, { capture: true, passive: true });
+    window.addEventListener("touchend", end, true);
+    window.addEventListener("touchcancel", end, true);
+    window.addEventListener("popstate", pop, true); // Before React Router renders the destination.
+    return () => {
+      window.removeEventListener("touchstart", start, true);
+      window.removeEventListener("touchmove", move, true);
+      window.removeEventListener("touchend", end, true);
+      window.removeEventListener("touchcancel", end, true);
+      window.removeEventListener("popstate", pop, true);
+    };
+  }, [view]);
   useLayoutEffect(() => {
     if (swiping) {
       const list = swipePreview.current?.querySelector<HTMLElement>(".m-bot-list");
@@ -451,9 +486,9 @@ export default function MobileApp() {
     </main>
   </>;
 
-  const skipExit = view === "bots" && skipBackAnimation.current;
+  const skipExit = skipBackAnimation.current && (view === "bots" || view !== swipeSource.current);
   useLayoutEffect(() => {
-    if (skipBackAnimation.current && (view === "bots" || (view === "board" && !route.task))) {
+    if (skipBackAnimation.current && (view !== swipeSource.current || (view === "board" && !route.task))) {
       const sourceOffset = offsets[swipeSource.current];
       sourceOffset.stop();
       sourceOffset.set(0);
@@ -462,7 +497,7 @@ export default function MobileApp() {
       if (detail) detail.style.boxShadow = "";
     }
   }, [view, route.task, offsets, finishSwipe]);
-  useEffect(() => { if (view === "bots" || (view === "board" && !route.task)) skipBackAnimation.current = false; }, [view, route.task]);
+  useEffect(() => { skipBackAnimation.current = false; }, [location.pathname]);
 
   return <div className="m-shell" data-theme={theme} ref={shellRef}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />

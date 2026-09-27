@@ -41,7 +41,7 @@ import MobileApp from "./MobileApp";
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => { vi.clearAllMocks(); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
+afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
 
@@ -96,6 +96,8 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => (button as HTMLButtonElement).click());
   if (target === "board task") await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
   await settle();
+  const index = window.history.state.idx as number;
+  const back = vi.spyOn(window.history, "back");
   const shell = host.querySelector(".m-shell") as HTMLElement;
   Object.defineProperty(shell, "clientWidth", { value: 393 });
   const touch = (type: string, x: number) => {
@@ -111,6 +113,8 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
   expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toBe(duringGesture);
   await act(async () => { touch("touchend", 190); await vi.waitFor(() => expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m")); });
+  expect(back).toHaveBeenCalledTimes(1);
+  expect(window.history.state.idx).toBe(index - 1);
   if (target !== "board task") {
     expect((host.querySelector('.m-home') as HTMLElement).style.transform).toBe("");
     expect(host.querySelector('.m-swipe-preview')).toBeNull();
@@ -124,6 +128,55 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
     expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/);
   }
+});
+
+const edgeTouch = (shell: HTMLElement, type: string, x: number) => {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: 250 }] });
+  shell.dispatchEvent(event);
+  return event;
+};
+
+it("lets iOS standalone own the edge swipe: one native history step and no app slide", async () => {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X)");
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await settle();
+  const shell = host.querySelector(".m-shell") as HTMLElement;
+  Object.defineProperty(shell, "clientWidth", { value: 393 });
+  const back = vi.spyOn(window.history, "back");
+  window.addEventListener("popstate", event => Object.defineProperty(event, "hasUAVisualTransition", { value: true }), { once: true, capture: true });
+  await act(async () => { edgeTouch(shell, "touchstart", 10); expect(edgeTouch(shell, "touchmove", 190).defaultPrevented).toBe(false); edgeTouch(shell, "touchend", 190); });
+  expect(host.querySelector(".m-swipe-preview")).toBeNull();
+  expect((host.querySelector(".m-detail") as HTMLElement).style.transform).not.toMatch(/translateX\(\d{2,}px\)/);
+  expect(window.location.pathname).toContain("/m/chat/");
+  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 40)); });
+  expect(back).toHaveBeenCalledTimes(1); // The only back call belongs to the simulated OS gesture.
+  expect(window.location.pathname).toBe("/m");
+  expect(host.querySelectorAll(".m-detail")).toHaveLength(0);
+});
+
+it.each([true, false])("skips the app exit only when popstate has a UA visual transition (%s)", async uaTransition => {
+  window.addEventListener("popstate", event => Object.defineProperty(event, "hasUAVisualTransition", { value: uaTransition }), { once: true, capture: true });
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await settle();
+  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  expect(window.location.pathname).toBe("/m");
+  expect(host.querySelectorAll(".m-detail").length).toBe(uaTransition ? 0 : 1);
+});
+
+it("uses an iOS edge touch as the fallback for an unmarked native popstate", async () => {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X)");
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await settle();
+  const shell = host.querySelector(".m-shell") as HTMLElement;
+  await act(async () => { edgeTouch(shell, "touchstart", 10); edgeTouch(shell, "touchmove", 190); edgeTouch(shell, "touchend", 190); });
+  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  expect(window.location.pathname).toBe("/m");
+  expect(host.querySelectorAll(".m-detail")).toHaveLength(0);
 });
 
 it("slides a settled board task with the finger and leaves its board panel in view", async () => {

@@ -3,6 +3,8 @@ import { animate, type MotionValue } from "motion/react";
 
 interface Gesture { x: number; y: number; at: number; distance: number; origin: number; cancelled: boolean }
 
+export const isIOSDevice = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, view: string, goBack: () => void, enabled: boolean, offset: MotionValue<number | string>, onCommit: () => void = () => {}) {
   const [swiping, setSwiping] = useState(false);
   const preview = useRef<HTMLDivElement>(null);
@@ -11,7 +13,7 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
 
   useEffect(() => {
     const element = shell.current;
-    if (!element || !enabled || view === "bots" ||
+    if (!element || !enabled || view === "bots" || isIOSDevice() ||
         !(window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone)) return;
     let gesture: Gesture | null = null;
     let alive = true;
