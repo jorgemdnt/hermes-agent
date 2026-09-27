@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, SquarePen, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X, Ellipsis } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -16,11 +16,12 @@ import MobileScreen from "./MobileScreen";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
+import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
 import "./mobile.css";
 
 interface SessionRow { id: string; title: string; preview: string }
-interface LiveSession { id: string; session_key: string; title: string; status: string }
+interface LiveSession { id: string; session_key: string; title: string; preview?: string; status: string; last_active?: number }
 interface SessionSnapshot {
   session_id: string;
   stored_session_id?: string;
@@ -35,7 +36,7 @@ const displayRows = (messages: SessionMessage[]) => transcriptRows(messages.map(
   role: m.role, text: (m as SessionMessage & { display_content?: string }).display_content ?? m.content, timestamp: m.timestamp,
 })));
 const previewText = (text: string) => {
-  const plain = text.replace(/^\s{0,3}(?:#{1,6}\s+|[-*]\s+)/gm, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+  const plain = text.replace(/>>>|<<</g, "").replace(/^\s{0,3}(?:#{1,6}\s+|[-*]\s+)/gm, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/\bt_?[a-f\d]{8,}\b/gi, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
   return plain.length > 42 ? `${plain.slice(0, 42).replace(/\s+\S*$/, "").trimEnd()}…` : plain;
 };
@@ -64,9 +65,18 @@ export default function MobileApp() {
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const cache = useRef(new Map<string, MobileChat>());
-  const latest = useRef(new Map<string, { session: string; preview: string }>());
+  const latest = useRef(new Map<string, BotActivity>());
   const warming = useRef(new Map<string, Promise<void>>());
-  const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [activityByBot, setActivityByBot] = useState<Record<string, BotActivity>>({});
+  const [waitingByBot, setWaitingByBot] = useState<Record<string, LiveSession>>({});
+  const [pins, setPins] = useState(() => savedPins(window.localStorage));
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [pinMenu, setPinMenu] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ profile: string; session: string; title: string; preview: string }>>([]);
+  const [searchError, setSearchError] = useState("");
   const listScroll = useRef(0);
   const listRef = useRef<HTMLElement>(null);
   const boardScroll = useRef(0);
@@ -93,7 +103,7 @@ export default function MobileApp() {
   }, [routerNavigate, view, route.task]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [conversationsOpen, setConversationsOpen] = useState(false);
-  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
+  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
   useEffect(() => {
     let edge: { x: number; y: number } | null = null;
     let lastEdgeSwipe = 0;
@@ -185,14 +195,15 @@ export default function MobileApp() {
     const work = (async () => {
       const listing = await api.getSessions(1, 0, name, "recent");
       const session = listing.sessions[0];
-      if (!session) return;
-      const result = await api.getSessionMessages(session.id, name);
-      const rows = displayRows(result.messages);
-      const preview = latestPreview(rows);
-      latest.current.set(name, { session: session.id, preview });
-      const key = chatKey(name, session.id);
-      if (!cache.current.get(key)?.runtimeId) cache.current.set(key, { runtimeId: "", storedId: session.id, rows, draft: "", running: false });
-      setPreviews(prev => ({ ...prev, [name]: preview }));
+      const result = session ? await api.getSessionMessages(session.id, name) : null;
+      const rows = result ? displayRows(result.messages) : [];
+      const entry = { session: session?.id || "", preview: latestPreview(rows), lastActive: session?.last_active || 0 };
+      latest.current.set(name, entry);
+      if (session) {
+        const key = chatKey(name, session.id);
+        if (!cache.current.get(key)?.runtimeId) cache.current.set(key, { runtimeId: "", storedId: session.id, rows, draft: "", running: false });
+      }
+      setActivityByBot(prev => ({ ...prev, [name]: entry }));
     })().finally(() => warming.current.delete(name));
     warming.current.set(name, work);
     return work;
@@ -213,6 +224,32 @@ export default function MobileApp() {
     if ("serviceWorker" in navigator) void registerMobileWorker().catch(() => undefined);
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!searchOpen || !searchQuery.trim()) return;
+    let alive = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        let cursor = 0;
+        const found: Array<{ profile: string; session: string; title: string; preview: string; time: number }> = [];
+        const worker = async () => {
+          while (cursor < profiles.length) {
+            const bot = profiles[cursor++];
+            const response = await api.searchSessions(searchQuery.trim(), bot.name);
+            for (const row of response.results) found.push({ profile: bot.name, session: row.session_id,
+              title: previewText(row.title || row.preview || row.snippet || "") || "Conversation", preview: previewText(row.snippet || row.preview || ""), time: row.last_active });
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(3, profiles.length) }, () => worker()));
+        if (alive) { setSearchResults(found.sort((a, b) => b.time - a.time)); setSearchError(""); }
+      } catch (e) { if (alive) setSearchError(errorText(e)); }
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [searchOpen, searchQuery, profiles]);
+
+  useEffect(() => {
+    window.localStorage?.setItem(PIN_STORAGE_KEY, JSON.stringify(pins));
+  }, [pins]);
 
   useEffect(() => {
     if (!profiles.length) return;
@@ -322,6 +359,28 @@ export default function MobileApp() {
     };
   }, [profile]);
 
+  useEffect(() => {
+    if (connection !== "open" || !profiles.length || !client.current) return;
+    let alive = true;
+    const gateway = client.current;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      const next: Record<string, LiveSession> = {};
+      await Promise.all(profiles.map(async bot => {
+        try {
+          const result = await gateway.request<{ sessions: LiveSession[] }>("session.active_list", { profile: bot.name });
+          const waiting = result.sessions.filter(s => s.status === "waiting" && s.session_key).sort((a, b) => (b.last_active || 0) - (a.last_active || 0))[0];
+          if (waiting) next[bot.name] = waiting;
+        } catch { /* A disconnected bot has no authoritative pending state. */ }
+      }));
+      if (alive) setWaitingByBot(next);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [connection, profile, profiles]);
+
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => {
@@ -375,10 +434,10 @@ export default function MobileApp() {
     return () => { viewport.removeEventListener("resize", resize); viewport.removeEventListener("scroll", resize); };
   }, []);
 
-  const selectProfile = async (name: string) => {
+  const selectProfile = async (name: string, targetSession?: string) => {
     if (!profiles.some(p => p.name === name)) return;
     try { await warmProfile(name); } catch { /* A new chat remains available. */ }
-    const session = latest.current.get(name)?.session || (name === profile ? sessions[0]?.id : "") || "";
+    const session = targetSession ?? waitingByBot[name]?.session_key ?? latest.current.get(name)?.session ?? (name === profile ? sessions[0]?.id : "") ?? "";
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
@@ -458,14 +517,49 @@ export default function MobileApp() {
     catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
-  const renderHome = (preview = false) => <>
-    <header className="m-list-header"><h1>Your bots</h1>
-      {!preview && <button type="button" className="m-icon-button m-compose" aria-label={`New conversation with ${name}`} onClick={() => navigate("chat", profile, "")}><SquarePen size={22} aria-hidden="true" /></button>}
-      {!preview && connection !== "open" && <span role="status" className="m-connection">Reconnecting…</span>}
+  const homeActivity = { ...activityByBot };
+  for (const [bot, waiting] of Object.entries(waitingByBot)) {
+    const previous = homeActivity[bot];
+    homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
+  }
+  const { pinned, others } = orderedBots(profiles, pins, homeActivity);
+  const matching = (p: ProfileInfo) => !searchOpen || !searchQuery.trim() || `${botName(p)} ${botPreview(p)}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  const botPreview = (p: ProfileInfo) => {
+    const pending = p.name === profile ? activePrompts[0] : undefined;
+    if (pending) return `Needs your ${pending.request.method === "approval" ? "approval" : "input"}: ${previewText(String(pending.request.params.command || pending.request.params.question || "Open conversation"))}`;
+    const waiting = waitingByBot[p.name];
+    if (waiting) return `Needs your input: ${previewText(waiting.title || waiting.preview || "Open conversation")}`;
+    return activityByBot[p.name]?.preview || "";
+  };
+  const renderHome = () => <>
+    <header className="m-list-header">
+      <h1 className="sr-only">Bots</h1>
+      <button type="button" className="m-icon-button m-profile-button" aria-label="Profile menu" onClick={() => setProfileMenuOpen(true)}><span aria-hidden="true">J</span></button>
+      <div className="m-top-actions">
+        <button type="button" className="m-icon-button" aria-label="Search" onClick={() => setSearchOpen(open => !open)}><Search size={21} aria-hidden="true" /></button>
+        <button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => setNewChatOpen(true)}><Plus size={23} aria-hidden="true" /></button>
+      </div>
     </header>
-    {!preview && error && <p role="alert" className="m-error">{error}</p>}
-    <main className="m-bot-list" ref={preview ? undefined : listRef} onScroll={preview ? undefined : e => { listScroll.current = e.currentTarget.scrollTop; }}>
-      {!preview && <AnimatePresence initial={false}>{!!activePrompts.length && <motion.section className="m-inbox" aria-label="Requests" exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><h2>Requests</h2>{activePrompts.map(p => {
+    {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder="Search bots & conversations…" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
+    {error && <p role="alert" className="m-error">{error}</p>}
+    <main className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
+      {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
+        <button type="button" className="m-pinned-bot" onTouchStart={() => { void warmProfile(p.name).catch(() => undefined); }} onMouseEnter={() => { void warmProfile(p.name).catch(() => undefined); }} onClick={() => { void selectProfile(p.name); }}>
+          {avatar(p)}<span>{botName(p)}</span>{(waitingByBot[p.name] || p.name === profile && !!activePrompts.length) && <small>Needs you</small>}
+        </button><button type="button" className="m-pin-action" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><Ellipsis size={16} aria-hidden="true" /></button>
+      </div>)}</div>}
+      <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
+        <button type="button" className="m-bot-main" onTouchStart={() => { void warmProfile(p.name).catch(() => undefined); }} onMouseEnter={() => { void warmProfile(p.name).catch(() => undefined); }} onClick={() => { void selectProfile(p.name); }}>
+          {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
+        </button><button type="button" className="m-row-action" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><Ellipsis size={17} aria-hidden="true" /></button>
+      </div>)}</div>
+      {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
+      {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
+        {searchError && <p role="alert" className="m-error">Search unavailable: {searchError}</p>}
+        {searchResults.map(result => <button type="button" className="m-search-result" key={`${result.profile}/${result.session}`} onClick={() => { void selectProfile(result.profile, result.session); }}><MessageSquare size={19} aria-hidden="true" /><span><strong>{result.title}</strong><small>{profiles.find(p => p.name === result.profile)?.display_name || result.profile} · {result.preview}</small></span></button>)}
+        {!searchResults.length && !searchError && <p className="m-muted">No matching conversations.</p>}
+      </section>}
+      {!!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2 className="sr-only">Requests</h2>{activePrompts.map(p => {
         const sid = p.request.params.session_id;
         const owner = liveSessions.find(s => s.id === sid);
         return <div className="m-inline-request" data-method={p.request.method} key={p.request.id}>
@@ -473,16 +567,7 @@ export default function MobileApp() {
           {owner?.session_key && <Button variant="outline" type="button" onClick={() => navigate("chat", profile, owner.session_key)}>Open conversation</Button>}
           <PromptCard pending={p} onAnswer={answer} onReceived={received} />
         </div>;
-      })}</motion.section>}</AnimatePresence>}
-      {profiles.map(p => <MobileListRow className="m-bot-row" key={p.name} leading={avatar(p)} title={botName(p)}
-        preview={p.name === profile && activePrompts.length ? `${activePrompts.length} request${activePrompts.length === 1 ? "" : "s"} waiting` : previews[p.name]}
-        onWarm={() => { void warmProfile(p.name).catch(() => undefined); }} onClick={() => { void selectProfile(p.name); }} />)}
-      {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
-      <h2 className="m-list-group-title">More</h2>
-      <MobileListRow className="m-destination" leading={<LayoutGrid size={21} aria-hidden="true" />} title="Board" onClick={() => navigate("board")} />
-      {profiles.some(p => p.name === "samwise") && <MobileListRow className="m-destination" leading={<Monitor size={21} aria-hidden="true" />} title="Screen" onClick={() => navigate("screen")} />}
-      <MobileListRow className="m-destination" leading={<Settings2 size={21} aria-hidden="true" />} title="Settings" onClick={() => navigate("settings")} />
-      {!!sessions.length && <section className="m-recent"><h2 className="m-list-group-title">Recent</h2>{sessions.slice(0, 3).map(s => <MobileListRow key={s.id} leading={<MessageSquare size={21} aria-hidden="true" />} title={humanPreview(s.title || s.preview || "") ? previewText(s.title || s.preview) : "Conversation"} onClick={() => navigate("chat", profile, s.id)} />)}</section>}
+      })}</section>}
     </main>
   </>;
 
@@ -514,9 +599,9 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header"><button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} /></button>
-        {view === "chat" && currentBot ? <><button type="button" className="m-avatar-button" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}</button><div className="m-identity"><h1>{name}</h1><span role="status"><i className="m-status-dot" />{status}</span></div></> : view === "chat" ? <><span className="m-avatar-button" aria-hidden="true"><Skeleton className="m-avatar-skeleton" /></span><div className="m-identity" role="status" aria-label="Loading bot"><Skeleton className="m-name-skeleton" /></div></> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && <><button type="button" className="m-icon-button" aria-label="Conversations" onClick={() => setConversationsOpen(true)}><MessageSquare size={21} aria-hidden="true" /></button><button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => { setText(""); navigate("chat", profile, ""); }}><SquarePen size={21} aria-hidden="true" /></button></>}
+      <header className="m-header"><button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>
+        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && <><button type="button" className="m-icon-button" aria-label="Conversations" onClick={() => setConversationsOpen(true)}><MessageSquare size={20} aria-hidden="true" /></button><button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => { setText(""); navigate("chat", profile, ""); }}><Plus size={22} aria-hidden="true" /></button></>}
       </header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
@@ -567,6 +652,22 @@ export default function MobileApp() {
       </motion.div>}
     </AnimatePresence>
     </div>
+    {profileMenuOpen && <Sheet open={profileMenuOpen} onClose={() => setProfileMenuOpen(false)} label="Profile menu">
+      <div className="m-activity-head"><h2>Jorge</h2><button type="button" className="m-icon-button" aria-label="Close profile menu" onClick={() => setProfileMenuOpen(false)}><X size={20} aria-hidden="true" /></button></div>
+      <nav className="m-home-menu" aria-label="Profile destinations">
+        <Link to="/m/board" onClick={() => setProfileMenuOpen(false)}><LayoutGrid size={20} aria-hidden="true" />Board<ChevronRight size={18} aria-hidden="true" /></Link>
+        {profiles.some(p => p.name === "samwise") && <Link to="/m/screen" onClick={() => setProfileMenuOpen(false)}><Monitor size={20} aria-hidden="true" />Screen<ChevronRight size={18} aria-hidden="true" /></Link>}
+        <Link to="/m/settings" onClick={() => setProfileMenuOpen(false)}><Settings2 size={20} aria-hidden="true" />Settings<ChevronRight size={18} aria-hidden="true" /></Link>
+      </nav>
+    </Sheet>}
+    {newChatOpen && <Sheet open={newChatOpen} onClose={() => setNewChatOpen(false)} label="Choose a bot">
+      <div className="m-activity-head"><h2>New conversation</h2><button type="button" className="m-icon-button" aria-label="Close bot picker" onClick={() => setNewChatOpen(false)}><X size={20} aria-hidden="true" /></button></div>
+      <div className="m-bot-picker">{[...pinned, ...others].map(p => <button type="button" key={p.name} onClick={() => { setNewChatOpen(false); setText(""); void selectProfile(p.name, ""); }}>{avatar(p)}{botName(p)}</button>)}</div>
+    </Sheet>}
+    {!!pinMenu && <Sheet open={!!pinMenu} onClose={() => setPinMenu("")} label="Bot options">
+      <div className="m-activity-head"><h2>{profiles.find(p => p.name === pinMenu)?.display_name || pinMenu}</h2><button type="button" className="m-icon-button" aria-label="Close bot options" onClick={() => setPinMenu("")}><X size={20} aria-hidden="true" /></button></div>
+      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => current.includes(pinMenu) ? current.filter(p => p !== pinMenu) : [...current, pinMenu]); setPinMenu(""); }}>{pins.includes(pinMenu) ? "Unpin bot" : "Pin bot"}</button>
+    </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
       <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>
       <div className="m-conversation-list">{sessions.length ? sessions.map(session => <MobileListRow key={session.id} leading={<MessageSquare size={20} aria-hidden="true" />}

@@ -7,12 +7,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   running: false,
   liveSessions: [] as Array<{ id: string; session_key: string; title: string; status: string }>,
+  waitingProfile: "",
   getProfiles: vi.fn(async () => ({ profiles: [{ name: "frodo", is_default: true }, { name: "gandalf", is_default: false }] })),
   getSessions: vi.fn(async (_limit: number, _offset: number, profile: string) => ({ sessions: [{ id: profile === "gandalf" ? "gandalf-stored" : "stored", title: "Prior chat" }] })),
   getSessionMessages: vi.fn(async (_id: string, profile: string) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
+  searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "session.list") return { sessions: [{ id: "stored", title: "Prior chat" }] };
-    if (method === "session.active_list") return { sessions: mocks.liveSessions };
+    if (method === "session.active_list") return { sessions: mocks.waitingProfile && params?.profile !== mocks.waitingProfile ? [] : mocks.liveSessions };
     if (method === "session.most_recent") return { session_id: "stored" };
     if (method === "session.resume") return { session_id: params?.session_id === "other-stored" ? "other-runtime" : "runtime", stored_session_id: params?.session_id, messages: [{ role: "user", text: `Earlier from ${params?.profile}` }], running: mocks.running };
     if (method === "session.create") return { session_id: "new-runtime", stored_session_id: "new-stored", messages: [] };
@@ -22,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   events: new Set<(event: unknown) => void>(),
   requests: new Set<(request: unknown) => void>(),
 }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getSessions: mocks.getSessions, getSessionMessages: mocks.getSessionMessages } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getSessions: mocks.getSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -40,10 +42,15 @@ import MobileApp from "./MobileApp";
 
 let root: Root;
 let host: HTMLDivElement;
-beforeEach(() => { vi.clearAllMocks(); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { vi.clearAllMocks(); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+
+const openDestination = async (label: string) => {
+  await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll('.m-home-menu a')).find(link => link.textContent === label) as HTMLAnchorElement).click());
+};
 
 it.each(["another chat", "new conversation"])("keeps a foreign-session approval out of %s but answerable in its attributed inbox", async (mode) => {
   mocks.liveSessions = [
@@ -52,10 +59,11 @@ it.each(["another chat", "new conversation"])("keeps a foreign-session approval 
   ];
   await renderApp();
   await settle(); await settle();
-  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   if (mode === "new conversation") {
     await act(async () => (host.querySelector('[aria-label="Back to bots"]') as HTMLButtonElement).click());
-    await act(async () => (host.querySelector('[aria-label="New conversation with Frodo"]') as HTMLButtonElement).click());
+    await act(async () => (host.querySelector('.m-home [aria-label="New conversation"]') as HTMLButtonElement).click());
+    await act(async () => (host.querySelector('.m-bot-picker button') as HTMLButtonElement).click());
   }
   const respond = vi.fn();
   await act(async () => { for (const handler of mocks.requests) handler({ id: "srq-other", method: "approval", params: { session_id: "other-runtime", request_id: "ap-other", choices: ["once", "deny"], command: "test foreign" }, respond, fail: vi.fn() }); });
@@ -73,27 +81,26 @@ it.each(["another chat", "new conversation"])("keeps a foreign-session approval 
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
 });
 
-it("shows readable assistant previews and keeps every home row in one list column", async () => {
-  mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: profile === "frodo"
+it("shows pinned bots above one recency list with real message previews", async () => {
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "frodo", is_default: true }, { name: "gandalf", is_default: false }, { name: "author", is_default: false }] });
+  mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: profile === "author"
     ? [{ role: "user", content: "work kanban task ta1e7d76a" }, { role: "assistant", content: "## Fixed **the layout** t_a1e7d76a" }]
-    : [{ role: "assistant", content: "Window: 2026-09-26 00:00 to 2026-09-27" }] }));
+    : [{ role: "assistant", content: `Earlier from ${profile}` }] }));
   await renderApp(); await settle(); await settle();
-  const rows = Array.from(host.querySelectorAll(".m-bot-row, .m-destination, .m-recent .m-list-row"));
-  expect(rows.length).toBeGreaterThan(3);
-  expect(rows.every(row => row.classList.contains("m-list-row") && !!row.querySelector(".m-list-leading + .m-list-copy"))).toBe(true);
-  expect(rows[0].querySelector("small")?.textContent).toBe("Fixed the layout");
-  expect(rows[1].querySelector("small")).toBeNull();
-  expect(host.querySelector(".m-connection")).toBeNull();
-  expect(host.querySelector('[aria-label="New conversation with Frodo"]')).not.toBeNull();
-  expect(host.querySelector(".m-recent")?.textContent).not.toContain("New conversation");
+  expect(Array.from(host.querySelectorAll(".m-pinned-bot > span:last-of-type")).map(row => row.textContent)).toEqual(["Frodo", "Gandalf"]);
+  expect(host.querySelector(".m-bot-row .m-bot-copy small")?.textContent).toBe("Fixed the layout");
+  expect(host.querySelector(".m-recent")).toBeNull();
+  expect(host.querySelector(".m-destination")).toBeNull();
+  expect(host.querySelector(".m-list-header h1")?.className).toBe("sr-only");
+  expect(host.querySelector('[aria-label="New conversation"]')).not.toBeNull();
 });
 
 it.each(["chat", "board", "board task", "screen"])("swipes back from %s in standalone mode with a following previous screen", async target => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   if (target === "screen") mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
   await renderApp(); await settle(); await settle();
-  const button = target === "chat" ? host.querySelector(".m-bot-row") : Array.from(host.querySelectorAll(".m-destination")).find(row => row.textContent === (target.startsWith("board") ? "Board" : "Screen"));
-  await act(async () => (button as HTMLButtonElement).click());
+  if (target === "chat") await act(async () => (host.querySelector(".m-pinned-bot") as HTMLButtonElement).click());
+  else await openDestination(target.startsWith("board") ? "Board" : "Screen");
   if (target === "board task") await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
   await settle();
   const index = window.history.state.idx as number;
@@ -106,7 +113,7 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
     shell.dispatchEvent(event);
   };
   await act(async () => touch("touchstart", 10));
-  expect(host.querySelector(".m-swipe-preview")?.textContent).toContain(target === "board task" ? "Board" : "Your bots");
+  expect(host.querySelector(".m-swipe-preview")?.textContent).toContain(target === "board task" ? "Board" : "Frodo");
   await act(async () => touch("touchmove", 190));
   await act(async () => { await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/translateX\(\d+(?:\.\d+)?px\)/)); });
   const duringGesture = (host.querySelector('.m-detail') as HTMLElement).style.transform;
@@ -141,7 +148,7 @@ it("lets iOS standalone own the edge swipe: one native history step and no app s
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X)");
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle();
-  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector(".m-pinned-bot") as HTMLButtonElement).click());
   await settle();
   const shell = host.querySelector(".m-shell") as HTMLElement;
   Object.defineProperty(shell, "clientWidth", { value: 393 });
@@ -160,7 +167,7 @@ it("lets iOS standalone own the edge swipe: one native history step and no app s
 it.each([true, false])("skips the app exit only when popstate has a UA visual transition (%s)", async uaTransition => {
   window.addEventListener("popstate", event => Object.defineProperty(event, "hasUAVisualTransition", { value: uaTransition }), { once: true, capture: true });
   await renderApp(); await settle();
-  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector(".m-pinned-bot") as HTMLButtonElement).click());
   await settle();
   await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
   expect(window.location.pathname).toBe("/m");
@@ -170,7 +177,7 @@ it.each([true, false])("skips the app exit only when popstate has a UA visual tr
 it("uses an iOS edge touch as the fallback for an unmarked native popstate", async () => {
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X)");
   await renderApp(); await settle();
-  await act(async () => (host.querySelector(".m-bot-row") as HTMLButtonElement).click());
+  await act(async () => (host.querySelector(".m-pinned-bot") as HTMLButtonElement).click());
   await settle();
   const shell = host.querySelector(".m-shell") as HTMLElement;
   await act(async () => { edgeTouch(shell, "touchstart", 10); edgeTouch(shell, "touchmove", 190); edgeTouch(shell, "touchend", 190); });
@@ -182,7 +189,7 @@ it("uses an iOS edge touch as the fallback for an unmarked native popstate", asy
 it("slides a settled board task with the finger and leaves its board panel in view", async () => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Board") as HTMLButtonElement).click());
+  await openDestination("Board");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
   await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
   const shell = host.querySelector(".m-shell") as HTMLElement;
@@ -204,7 +211,7 @@ it("slides a settled board task with the finger and leaves its board panel in vi
 it("returns the board task to its original position after cancelling an early edge swipe", async () => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Board") as HTMLButtonElement).click());
+  await openDestination("Board");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(row => row.textContent === "Open task") as HTMLButtonElement).click());
   const shell = host.querySelector(".m-shell") as HTMLElement;
   Object.defineProperty(shell, "clientWidth", { value: 393 });
@@ -243,9 +250,10 @@ it("opens a stored conversation from a deep link after reload", async () => {
 it("prefetches both bots, pushes real URLs, and restores cached chat on browser back without resuming again", async () => {
   await renderApp();
   await settle(); await settle();
-  expect(host.querySelectorAll('.m-bot-row small')).toHaveLength(2);
-  expect(host.textContent).toContain("Earlier from gandalf");
-  await act(async () => (Array.from(host.querySelectorAll('.m-bot-row')).find(row => row.textContent?.includes('Gandalf')) as HTMLButtonElement).click());
+  expect(mocks.getSessionMessages).toHaveBeenCalledWith('stored', 'frodo');
+  expect(mocks.getSessionMessages).toHaveBeenCalledWith('gandalf-stored', 'gandalf');
+  expect(host.textContent).toContain("Gandalf");
+  await act(async () => (Array.from(host.querySelectorAll('.m-pinned-bot')).find(row => row.textContent?.includes('Gandalf')) as HTMLButtonElement).click());
   expect(window.location.pathname).toBe('/m/chat/gandalf/gandalf-stored');
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier from gandalf');
   await settle();
@@ -262,7 +270,7 @@ it("restores the bot list scroll after returning through browser history", async
   await renderApp(); await settle(); await settle();
   const list = host.querySelector('.m-bot-list') as HTMLElement;
   await act(async () => { list.scrollTop = 140; list.dispatchEvent(new Event('scroll', { bubbles: true })); });
-  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
   expect(window.location.pathname).toContain('/m/chat/');
   expect(host.querySelector('.m-bot-list')).toBe(list);
@@ -273,14 +281,14 @@ it("restores the bot list scroll after returning through browser history", async
 
 it("switches stored conversations from the chat sheet and starts a new one without another backend session", async () => {
   await renderApp(); await settle(); await settle();
-  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
   const before = mocks.request.mock.calls.filter(([method]) => method === 'session.create').length;
   await act(async () => (host.querySelector('[aria-label="Conversations"]') as HTMLButtonElement).click());
   expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Prior chat');
   await act(async () => (host.querySelector('.m-conversation-list button') as HTMLButtonElement).click());
   expect(window.location.pathname).toBe('/m/chat/frodo/stored');
-  await act(async () => (host.querySelector('[aria-label="New conversation"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-detail [aria-label="New conversation"]') as HTMLButtonElement).click());
   expect(window.location.pathname).toBe('/m/chat/frodo/new');
   expect(host.querySelector('.m-detail')?.textContent).toContain('Start a conversation');
   expect(mocks.request.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(before);
@@ -288,6 +296,8 @@ it("switches stored conversations from the chat sheet and starts a new one witho
 
 it("refreshes the bot preview when the newest message changes", async () => {
   await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Options for Frodo"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
   const frodo = Array.from(host.querySelectorAll('.m-bot-row')).find(row => row.textContent?.includes('Frodo'))!;
   expect(frodo.querySelector('small')?.textContent).toContain('Earlier from frodo');
   mocks.getSessionMessages.mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '## Fresh **answer**' }] });
@@ -298,7 +308,7 @@ it("refreshes the bot preview when the newest message changes", async () => {
 
 it("board task has a deep-linkable URL and back returns to the board", async () => {
   await renderApp(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Board') as HTMLButtonElement).click());
+  await openDestination("Board");
   expect(window.location.pathname).toBe('/m/board');
   await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Open task') as HTMLButtonElement).click());
   expect(window.location.pathname).toBe('/m/board/t-1');
@@ -319,14 +329,14 @@ it("resumes a profile's stored session, streams its runtime id, stops the turn, 
   await settle(); await settle();
   expect(host.querySelector('.m-bot-list')).not.toBeNull();
   expect(mocks.request).not.toHaveBeenCalledWith("session.resume", expect.anything());
-  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
   expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "stored", source: "mobile", close_on_disconnect: false });
   expect(host.querySelector('.m-nav')).toBeNull();
   expect(host.textContent).toContain("Earlier");
   await act(async () => { for (const handler of mocks.events) handler({ type: "message.delta", session_id: "runtime", payload: { text: "Streaming" } }); });
   expect(host.textContent).toContain("Streaming");
-  await act(async () => (host.querySelector('.m-avatar-button') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-chat-identity') as HTMLButtonElement).click());
   expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Frodo activity");
   await act(async () => (host.querySelector('[aria-label="Close activity"]') as HTMLButtonElement).click());
   const respond = vi.fn();
@@ -344,7 +354,7 @@ it("sends Continue to Samwise's selected chat after a screen hand-back", async (
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
   await renderApp();
   await settle(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Screen") as HTMLButtonElement).click());
+  await openDestination("Screen");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("prompt.submit", {
     profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
@@ -360,7 +370,7 @@ it("steers the running Samwise turn instead of starting a second one", async () 
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
   await renderApp();
   await settle(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Screen") as HTMLButtonElement).click());
+  await openDestination("Screen");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.steer", {
     profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
@@ -368,12 +378,73 @@ it("steers the running Samwise turn instead of starting a second one", async () 
   expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
 });
 
+it("routes Board and Settings from the profile menu, and offers Screen only with Samwise", async () => {
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).click());
+  expect(Array.from(host.querySelectorAll('.m-home-menu a')).map(a => [a.textContent, a.getAttribute('href')])).toEqual([["Board", "/m/board"], ["Settings", "/m/settings"]]);
+  await act(async () => (host.querySelector('.m-home-menu a[href="/m/settings"]') as HTMLAnchorElement).click());
+  expect(window.location.pathname).toBe('/m/settings');
+  await act(async () => (host.querySelector('[aria-label="Back to bots"]') as HTMLButtonElement).click());
+  await openDestination("Board");
+  expect(window.location.pathname).toBe('/m/board');
+});
+
+it("shows the Screen destination only when Samwise is installed", async () => {
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-home-menu a[href="/m/screen"]')).not.toBeNull();
+  await act(async () => (host.querySelector('.m-home-menu a[href="/m/screen"]') as HTMLAnchorElement).click());
+  expect(window.location.pathname).toBe('/m/screen');
+});
+
+it("filters bots and searches stored conversation messages across profiles", async () => {
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Search"]') as HTMLButtonElement).click());
+  const input = host.querySelector('[aria-label="Search bots and conversations"]') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Gandalf'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(host.querySelectorAll('.m-pinned-bot')).toHaveLength(1);
+  await vi.waitFor(() => expect(mocks.searchSessions).toHaveBeenCalledWith('Gandalf', 'gandalf'));
+  await act(async () => { await vi.waitFor(() => expect(host.querySelector('.m-search-result')?.textContent).toContain('Found chat')); });
+  await act(async () => (host.querySelector('.m-search-result') as HTMLButtonElement).click());
+  expect(window.location.pathname).toBe('/m/chat/gandalf/gandalf-found');
+});
+
+it("persists a pin action and moves a bot out of the unpinned list", async () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } });
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: 'frodo', is_default: true }, { name: 'gandalf', is_default: false }, { name: 'author', is_default: false }] });
+  await renderApp(); await settle();
+  expect(host.querySelector('.m-bot-row')?.textContent).toContain('Author');
+  await act(async () => (host.querySelector('[aria-label="Options for Author"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-bot-row')).toBeNull();
+  expect(values.get('hermes-mobile-pins')).toContain('author');
+});
+
+it("puts a waiting bot's live request ahead of its stored preview and opens the waiting session", async () => {
+  mocks.waitingProfile = "author";
+  mocks.liveSessions = [{ id: "pending-runtime", session_key: "pending-stored", title: "Approval owner", status: "waiting" }];
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "frodo", is_default: true }, { name: "author", is_default: false }] });
+  await renderApp(); await settle(); await settle();
+  await vi.waitFor(() => expect(host.querySelector('.m-bot-row small')?.textContent).toContain('Needs your input: Approval owner'));
+  await act(async () => (host.querySelector('.m-bot-main') as HTMLButtonElement).click());
+  expect(window.location.pathname).toBe('/m/chat/author/pending-stored');
+});
+
+it("shows the pending approval in the bot's home status without losing its answer card", async () => {
+  await renderApp(); await settle();
+  await act(async () => { for (const handler of mocks.requests) handler({ id: 'approval-1', method: 'approval', params: { session_id: 'runtime', command: 'run tests', choices: ['once', 'deny'] }, respond: vi.fn(), fail: vi.fn() }); });
+  expect(host.querySelector('.m-pinned-bot')?.textContent).toContain('Needs you');
+  expect(host.querySelector('.m-inbox')?.textContent).toContain('run tests');
+});
+
 it("submits Continue to the same chat when a running turn finishes before steer", async () => {
   mocks.running = true;
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
   await renderApp();
   await settle(); await settle();
-  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Screen") as HTMLButtonElement).click());
+  await openDestination("Screen");
   mocks.request.mockImplementationOnce(async () => ({ status: "rejected" }));
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.steer", {
