@@ -4,6 +4,7 @@ import { api, HERMES_BASE_PATH, type ProfileInfo } from "@/lib/api";
 import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
 import MobileKanban from "./MobileKanban";
+import MobileScreen from "./MobileScreen";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import "./mobile.css";
@@ -27,12 +28,13 @@ export default function MobileApp() {
   const [chat, setChat] = useState<MobileChat | null>(null);
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
   const [connection, setConnection] = useState("connecting");
-  const [view, setView] = useState<"chat" | "board" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "board" | "screen" | "settings">("chat");
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const client = useRef<GatewayClient | null>(null);
+  const [screenGateway, setScreenGateway] = useState<GatewayClient | null>(null);
   const skipResume = useRef("");
   const selectedRef = useRef("");
   const end = useRef<HTMLDivElement | null>(null);
@@ -76,6 +78,7 @@ export default function MobileApp() {
     const offState = gw.onState(state => {
       if (!alive) return;
       setConnection(state);
+      if (state === "open") setScreenGateway(gw);
       if (state === "closed" || state === "error") {
         setPrompts({});
         retry();
@@ -108,6 +111,7 @@ export default function MobileApp() {
       window.removeEventListener("online", onWake);
       gw.close();
       if (client.current === gw) client.current = null;
+      setScreenGateway(null);
     };
   }, [profile]);
 
@@ -201,9 +205,17 @@ export default function MobileApp() {
         <form className="m-composer" onSubmit={e => void send(e)}><textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${profile || "Hermes"}`} rows={2} /><div className="m-actions">{chat?.running && <button type="button" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}>Stop</button>}<button type="submit" disabled={!text.trim() || busy || connection !== "open" || !!chat?.running}>Send</button></div></form>
       </>}
       {view === "board" && <MobileKanban />}
+      {view === "screen" && <MobileScreen gateway={screenGateway} onContinue={async () => {
+        const gw = client.current;
+        if (!gw || !chat?.runtimeId || profile !== "samwise") throw new Error("Open Samwise's chat before continuing");
+        const text = "I cleared the check; continue";
+        if (chat.running) await gw.request("session.steer", { session_id: chat.runtimeId, profile, text });
+        else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
+        setView("chat");
+      }} />}
       {view === "settings" && <section className="m-settings"><h2>Phone settings</h2><p>Web Push works on an installed home-screen app over HTTPS. Notifications show generic text.</p><button type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushAvailable() ? (pushEnabled ? "Disable notifications" : "Enable notifications") : "Push unavailable in this browser"}</button><button type="button" disabled={busy} onClick={() => void logout()}>Sign out on this phone</button><p className="m-muted">Sign out ends only this browser session; it does not revoke other dashboard sessions.</p></section>}
     </main>
-    <nav className="m-nav" aria-label="Mobile navigation"><button type="button" aria-current={view === "chat" ? "page" : undefined} onClick={() => setView("chat")}>Chat{activePrompts.length ? ` · ${activePrompts.length}` : ""}</button><button type="button" aria-current={view === "board" ? "page" : undefined} onClick={() => setView("board")}>Board</button><button type="button" aria-current={view === "settings" ? "page" : undefined} onClick={() => setView("settings")}>Settings</button></nav>
+    <nav className="m-nav" aria-label="Mobile navigation"><button type="button" aria-current={view === "chat" ? "page" : undefined} onClick={() => setView("chat")}>Chat{activePrompts.length ? ` · ${activePrompts.length}` : ""}</button><button type="button" aria-current={view === "board" ? "page" : undefined} onClick={() => setView("board")}>Board</button>{profiles.some(p => p.name === "samwise") && <button type="button" aria-current={view === "screen" ? "page" : undefined} onClick={() => { if (profile !== "samwise") selectProfile("samwise"); setView("screen"); }}>Screen</button>}<button type="button" aria-current={view === "settings" ? "page" : undefined} onClick={() => setView("settings")}>Settings</button></nav>
     {currentPrompt && <div className="m-prompt-overlay" role="dialog" aria-modal="true" aria-label="Hermes needs input"><div className="m-prompt-meta">{currentPrompt.profile} · session {String(currentPrompt.request.params.session_id || "app")} · {activePrompts.length} pending</div><PromptCard key={currentPrompt.request.id} pending={currentPrompt} onAnswer={answer} onReceived={received} /></div>}
   </div>;
 }
