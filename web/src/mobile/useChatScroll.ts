@@ -20,7 +20,7 @@ export function useChatScroll(identity: string, content: string, active = true) 
     anchored.current = bottom;
     if (bottom) positions.current.delete(identity);
     else positions.current.set(identity, node.scrollTop);
-    setPosition({ identity, atBottom: bottom });
+    setPosition(prev => prev.identity === identity && prev.atBottom === bottom ? prev : { identity, atBottom: bottom });
   }, [identity]);
 
   useLayoutEffect(() => {

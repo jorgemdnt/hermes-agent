@@ -6,16 +6,37 @@ import { useChatScroll } from "./useChatScroll";
 
 let root: Root;
 let host: HTMLDivElement;
-function Transcript({ id, text }: { id: string; text: string }) {
-  const { container, atBottom, onScroll, scrollToLatest } = useChatScroll(id, text);
-  return <><div className="messages" ref={container} onScroll={onScroll}><div>{text}</div></div>
-    {!atBottom && <button type="button" onClick={scrollToLatest}>Latest</button>}</>;
+function Transcript({ id, text, active = true }: { id: string; text: string; active?: boolean }) {
+  const { container, atBottom, onScroll, scrollToLatest } = useChatScroll(id, text, active);
+  return <>{active && <div className="messages" ref={container} onScroll={onScroll}><div>{text}</div></div>}
+    {active && !atBottom && <button type="button" onClick={scrollToLatest}>Latest</button>}</>;
 }
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
+it("restores a scrolled chat after leaving and returning, without snapping to the bottom", () => {
+  const oldScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight")!;
+  const oldClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight")!;
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 800 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 100 });
+  try {
+    act(() => root.render(<Transcript id="same" text="Earlier" />));
+    const box = host.querySelector(".messages") as HTMLDivElement;
+    act(() => { box.scrollTop = 160; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    act(() => root.render(<Transcript id="same" text="Earlier" active={false} />));
+    act(() => root.render(<Transcript id="same" text="Earlier" />));
+    expect((host.querySelector(".messages") as HTMLDivElement).scrollTop).toBe(160);
+    expect(host.textContent).toContain("Latest");
+  } finally {
+    if (oldScrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", oldScrollHeight);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    if (oldClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", oldClientHeight);
+    else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+  }
+});
+
 it("follows streaming only while at the bottom, offers a jump, and resets on conversation switch", () => {
   let height = 400;
   const oldScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight")!;

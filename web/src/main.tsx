@@ -15,6 +15,7 @@ exposePluginSDK();
 
 const mobileRoute = /^\/m(?:\/|$)/.test(window.location.pathname.slice(HERMES_BASE_PATH.length));
 if (mobileRoute) {
+  document.documentElement.classList.add("mobile-document");
   const saved = window.localStorage.getItem("hermes-mobile-theme");
   const dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0a0a0a" : "#ffffff");

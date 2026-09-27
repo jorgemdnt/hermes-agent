@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 
 interface Gesture { x: number; y: number; at: number; distance: number; cancelled: boolean }
 
-export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, view: string, goBack: () => void, enabled: boolean) {
+export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, view: string, goBack: () => void, enabled: boolean, onCommit: () => void = () => {}) {
   const [swiping, setSwiping] = useState(false);
   const preview = useRef<HTMLDivElement>(null);
+  const commit = useRef(onCommit);
+  commit.current = onCommit;
 
   useEffect(() => {
     const element = shell.current;
@@ -23,7 +25,7 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
       }
       if (preview.current) preview.current.style.transform = `translate3d(${(distance / element.clientWidth - 1) * 24}%, 0, 0)`;
     };
-    const clear = () => { setSwiping(false); const current = panel(); if (current) { current.style.transition = ""; current.style.transform = ""; current.style.boxShadow = ""; } };
+    const clear = () => { setSwiping(false); const current = panel(); if (current) { current.style.transition = ""; current.style.transform = ""; current.style.boxShadow = ""; } if (preview.current) preview.current.style.transform = ""; };
     const reset = () => {
       gesture = null;
       if (reducedMotion) clear();
@@ -50,6 +52,7 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
       const { distance, at } = gesture;
       gesture = null;
       if (distance >= element.clientWidth * .35 || (distance > 60 && distance / Math.max(1, performance.now() - at) > .55)) {
+        commit.current();
         if (reducedMotion) { goBack(); setSwiping(false); }
         else { position(element.clientWidth, true); timeout = setTimeout(() => { goBack(); setSwiping(false); }, 180); }
       } else reset();

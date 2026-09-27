@@ -74,10 +74,9 @@ export default function MobileApp() {
   const setBoardScroll = useCallback((top: number) => { boardScroll.current = top; }, []);
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
   const [connection, setConnection] = useState("connecting");
-  const [navDirection, setNavDirection] = useState(1);
+  const skipBackAnimation = useRef(false);
   const reducedMotion = useReducedMotion();
   const navigate = (next: MobileView, targetProfile = profile, targetSession = selected) => {
-    setNavDirection(next === "bots" ? -1 : view === "bots" ? 1 : 0);
     const path = next === "chat" ? chatPath(targetProfile, targetSession) : next === "bots" ? "/m" : `/m/${next}`;
     routerNavigate(path);
   };
@@ -87,7 +86,8 @@ export default function MobileApp() {
     else routerNavigate(view === "board" && route.task ? "/m/board" : "/m");
   }, [routerNavigate, view, route.task]);
   const [activityOpen, setActivityOpen] = useState(false);
-  const { swiping, preview: swipePreview } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen);
+  const [conversationsOpen, setConversationsOpen] = useState(false);
+  const { swiping, preview: swipePreview } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen, () => { skipBackAnimation.current = true; });
   useLayoutEffect(() => {
     if (swiping) {
       const list = swipePreview.current?.querySelector<HTMLElement>(".m-bot-list");
@@ -324,7 +324,9 @@ export default function MobileApp() {
     if (!shell || !viewport) return;
     const resize = () => {
       const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      shell.style.setProperty("--keyboard-inset", inset >= 80 ? `${inset}px` : "0px");
+      const keyboardOpen = inset >= 80;
+      shell.style.setProperty("--keyboard-inset", keyboardOpen ? `${inset}px` : "0px");
+      shell.dataset.keyboard = keyboardOpen ? "true" : "false";
     };
     viewport.addEventListener("resize", resize);
     viewport.addEventListener("scroll", resize);
@@ -443,25 +445,35 @@ export default function MobileApp() {
     </main>
   </>;
 
+  const skipExit = view === "bots" && skipBackAnimation.current;
+  useEffect(() => { if (view === "bots" || (view === "board" && !route.task)) skipBackAnimation.current = false; }, [view, route.task]);
+
   return <div className="m-shell" data-theme={theme} ref={shellRef}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
-    {swiping && <div className="m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
-      {view === "board" && route.task ? <><header className="m-header"><h1 className="m-page-title">Board</h1></header><main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main></> : renderHome(true)}
-    </div>}
-    <AnimatePresence initial={false} mode="popLayout" custom={navDirection}>
-      <motion.div key={view} className="m-view" custom={navDirection}
-        variants={{ enter: (direction: number) => ({ opacity: 0.5, x: direction * 12 }), active: { opacity: 1, x: 0 }, exit: (direction: number) => ({ opacity: 0, x: direction * -12 }) }}
-        initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.1, ease: "easeOut" }}>
-    {view === "bots" ? renderHome() : <>
+    <div className="m-stage">
+      <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={view !== "bots"} inert={view !== "bots"}>
+        {renderHome()}
+      </div>
+      {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
+        <header className="m-header"><h1 className="m-page-title">Board</h1></header>
+        <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
+      </div>}
+      <AnimatePresence initial={false} custom={skipExit}>
+        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit}
+          variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
+          initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
+      <>
       <header className="m-header"><button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} /></button>
-        {view === "chat" && currentBot ? <><button type="button" className="m-avatar-button" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}</button><div className="m-identity"><h1>{name}</h1><span role="status"><i className="m-status-dot" />{status}</span></div></> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && currentBot ? <><button type="button" className="m-avatar-button" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}</button><div className="m-identity"><h1>{name}</h1><span role="status"><i className="m-status-dot" />{status}</span></div></> : view === "chat" ? <><span className="m-avatar-button" aria-hidden="true"><Skeleton className="m-avatar-skeleton" /></span><div className="m-identity" role="status" aria-label="Loading bot"><Skeleton className="m-name-skeleton" /></div></> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && <><button type="button" className="m-icon-button" aria-label="Conversations" onClick={() => setConversationsOpen(true)}><MessageSquare size={21} aria-hidden="true" /></button><button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => { setText(""); navigate("chat", profile, ""); }}><SquarePen size={21} aria-hidden="true" /></button></>}
       </header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
         {view === "chat" && <>
           <div className="m-messages" ref={messagesRef} onScroll={onScroll} role="log" aria-live="polite">
             <div className="m-message-content">
-              {!chat && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
+              {!chat && selected && !error && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
+              {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
               {chat?.rows.map((row, index) => {
                 const previous = chat.rows[index - 1];
                 const grouped = previous?.role === row.role;
@@ -500,9 +512,16 @@ export default function MobileApp() {
           <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out on this phone<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
         </section>}
       </main>
-    </>}
-      </motion.div>
+    </>
+      </motion.div>}
     </AnimatePresence>
+    </div>
+    {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
+      <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>
+      <div className="m-conversation-list">{sessions.length ? sessions.map(session => <MobileListRow key={session.id} leading={<MessageSquare size={20} aria-hidden="true" />}
+        title={previewText(session.title || session.preview || "") || "Conversation"} preview={previewText(session.preview || "")}
+        onClick={() => { setConversationsOpen(false); navigate("chat", profile, session.id); }} />) : <p className="m-muted">No conversations yet.</p>}</div>
+    </Sheet>}
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>

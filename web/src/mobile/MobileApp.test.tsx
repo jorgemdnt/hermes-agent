@@ -106,17 +106,25 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => touch("touchstart", 10));
   expect(host.querySelector(".m-swipe-preview")?.textContent).toContain(target === "board task" ? "Board" : "Your bots");
   await act(async () => touch("touchmove", 190));
-  expect(host.querySelector(".m-view")?.getAttribute("style")).toContain("180px");
+  expect(host.querySelector('.m-detail')?.getAttribute("style")).toContain("180px");
   await act(async () => { touch("touchend", 190); await new Promise(resolve => setTimeout(resolve, 220)); });
   expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m");
+});
+
+it("shows only data-loading placeholders on the first frame of a stored-chat deep link", async () => {
+  window.history.replaceState({}, "", "/m/chat/frodo/stored");
+  act(() => root.render(<BrowserRouter><MobileApp /></BrowserRouter>));
+  expect(host.querySelector('.m-empty')).toBeNull();
+  expect(host.querySelector('.m-messages .m-loading')).not.toBeNull();
+  await settle();
 });
 
 it("opens a stored conversation from a deep link after reload", async () => {
   window.history.replaceState({}, "", "/m/chat/frodo/stored");
   await renderApp();
   await settle(); await settle();
-  expect(host.querySelector('.m-bot-list')).toBeNull();
-  expect(host.textContent).toContain("Earlier");
+  expect(host.querySelector('.m-home')?.getAttribute('aria-hidden')).toBe('true');
+  expect(host.querySelector('.m-detail')?.textContent).toContain("Earlier");
 });
 
 it("prefetches both bots, pushes real URLs, and restores cached chat on browser back without resuming again", async () => {
@@ -142,8 +150,27 @@ it("restores the bot list scroll after returning through browser history", async
   const list = host.querySelector('.m-bot-list') as HTMLElement;
   await act(async () => { list.scrollTop = 140; list.dispatchEvent(new Event('scroll', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
-  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
-  expect((host.querySelector('.m-bot-list') as HTMLElement).scrollTop).toBe(140);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 180)); });
+  expect(window.location.pathname).toContain('/m/chat/');
+  expect(host.querySelector('.m-bot-list')).toBe(list);
+  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 180)); });
+  expect(host.querySelector('.m-bot-list')).toBe(list);
+  expect(list.scrollTop).toBe(140);
+});
+
+it("switches stored conversations from the chat sheet and starts a new one without another backend session", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  await settle();
+  const before = mocks.request.mock.calls.filter(([method]) => method === 'session.create').length;
+  await act(async () => (host.querySelector('[aria-label="Conversations"]') as HTMLButtonElement).click());
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Prior chat');
+  await act(async () => (host.querySelector('.m-conversation-list button') as HTMLButtonElement).click());
+  expect(window.location.pathname).toBe('/m/chat/frodo/stored');
+  await act(async () => (host.querySelector('[aria-label="New conversation"]') as HTMLButtonElement).click());
+  expect(window.location.pathname).toBe('/m/chat/frodo/new');
+  expect(host.querySelector('.m-detail')?.textContent).toContain('Start a conversation');
+  expect(mocks.request.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(before);
 });
 
 it("refreshes the bot preview when the newest message changes", async () => {
