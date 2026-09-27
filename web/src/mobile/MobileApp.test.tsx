@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     if (method === "session.most_recent") return { session_id: "stored" };
     if (method === "session.resume") return { session_id: "runtime", stored_session_id: "stored", messages: [{ role: "user", text: "Earlier" }], running: mocks.running };
     if (method === "session.create") return { session_id: "new-runtime", stored_session_id: "new-stored", messages: [] };
+    if (method === "session.steer") return { status: "queued" };
     return {};
   }),
   events: new Set<(event: unknown) => void>(),
@@ -77,4 +78,22 @@ it("steers the running Samwise turn instead of starting a second one", async () 
   expect(mocks.request).toHaveBeenCalledWith("session.steer", {
     profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
   });
+  expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
+});
+
+it("submits Continue to the same chat when a running turn finishes before steer", async () => {
+  mocks.running = true;
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
+  await act(async () => root.render(<MobileApp />));
+  await settle(); await settle();
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Screen") as HTMLButtonElement).click());
+  mocks.request.mockImplementationOnce(async () => ({ status: "rejected" }));
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
+  expect(mocks.request).toHaveBeenCalledWith("session.steer", {
+    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+  });
+  expect(mocks.request).toHaveBeenCalledWith("prompt.submit", {
+    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+  });
+  expect(host.textContent).toContain("Earlier");
 });

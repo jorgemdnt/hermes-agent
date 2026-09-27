@@ -209,8 +209,10 @@ export default function MobileApp() {
         const gw = client.current;
         if (!gw || !chat?.runtimeId || profile !== "samwise") throw new Error("Open Samwise's chat before continuing");
         const text = "I cleared the check; continue";
-        if (chat.running) await gw.request("session.steer", { session_id: chat.runtimeId, profile, text });
-        else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
+        if (chat.running) {
+          const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
+          if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
+        } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
         setView("chat");
       }} />}
       {view === "settings" && <section className="m-settings"><h2>Phone settings</h2><p>Web Push works on an installed home-screen app over HTTPS. Notifications show generic text.</p><button type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushAvailable() ? (pushEnabled ? "Disable notifications" : "Enable notifications") : "Push unavailable in this browser"}</button><button type="button" disabled={busy} onClick={() => void logout()}>Sign out on this phone</button><p className="m-muted">Sign out ends only this browser session; it does not revoke other dashboard sessions.</p></section>}
