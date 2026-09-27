@@ -56,10 +56,11 @@ def _terminal_task_cwd_with_source(session: dict | None) -> tuple[str, str]:
     session's launch artifact, so terminal_tool refuses it as a bind-mount source."""
     backend = _effective_terminal_backend()
     if backend != "local":
-        # THIS session's explicit workspace beats the LAST session's env var.
+        # THIS session's explicit workspace beats the profile's configured default.
         if session and session.get("explicit_cwd") and session.get("cwd"):
             return str(session["cwd"]), "session"
-        raw = os.environ.get("TERMINAL_CWD", "").strip() or _workdir_terminal_cfg("cwd")
+        from tools.terminal_scope import terminal_env
+        raw = terminal_env("TERMINAL_CWD").strip() or _workdir_terminal_cfg("cwd")
         if raw and raw not in {".", "auto", "cwd"}:
             return raw, "process"
         if backend == "ssh":
@@ -114,14 +115,20 @@ def _heal_dead_cwd(cwd: str) -> str:
 
 
 def _is_local_terminal_backend() -> bool:
-    backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
-    return not backend or backend == "local"
+    return _effective_terminal_backend() == "local"
+
+
+def _session_uses_local_terminal(session: dict | None) -> bool:
+    if session and session.get("profile_home"):
+        with _session_profile_runtime_scope(session, hydrate_secrets=False):
+            return _is_local_terminal_backend()
+    return _is_local_terminal_backend()
 
 
 def _effective_terminal_backend() -> str:
-    """Active terminal backend name (``local``, ``docker``, ``ssh``, ...): ``TERMINAL_ENV`` when set (launchers bridge
-    ``terminal.backend`` into env), else the ``terminal.backend`` config key (in-process gateways skip that bridge)."""
-    backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
+    """Active backend from the session's terminal policy, with config fallback for in-process gateways."""
+    from tools.terminal_scope import terminal_env
+    backend = terminal_env("TERMINAL_ENV").strip().lower()
     if not backend or backend == "local":
         backend = _workdir_terminal_cfg("backend").lower()
     return backend or "local"
@@ -130,7 +137,7 @@ def _effective_terminal_backend() -> str:
 def _display_session_cwd(session: dict | None) -> str:
     """Session cwd for display/probe surfaces, healed past deleted worktrees (healed value persisted back; local only)."""
     cwd = _session_cwd(session)
-    if not _is_local_terminal_backend():
+    if not _session_uses_local_terminal(session):
         return cwd
     healed = _heal_dead_cwd(cwd)
     if healed and healed != cwd and session is not None:
@@ -147,7 +154,7 @@ def _reconcile_session_cwd_from_terminal(session: dict | None) -> bool:
     never overridden. Local backends only (a remote cwd cannot be stat'ed or git-probed here)."""
     # An explicit choice only moves by another explicit action; a cwd adopted HERE is marked `cwd_from_settle` so
     # successive settles keep following.
-    if not session or not _is_local_terminal_backend():
+    if not session or not _session_uses_local_terminal(session):
         return False
     if session.get("explicit_cwd") and not session.get("cwd_from_settle"):
         return False
@@ -201,8 +208,11 @@ def _register_session_cwd(session: dict | None) -> None:
         agent.session_cwd = session.get("cwd") or None
     with contextlib.suppress(Exception):
         from tools.terminal_tool import register_task_env_overrides
-        cwd, cwd_source = _terminal_task_cwd_with_source(session)
-        register_task_env_overrides(session["session_key"], {"cwd": cwd, "cwd_source": cwd_source})
+        # session.create and cold-resume register before a turn has bound the session's
+        # profile; the RPC thread still carries the launch profile's TERMINAL_* env.
+        with _session_profile_runtime_scope(session, hydrate_secrets=False):
+            cwd, cwd_source = _terminal_task_cwd_with_source(session)
+            register_task_env_overrides(session["session_key"], {"cwd": cwd, "cwd_source": cwd_source})
 
 
 def _workdir_row_model_config(session: dict) -> tuple[str, dict]:
