@@ -120,8 +120,7 @@ if remove:
 else:
  lines=kept
  if lines and not lines[-1].endswith(b"\\n"): lines[-1]+=b"\\n"
- import shlex
- lines.append(name.encode()+b"="+shlex.quote(value.decode()).encode()+b"\\n")
+ lines.append(name.encode()+b"="+value+b"\\n")
 fd,tmp=tempfile.mkstemp(dir=path.parent,prefix=".secret-"); os.fchmod(fd,0o600)
 try:
  with os.fdopen(fd,"wb") as out:
@@ -147,7 +146,13 @@ def _remote_command(path: str, name: str, *, remove: bool = False) -> list[str]:
 
 
 def _write_remote(path: str, name: str, value: str) -> None:
-    proc = subprocess.run(_remote_command(path, name), input=value.encode(), capture_output=True, timeout=30)
+    from hermes_cli.config import _quote_env_value
+    if "\n" in value or "\r" in value or "\x00" in value:
+        raise ValueError("file secret must be one line")
+    # Serialize with the same dotenv writer as local env_file; the already-quoted
+    # value travels only over SSH stdin, never in argv or model-facing output.
+    proc = subprocess.run(_remote_command(path, name), input=_quote_env_value(value).encode(),
+                          capture_output=True, timeout=30)
     if proc.returncode:
         raise OSError("remote secret write failed (no value stored)")
 

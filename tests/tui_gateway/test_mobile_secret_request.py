@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import threading
 import time
 
 import pytest
+from dotenv import dotenv_values
 
+from agent.secret_scope import load_env_file
 from agent.redact import redact_registered_vault_values
 from hermes_constants import get_hermes_home, reset_hermes_home_override, set_hermes_home_override
 from hermes_cli.dashboard_auth.local_logout import _digest, bind, browser_epoch, revoke
+from tools import secret_request_tool as secrets
 from tools.secret_request_tool import remove_file_secret, secret_request, validate_destination
 from tui_gateway import server, server_requests
 from tui_gateway.secret_requests import authorized_answer
@@ -86,6 +90,32 @@ def test_mobile_secret_lifecycle(tmp_path, monkeypatch):
         with server._sessions_lock:
             server._sessions.pop(sid, None)
         loop.close()
+
+
+def test_remote_env_round_trips_apostrophe_and_named_removal(tmp_path, monkeypatch):
+    # Execute the actual SSH writer locally with only its fixed home changed to a
+    # disposable directory; no network, live profile or credential is involved.
+    base = tmp_path / "hermes"
+    base.mkdir()
+    script = secrets._REMOTE_WRITER.replace('pathlib.Path("/home/hermes")', f'pathlib.Path({str(base)!r})')
+    assert script != secrets._REMOTE_WRITER
+    path = base / ".hermes" / "canary.env"
+    destination = {"kind": "remote_file", "path": "/home/hermes/.hermes/canary.env"}
+    remote_command = secrets._remote_command
+    monkeypatch.setattr(secrets, "_remote_command", lambda _path, name, *, remove=False:
+                        [sys.executable, "-c", script, str(path), name, *(["rm"] if remove else [])])
+    monkeypatch.setattr("tools.terminal_tool._get_env_config", lambda: {
+        "env_type": "ssh", "ssh_user": "hermes", "ssh_host": "fixture", "ssh_port": 22, "ssh_key": ""})
+
+    value = "synthetic's value # with \"quotes\" and \\backslash"
+    assert value not in " ".join(remote_command(destination["path"], "CANARY_TOKEN"))
+    secrets._write_remote(destination["path"], "CANARY_TOKEN", value)
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert load_env_file(path)["CANARY_TOKEN"] == value
+    assert dotenv_values(path)["CANARY_TOKEN"] == value
+    assert remove_file_secret("CANARY_TOKEN", destination)
+    assert "CANARY_TOKEN" not in load_env_file(path)
+    assert not remove_file_secret("CANARY_TOKEN", destination)
 
 
 def test_dashboard_authority_across_profile_scope(tmp_path, monkeypatch):
