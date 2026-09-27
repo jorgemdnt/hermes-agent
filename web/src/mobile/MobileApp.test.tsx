@@ -111,6 +111,10 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
   expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toBe(duringGesture);
   await act(async () => { touch("touchend", 190); await vi.waitFor(() => expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m")); });
+  if (target !== "board task") {
+    expect((host.querySelector('.m-home') as HTMLElement).style.transform).toBe("");
+    expect(host.querySelector('.m-swipe-preview')).toBeNull();
+  }
   if (target === "board task") {
     await vi.waitFor(() => {
       expect(host.querySelector('.m-swipe-preview')).toBeNull();

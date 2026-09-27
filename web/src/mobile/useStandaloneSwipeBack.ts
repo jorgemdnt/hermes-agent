@@ -92,6 +92,9 @@ export function useStandaloneSwipeBack(shell: RefObject<HTMLDivElement | null>, 
       element.removeEventListener("touchcancel", reset);
     };
   }, [shell, view, goBack, enabled, offset]);
-  const finish = useCallback(() => setSwiping(false), []);
+  const finish = useCallback(() => {
+    if (preview.current) preview.current.style.transform = "";
+    setSwiping(false);
+  }, []);
   return { swiping, preview, finish };
 }
