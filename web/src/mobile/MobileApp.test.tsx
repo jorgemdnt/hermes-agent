@@ -5,12 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   running: false,
+  liveSessions: [] as Array<{ id: string; session_key: string; title: string; status: string }>,
   getProfiles: vi.fn(async () => ({ profiles: [{ name: "frodo", is_default: true }, { name: "gandalf", is_default: false }] })),
-  request: vi.fn(async (method: string) => {
+  request: vi.fn(async (method: string, params?: { session_id?: string }) => {
     if (method === "session.list") return { sessions: [{ id: "stored", title: "Prior chat" }] };
-    if (method === "session.active_list") return { sessions: [] };
+    if (method === "session.active_list") return { sessions: mocks.liveSessions };
     if (method === "session.most_recent") return { session_id: "stored" };
-    if (method === "session.resume") return { session_id: "runtime", stored_session_id: "stored", messages: [{ role: "user", text: "Earlier" }], running: mocks.running };
+    if (method === "session.resume") return { session_id: params?.session_id === "other-stored" ? "other-runtime" : "runtime", stored_session_id: params?.session_id, messages: [{ role: "user", text: "Earlier" }], running: mocks.running };
     if (method === "session.create") return { session_id: "new-runtime", stored_session_id: "new-stored", messages: [] };
     if (method === "session.steer") return { status: "queued" };
     return {};
@@ -36,9 +37,37 @@ import MobileApp from "./MobileApp";
 
 let root: Root;
 let host: HTMLDivElement;
-beforeEach(() => { vi.clearAllMocks(); mocks.running = false; vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { vi.clearAllMocks(); mocks.running = false; mocks.liveSessions = []; vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/"); });
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+
+it.each(["another chat", "new conversation"])("keeps a foreign-session approval out of %s but answerable in its attributed inbox", async (mode) => {
+  mocks.liveSessions = [
+    { id: "runtime", session_key: "stored", title: "Current chat", status: "idle" },
+    { id: "other-runtime", session_key: "other-stored", title: "Approval owner", status: "idle" },
+  ];
+  await act(async () => root.render(<MobileApp />));
+  await settle(); await settle();
+  await act(async () => (host.querySelector('.m-bot-row') as HTMLButtonElement).click());
+  if (mode === "new conversation") {
+    await act(async () => (host.querySelector('[aria-label="Back to bots"]') as HTMLButtonElement).click());
+    await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "New conversation") as HTMLButtonElement).click());
+  }
+  const respond = vi.fn();
+  await act(async () => { for (const handler of mocks.requests) handler({ id: "srq-other", method: "approval", params: { session_id: "other-runtime", request_id: "ap-other", choices: ["once", "deny"], command: "test foreign" }, respond, fail: vi.fn() }); });
+  await settle();
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain("test foreign");
+  expect(host.querySelector('.m-messages')?.textContent).toContain("View requests");
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("View requests")) as HTMLButtonElement).click());
+  expect(host.querySelector('.m-inbox')?.textContent).toContain("Approval owner · other-runtime");
+  expect(host.querySelector('.m-inbox')?.textContent).toContain("test foreign");
+  await act(async () => (host.querySelector('.m-inbox button') as HTMLButtonElement).click());
+  await settle();
+  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "other-stored", source: "mobile", close_on_disconnect: false });
+  expect(host.querySelector('.m-messages')?.textContent).toContain("test foreign");
+  await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Allow once") as HTMLButtonElement).click());
+  expect(respond).toHaveBeenCalledWith({ choice: "once" });
+});
 
 it("opens a bot chat from a notification deep link", async () => {
   window.history.replaceState({}, "", "/m?profile=frodo");

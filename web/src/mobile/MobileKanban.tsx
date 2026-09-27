@@ -56,7 +56,7 @@ export default function MobileKanban() {
   }
 
   return <section className="m-board" aria-label="Kanban board">
-    <header><h2>Board</h2><Button variant="outline" type="button" onClick={() => refresh(n => n + 1)}><RefreshCw size={15} aria-hidden="true" /> Refresh</Button></header>
+    <header><Button variant="outline" type="button" onClick={() => refresh(n => n + 1)}><RefreshCw size={15} aria-hidden="true" /> Refresh</Button></header>
     {boards.length > 1 && <label>Board<select value={boardName} onChange={e => { setTask(null); setBoard(null); setBoardName(e.target.value); }}>{boards.map(b => <option key={b.slug} value={b.slug}>{b.name || b.slug}</option>)}</select></label>}
     {error && <p role="alert">{error}</p>}
     {!board && !error && <div className="m-loading" role="status" aria-label="Loading board"><Skeleton /><Skeleton /><Skeleton /></div>}

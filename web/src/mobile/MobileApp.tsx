@@ -14,6 +14,7 @@ import "./mobile-theme.css";
 import "./mobile.css";
 
 interface SessionRow { id: string; title: string; preview: string }
+interface LiveSession { id: string; session_key: string; title: string; status: string }
 interface SessionSnapshot {
   session_id: string;
   stored_session_id?: string;
@@ -28,6 +29,7 @@ export default function MobileApp() {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState("");
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [selected, setSelected] = useState("");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
@@ -78,6 +80,8 @@ export default function MobileApp() {
       if (alive) timer = setTimeout(() => void connect(), 2000);
     };
     client.current = gw;
+    const refreshLiveSessions = () => void gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile })
+      .then(data => { if (alive) setLiveSessions(data.sessions); }).catch(() => undefined);
     const connect = async () => {
       if (!alive || gw.connectionState === "connecting" || gw.connectionState === "open") return;
       let connected = false;
@@ -87,8 +91,9 @@ export default function MobileApp() {
         if (!alive) return;
         const listed = await gw.request<{ sessions: SessionRow[] }>("session.list", { profile, limit: 40 });
         if (alive) setSessions(listed.sessions);
+        const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
+        if (alive) setLiveSessions(active.sessions);
         if (!selectedRef.current) {
-          const active = await gw.request<{ sessions: Array<{ id: string; status: string; session_key?: string }> }>("session.active_list", { profile });
           const waiting = active.sessions.find(s => s.status === "waiting" && s.session_key);
           const recent = waiting ? null : await gw.request<{ session_id?: string | null }>("session.most_recent", { profile });
           if (alive && !selectedRef.current) setSelected(waiting?.session_key || recent?.session_id || "");
@@ -101,6 +106,7 @@ export default function MobileApp() {
       if (state === "open") setScreenGateway(gw);
       if (state === "closed" || state === "error") {
         setPrompts({});
+        setLiveSessions([]);
         retry();
       }
     });
@@ -123,11 +129,13 @@ export default function MobileApp() {
       }
       if (ev.type === "message.complete" || ev.type === "sessions.changed") {
         void gw.request<{ sessions: SessionRow[] }>("session.list", { profile, limit: 40 }).then(data => { if (alive) setSessions(data.sessions); }).catch(() => undefined);
+        refreshLiveSessions();
       }
     });
     const offRequest = gw.onRequest((request: ServerRequest) => {
       if (!PROMPT_METHODS.has(request.method)) return false;
       setPrompts(prev => ({ ...prev, [request.id]: { request, profile } }));
+      refreshLiveSessions();
       return true;
     });
     const onWake = () => { if (document.visibilityState === "visible") void connect(); };
@@ -181,7 +189,7 @@ export default function MobileApp() {
     if (name === profile) { setView("chat"); return; }
     selectedRef.current = "";
     chatRef.current = null;
-    setSessions([]); setSelected(""); setChat(null); setPrompts({}); setError(""); setWorking(""); setActivity([]);
+    setSessions([]); setLiveSessions([]); setSelected(""); setChat(null); setPrompts({}); setError(""); setWorking(""); setActivity([]);
     const url = new URL(window.location.href);
     url.searchParams.set("profile", name);
     window.history.replaceState({}, "", url);
@@ -225,11 +233,13 @@ export default function MobileApp() {
     if (prompt && client.current) void client.current.request("approval.received", { profile, session_id: prompt.request.params.session_id, request_id: id }).catch(e => setError(errorText(e)));
   }, [prompts, profile]);
   const activePrompts = Object.values(prompts).filter(p => p.profile === profile);
+  const chatPrompts = activePrompts.filter(p => chat?.runtimeId && p.request.params.session_id === chat.runtimeId);
+  const otherPrompts = activePrompts.filter(p => !chatPrompts.includes(p));
   const botName = (p: ProfileInfo) => p.display_name || (p.is_default ? "Frodo" : p.name[0].toUpperCase() + p.name.slice(1));
   const currentBot = profiles.find(p => p.name === profile);
   const name = currentBot ? botName(currentBot) : "Hermes";
   const avatar = (p: ProfileInfo) => <Avatar src={avatars[p.name]} name={botName(p)} />;
-  const status = connection !== "open" ? "Reconnecting…" : activePrompts.length ? "Needs your input" : working || (chat?.running ? "Thinking…" : "Ready to talk");
+  const status = connection !== "open" ? "Reconnecting…" : chatPrompts.length ? "Needs your input" : working || (chat?.running ? "Thinking…" : "Ready to talk");
 
   const togglePush = async () => {
     setBusy(true); setError("");
@@ -250,19 +260,27 @@ export default function MobileApp() {
   return <div key={theme} className="m-shell" data-theme={theme}>
     <Toaster theme={theme} position="top-center" richColors toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     {view === "bots" ? <>
-      <header className="m-list-header"><span className="m-overline">HERMES</span><h1>Your bots</h1><p>A conversation with each of them.</p></header>
+      <header className="m-list-header"><span className="m-overline">HERMES</span><h1>Your bots</h1></header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-bot-list">
-        <div className="m-section-title"><span>Conversations</span><span role="status" className={connection === "open" ? "m-online" : ""}>{connection === "open" ? "Connected" : "Reconnecting"}</span></div>
+        {!!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2>Requests</h2>{activePrompts.map(p => {
+          const sid = p.request.params.session_id;
+          const owner = liveSessions.find(s => s.id === sid);
+          return <div className="m-inline-request" data-method={p.request.method} key={p.request.id}>
+            <Badge className="m-request-label">{name} · {owner?.title || "Conversation"} · {sid || "Session unavailable"}</Badge>
+            {owner?.session_key && <Button variant="outline" type="button" onClick={() => { setSelected(owner.session_key); setView("chat"); }}>Open conversation</Button>}
+            <PromptCard pending={p} onAnswer={answer} onReceived={received} />
+          </div>;
+        })}</section>}
+        <div className="m-section-title"><span role="status">{connection === "open" ? "Connected" : "Reconnecting"}</span></div>
         {profiles.map(p => <button className="m-bot-row" type="button" key={p.name} onClick={() => selectProfile(p.name)}>
-          {avatar(p)}<span className="m-bot-copy"><strong>{botName(p)}</strong><small>{p.name === profile && activePrompts.length ? `${activePrompts.length} request${activePrompts.length === 1 ? "" : "s"} waiting` : p.name === profile && sessions[0]?.preview ? sessions[0].preview : `Talk to ${botName(p)}`}</small></span><ChevronRight size={18} aria-hidden="true" />
+          {avatar(p)}<span className="m-bot-copy"><strong>{botName(p)}</strong>{p.name === profile && (activePrompts.length || sessions[0]?.preview) && <small>{activePrompts.length ? `${activePrompts.length} request${activePrompts.length === 1 ? "" : "s"} waiting` : sessions[0].preview}</small>}</span><ChevronRight size={18} aria-hidden="true" />
         </button>)}
         {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
-        <div className="m-section-title m-destinations-title">Explore</div>
         <button type="button" className="m-destination" onClick={() => setView("board")}><LayoutGrid size={20} aria-hidden="true" />Board<ChevronRight size={18} aria-hidden="true" /></button>
         {profiles.some(p => p.name === "samwise") && <button type="button" className="m-destination" onClick={() => { if (profile !== "samwise") selectProfile("samwise"); setView("screen"); }}><Monitor size={20} aria-hidden="true" />Screen<ChevronRight size={18} aria-hidden="true" /></button>}
         <button type="button" className="m-destination" onClick={() => setView("settings")}><Settings2 size={20} aria-hidden="true" />Settings<ChevronRight size={18} aria-hidden="true" /></button>
-        {!!sessions.length && <section className="m-recent"><h2>Recent with {name}</h2>{sessions.map(s => <button type="button" key={s.id} onClick={() => { setSelected(s.id); setView("chat"); }}>{s.title || s.preview || "Conversation"}<ChevronRight size={16} aria-hidden="true" /></button>)}<button type="button" onClick={() => { setSelected(""); setChat(null); setView("chat"); }}><Plus size={17} aria-hidden="true" />New conversation</button></section>}
+        {!!sessions.length && <section className="m-recent"><h2>Recent</h2>{sessions.map(s => <button type="button" key={s.id} onClick={() => { setSelected(s.id); setView("chat"); }}>{s.title || s.preview || "Conversation"}<ChevronRight size={16} aria-hidden="true" /></button>)}<button type="button" onClick={() => { setSelected(""); setChat(null); setView("chat"); }}><Plus size={17} aria-hidden="true" />New conversation</button></section>}
       </main>
     </> : <>
       <header className="m-header"><button type="button" className="m-icon-button" aria-label="Back to bots" onClick={() => setView("bots")}><ArrowLeft size={22} /></button>
@@ -272,11 +290,12 @@ export default function MobileApp() {
       <main className="m-main">
         {view === "chat" && <>
           <div className="m-messages" role="log" aria-live="polite">
-            {!chat && !activePrompts.length && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
+            {!chat && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
             {chat?.rows.map((row, index) => <article key={index} className={`m-message m-${row.role}`}><div className="m-preserve">{row.text}</div></article>)}
             {chat?.draft && <article className="m-message m-assistant"><div className="m-preserve">{chat.draft}</div></article>}
-            {activePrompts.map(p => <div className="m-inline-request" key={p.request.id}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></div>)}
-            {chat?.running && !chat.draft && !activePrompts.length && <p role="status" className="m-thinking"><i className="m-status-dot" />{status}</p>}
+            {chatPrompts.map(p => <div className="m-inline-request" data-method={p.request.method} key={p.request.id}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></div>)}
+            {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => setView("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
+            {chat?.running && !chat.draft && !chatPrompts.length && <p role="status" className="m-thinking"><i className="m-status-dot" />{status}</p>}
             <div ref={end} />
           </div>
           <form className="m-composer" onSubmit={e => void send(e)}><Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
@@ -295,17 +314,17 @@ export default function MobileApp() {
           } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           setView("chat");
         }} />}
-        {view === "settings" && <section className="m-settings"><h2>Make it yours</h2><p>Only what you need, when you need it.</p>
+        {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
-          <div className="m-settings-group"><h3>Notifications</h3><p>When a bot needs you, notifications keep the details private.</p><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>
+          <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>
           <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out on this phone<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
         </section>}
       </main>
     </>}
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
-      <div className="m-activity-head"><h2>{name}'s activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
+      <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>
-      {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">New activity will appear here while this chat is open.</p>}
+      {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">No activity yet.</p>}
     </Sheet>}
   </div>;
 }

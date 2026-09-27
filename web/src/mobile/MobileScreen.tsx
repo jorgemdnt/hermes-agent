@@ -123,14 +123,12 @@ export default function MobileScreen({ gateway, onContinue }: { gateway: Gateway
     finally { setBusy(false); }
   };
   return <section className="m-screen" aria-label="Samwise live screen">
-    <h2>Samwise · VPS screen</h2>
-    <p className="m-muted">{held ? "You control the browser. Samwise's browser tools are paused." : "Watch only. Take over to handle a check or login."}</p>
+    {status?.running && <p className="m-muted">{held ? "You control the browser. Samwise's browser tools are paused." : "Watch only. Take over to handle a check or login."}</p>}
     {error && <p role="alert" className="m-error">{error}</p>}
     {status?.running ? <div className="m-screen-frame" ref={target} aria-label="Live VPS desktop" />
       : <div className="m-screen-empty">
         <MonitorPlay size={30} strokeWidth={1.5} aria-hidden="true" />
         <strong>Screen is off</strong>
-        <span>Start Samwise's screen to watch his work.</span>
         <Button variant="primary" type="button" disabled={busy || !gateway} onClick={() => void start()}>{busy ? "Starting…" : "Start screen"}</Button>
       </div>}
     {status?.running && <div className="m-screen-actions">
