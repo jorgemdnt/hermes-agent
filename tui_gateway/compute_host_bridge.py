@@ -178,6 +178,10 @@ def _relay_compute_host_response(frame: dict) -> bool:
     if located is None or not _session_uses_compute_host(located[1]):
         return False
     sid, session = located
+    # A compute-host child cannot verify the browser's Google session or write to
+    # this gateway's profile vault. Never relay a secret value to that process.
+    if session.get("_compute_host_open_request", {}).get("method") == "secret.request":
+        return True
     with _history_lock(session):
         session.pop("_compute_host_open_request", None)
     try:

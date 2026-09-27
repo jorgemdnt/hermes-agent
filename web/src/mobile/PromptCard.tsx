@@ -98,17 +98,20 @@ export default function PromptCard({ pending, onAnswer, onReceived }: Props) {
   const config: Record<string, { title: string; label: string; hint: string }> = {
     sudo: { title: "Sudo password", label: "Password", hint: text(p.command) },
     secret: { title: "Secret requested", label: text(p.env_var) || "Secret", hint: text(p.prompt) },
+    "secret.request": { title: "Secret requested", label: text(p.name) || "Secret", hint: `${text(p.requester)} asks for ${text(p.name)}. Reason: ${text(p.reason)}` },
     "vault.unlock_prompt": { title: "Unlock password manager", label: "Master password", hint: text(p.display_name) },
     "vault.save_login": { title: "Save site login", label: "Password", hint: `${text(p.site)} · ${text(p.origin)}` },
     "vault.code": { title: "Verification code", label: "Code", hint: `${text(p.site)} · ${text(p.hint)}` },
   };
   const details = config[request.method];
   if (!details) return null;
+  const destination = p.destination && typeof p.destination === "object" ? p.destination as Record<string, unknown> : null;
   return <form className="m-card" onSubmit={submit} aria-label={details.title}>
     <h2>{details.title}</h2><p>{details.hint}</p>
+    {request.method === "secret.request" && <p>Destination: <strong>{text(destination?.kind)} · {text(destination?.path) || text(destination?.origin)}</strong>{destination?.label ? ` · ${text(destination.label)}` : ""}{destination?.identifier ? ` · ${text(destination.identifier)}` : ""}{destination?.kind === "env_file" || destination?.kind === "remote_file" ? " (file mode 0600)" : ""}.</p>}
     {request.method === "vault.save_login" && <label>Username or email<input autoComplete="username" value={identifier} onChange={e => setIdentifier(e.target.value)} required /></label>}
     <label>{details.label}<input type={request.method === "vault.code" ? "text" : "password"} autoComplete={request.method === "vault.code" ? "one-time-code" : request.method === "vault.save_login" ? "new-password" : "off"} value={value} onChange={e => setValue(e.target.value)} required /></label>
-    <p className="m-muted">This value is sent directly to Hermes; it is not added to chat history.</p>
-    <div className="m-actions"><button type="submit">{request.method === "vault.save_login" ? "Save" : "Send"}</button><button type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</button></div>
+    <p className="m-muted">This value is sent directly to Hermes; it is not added to chat history.{request.method === "secret.request" ? " Clear your clipboard after pasting." : ""}</p>
+    <div className="m-actions"><button type="submit">{request.method === "vault.save_login" || request.method === "secret.request" ? "Save" : "Send"}</button><button type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</button></div>
   </form>;
 }

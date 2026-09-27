@@ -19,7 +19,7 @@ export interface PendingPrompt {
 }
 
 export const PROMPT_METHODS = new Set([
-  "approval", "clarify", "sudo", "secret", "vault.unlock_prompt", "vault.save_login", "vault.code",
+  "approval", "clarify", "sudo", "secret", "secret.request", "vault.unlock_prompt", "vault.save_login", "vault.code",
 ]);
 
 export function transcriptRows(messages: Array<{ role: string; text?: string | null; display_kind?: string | null }>): ChatRow[] {

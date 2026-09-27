@@ -1858,7 +1858,8 @@ def _gui_surface_toolsets(platform: str) -> set[str]:
     ``platform`` is the SESSION's source, never a process env var: the desktop may drive a URL/cloud
     backend where ``HERMES_DESKTOP`` is unset (AGENTS.md surface rule)."""
     from toolsets import CLIENT_SURFACE_TOOLSETS
-    return set(CLIENT_SURFACE_TOOLSETS) if platform == "desktop" else {"project"}
+    surface = {"desktop": set(CLIENT_SURFACE_TOOLSETS), "mobile": {"project", "mobile_secrets"}}
+    return surface.get(platform, {"project"})
 
 
 def _with_session_toolsets(selection, platform: str | None) -> list[str]:
@@ -2497,7 +2498,7 @@ def _make_agent(
             reasoning_config_override if reasoning_config_override is not None else _load_reasoning_config(str(model or ""))),
         service_tier=service_tier_override if service_tier_override is not None else _load_service_tier(),
         enabled_toolsets=_load_enabled_toolsets(platform),
-        disabled_toolsets=_load_disabled_toolsets(),
+        disabled_toolsets=[*(_load_disabled_toolsets() or []), *(["mobile_secrets"] if platform != "mobile" else [])],
         # OpenRouter provider_routing prefs (gateway + CLI parity).
         providers_allowed=_pr.get("only"), providers_ignored=_pr.get("ignore"), providers_order=_pr.get("order"),
         provider_sort=_pr.get("sort"), provider_require_parameters=_pr.get("require_parameters", False),

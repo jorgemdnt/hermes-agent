@@ -63,4 +63,19 @@ describe("mobile prompt answers", () => {
     expect(host.textContent).not.toContain("canary");
     expect(respond).toHaveBeenCalledWith("srq-123", { value: JSON.stringify({ identifier: "user", password: "canary" }) });
   });
+
+  it("shows the server-bound destination and keeps the secret out of page text", () => {
+    const { respond } = renderPrompt("secret.request", {
+      session_id: "live", name: "CANARY_TOKEN", reason: "test flow", requester: "Frodo",
+      destination: { kind: "env_file", path: "~/.hermes/canary.env" }, expires_at: Date.now() / 1000 + 180,
+    });
+    expect(host.textContent).toContain("~/.hermes/canary.env");
+    expect(host.textContent).toContain("test flow");
+    expect(host.textContent).toContain("0600");
+    const input = host.querySelector('input[type="password"]') as HTMLInputElement;
+    act(() => setInputValue(input, "test_canary"));
+    act(() => (host.querySelector('button[type="submit"]') as HTMLButtonElement).click());
+    expect(host.textContent).not.toContain("test_canary");
+    expect(respond).toHaveBeenCalledWith("srq-123", { value: "test_canary" });
+  });
 });

@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class ServerRequest:
     __slots__ = ("id", "sid", "method", "params", "event", "result", "answered", "created_at",
-                 "qids", "locked", "on_result")
+                 "qids", "locked", "on_result", "answered_by", "owner_home")
 
     def __init__(self, sid: str, method: str, params: dict, *, qids: list[str] | None = None,
                  on_result: Callable[[dict | None], None] | None = None) -> None:
@@ -57,6 +57,8 @@ class ServerRequest:
         self.qids = list(qids) if qids else None
         self.locked: dict[str, str] = {}
         self.on_result = on_result
+        self.answered_by = ""
+        self.owner_home = ""
 
     def frame(self) -> dict:
         return {"jsonrpc": "2.0", "id": self.id, "method": self.method,
@@ -156,7 +158,7 @@ def _register(req: ServerRequest) -> None:
 
 
 def send(method: str, sid: str, params: dict, *, timeout: float | None,
-         qids: list[str] | None = None) -> dict | None:
+         qids: list[str] | None = None, receipt: dict | None = None) -> dict | None:
     """Send one request and block for the response ``result`` (a dict).
 
     Returns ``None`` when the renderer never answered (timeout, cancel, or an error response — e.g.
@@ -167,6 +169,11 @@ def send(method: str, sid: str, params: dict, *, timeout: float | None,
     if _unanswerable(method, sid):
         return None
     req = ServerRequest(sid, method, params, qids=qids)
+    if method == "secret.request":
+        from hermes_constants import get_hermes_home
+        req.owner_home = str(get_hermes_home())
+    if receipt is not None:
+        receipt["id"] = req.id
     _register(req)
     _notify_parked(req)
     try:
@@ -186,6 +193,8 @@ def send(method: str, sid: str, params: dict, *, timeout: float | None,
         # settlement (resolve_response / lock_answer / cancel) already popped it (#112548).
         timed_out = _open.pop(req.id, None) is req
         answered, result, locked = req.answered, req.result, dict(req.locked)
+        if receipt is not None:
+            receipt["sub"] = req.answered_by
     if answered:
         return result
     if timed_out:
@@ -215,12 +224,18 @@ def send_async(method: str, sid: str, params: dict, on_result: Callable[[dict | 
     return settle
 
 
-def resolve_response(frame: dict) -> bool:
+def resolve_response(frame: dict, transport: Any = None) -> bool:
     """Route one client response frame to its open request. False when nothing is waiting for that id
     (already timed out / cancelled, or owned by another process — see the compute-host bridge)."""
     rid = frame.get("id")
     if not isinstance(rid, str):
         return False
+    with _lock:
+        checked_req = _open.get(rid)
+    if checked_req is not None and checked_req.method == "secret.request":
+        from tui_gateway.secret_requests import authorized_answer
+        if not authorized_answer(checked_req, transport):
+            return False
     with _lock:
         req = _open.get(rid)
         if req is None:
@@ -228,16 +243,30 @@ def resolve_response(frame: dict) -> bool:
             # another process; say so — a dropped answer used to vanish without a trace.
             logger.debug("server request %s: response dropped, request no longer open", rid)
             return False
+        if req.method == "secret.request":
+            # The identity check above used the same live request; never admit an ID repointed
+            # across the unlocked I/O boundary.
+            if req is not checked_req or transport is None or req.params["expires_at"] <= time.time():
+                return False
+            req.answered_by = transport.auth_identity["user_id"]
         # Removing the request and committing its outcome are one settlement.
         # ``cancel()`` also settles under this lock, so the first side to get
         # here wins instead of a later cancellation overwriting a response.
         _open.pop(rid, None)
         if "error" in frame:
-            logger.debug("server request %s (%s) answered with error: %s", rid, req.method, frame.get("error"))
+            if req.method == "secret.request":
+                logger.debug("server request %s (%s) declined", rid, req.method)
+            else:
+                logger.debug("server request %s (%s) answered with error: %s", rid, req.method, frame.get("error"))
             req.result, req.answered = None, False
         else:
             result = frame.get("result")
-            req.result = result if isinstance(result, dict) else {}
+            if req.method == "secret.request":
+                # Only the password field is admitted. A client cannot redirect a
+                # request by echoing its own destination or extra result keys.
+                req.result = {"value": result.get("value", "")} if isinstance(result, dict) and isinstance(result.get("value"), str) else {}
+            else:
+                req.result = result if isinstance(result, dict) else {}
             if req.qids and "answers" in req.result:
                 # Batch clarify: answers locked early via clarify.lock belong to the final set even when
                 # the closing response only carries the tail the user answered last.

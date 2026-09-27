@@ -488,8 +488,14 @@ async def api_auth_ws_ticket(request: Request):
     ``Authorization`` on the upgrade); one ticket per WS."""
     sess = _require_session(request)
     from hermes_cli.dashboard_auth.ws_tickets import TTL_SECONDS, mint_ticket
+    from hermes_cli.dashboard_auth.local_logout import _digest, browser_epoch
+    access, _ = read_session_cookies(request)
+    browser_id = read_session_browser_id(request)
     ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider,
-                         extra={"session_expires_at": sess.expires_at})
+                         extra={"session_expires_at": sess.expires_at,
+                                "email": sess.email, "browser_id": browser_id,
+                                "access_digest": _digest(access) if access else None,
+                                "browser_epoch": browser_epoch(browser_id) if browser_id else None})
     _audit(request, AuditEvent.WS_TICKET_MINTED, provider=sess.provider, user_id=sess.user_id)
     return {"ticket": ticket, "ttl_seconds": TTL_SECONDS}
 
