@@ -919,10 +919,8 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
             fh.write(message)
             query_file = fh.name
 
-        argv += [
-            "chat", "--in", "~", "-c", "Bot Chat", "--create-if-missing",
-            "-Q", "--query-file", query_file,
-        ]
+        from tools.bot_relay import bot_chat_turn_args
+        argv += [*bot_chat_turn_args(home), "--query-file", query_file]
         from hermes_cli.quiet_single_query import TURN_REPORT_FILE_ENV
         report_file = f"{query_file}.turn.json"
         env[TURN_REPORT_FILE_ENV] = report_file

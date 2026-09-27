@@ -295,7 +295,7 @@ def test_local_delivery_command_and_ack(tmp_path, monkeypatch):
         "researcher",
         "chat",
         "--in",
-        "~",
+        str(Path.home()),
         "-c",
         "Bot Chat",
         "--create-if-missing",
@@ -313,6 +313,31 @@ def test_local_delivery_command_and_ack(tmp_path, monkeypatch):
     assert '$(and this is not shell)' in content
 
 
+
+
+def test_remote_bot_chat_uses_the_profiles_terminal_cwd(tmp_path, monkeypatch):
+    home = _managed_home(tmp_path, teammates=("remote",))
+    target_home = home / "profiles" / "remote"
+    target_home.joinpath("config.yaml").write_text(
+        "terminal:\n  backend: ssh\n  cwd: /home/hermes/work/artemis\n", encoding="utf-8")
+    calls = _capture_spawn(monkeypatch)
+    monkeypatch.setattr(bot_relay, "_hermes_cli", lambda: "hermes")
+    result = json.loads(bot_mode_dm.message_agent_tool(
+        target="remote", message="delivery test, no action needed", agent=_FakeAgent(home)))
+    assert result["status"] == "queued"
+    _, _, argv = _runner_parts(calls[0]["command"])
+    assert argv == ["hermes", "-p", "remote", "chat", "-c", "Bot Chat", "--create-if-missing", "-Q"]
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    assert bot_relay.local_delivery_command("remote", "message.txt") == [*argv, "--query-file", "message.txt"]
+
+
+def test_local_bot_chat_honors_configured_workdir(tmp_path):
+    home = _managed_home(tmp_path, teammates=("local",))
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    (home / "profiles" / "local" / "config.yaml").write_text(
+        f"terminal:\n  backend: local\n  cwd: {workdir}\n", encoding="utf-8")
+    assert bot_relay.bot_chat_turn_args(home / "profiles" / "local")[1:3] == ("--in", str(workdir))
 
 
 def test_cli_runner_ack_is_queued_with_the_runner_delivery_id(tmp_path, monkeypatch):
@@ -503,7 +528,7 @@ def test_delivery_pins_the_hermes_entrypoint_beside_this_interpreter(tmp_path, m
     mode, _dm_file, transport_argv = _runner_parts(calls[0]["command"])
     assert mode == "query-file"
     assert transport_argv[0] == str(hermes_entry)
-    assert transport_argv[1:] == ["-p", "researcher", "chat", "--in", "~", "-c", "Bot Chat",
+    assert transport_argv[1:] == ["-p", "researcher", "chat", "--in", str(Path.home()), "-c", "Bot Chat",
                                   "--create-if-missing", "-Q"]
 
     result2 = json.loads(
@@ -904,6 +929,34 @@ def test_real_delivery_command_round_trip(tmp_path, stdin_file):
 
     assert result.returncode == 0
     assert observed.read_text(encoding="utf-8") == "secret λ\nsecond line"
+    assert not dm_file.exists()
+
+
+@pytest.mark.platforms("posix")
+def test_delivery_runner_uses_cli_venv_when_host_interpreter_lacks_dependencies(tmp_path, monkeypatch):
+    """The live-owner admission imports utils -> hermes_yaml -> ruamel before running the CLI."""
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python3").symlink_to(sys.executable)
+    cli = venv_bin / "hermes"
+    cli.write_text("#!/bin/sh\nprintf 'delivered\\n'\n", encoding="utf-8")
+    cli.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bare-python"))
+
+    home = tmp_path / "home"
+    home.mkdir()
+    dm_file = tmp_path / "message.txt"
+    dm_file.write_text("delivery test", encoding="utf-8")
+    command = bot_mode_dm._delivery_command(
+        [str(cli), "-p", "default", "chat", "-c", "Bot Chat"],
+        str(dm_file), stdin_file=False, profile_home=home,
+    )
+    assert shlex.split(command)[0] == str(venv_bin / "python3")
+    result = subprocess.run(shlex.split(command), cwd=Path(bot_mode_dm.__file__).resolve().parent.parent,
+                            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout.strip() == "delivered"
     assert not dm_file.exists()
 
 

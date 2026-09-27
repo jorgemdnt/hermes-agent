@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -115,7 +116,7 @@ def _completed(returncode=0, stdout="", stderr=""):
 
 def test_deliver_runs_canonical_bot_chat_lane():
     """The subprocess must use the Bot Mode agent-to-agent chat lane:
-    chat --in ~ -c "Bot Chat" --create-if-missing -Q --query-file <tmp>."""
+    chat --in <local cwd> -c "Bot Chat" --create-if-missing -Q --query-file <tmp>."""
     calls = {}
 
     def fake_run(argv, env, report_path, timeout):
@@ -132,6 +133,7 @@ def test_deliver_runs_canonical_bot_chat_lane():
     assert argv[:3] == [sys.executable, "-m", "hermes_cli.main"]
     assert argv[3:5] == ["-p", "default"]  # do not follow active_profile
     assert "chat" in argv
+    assert argv[argv.index("--in") + 1] == str(Path.home())
     assert "Bot Chat" in argv
     assert "--create-if-missing" in argv
     assert "-Q" in argv
