@@ -294,6 +294,8 @@ def test_local_delivery_command_and_ack(tmp_path, monkeypatch):
         "-p",
         "researcher",
         "chat",
+        "--in",
+        str(Path.home()),
         "-c",
         "Bot Chat",
         "--create-if-missing",
@@ -311,6 +313,31 @@ def test_local_delivery_command_and_ack(tmp_path, monkeypatch):
     assert '$(and this is not shell)' in content
 
 
+
+
+def test_remote_bot_chat_uses_the_profiles_terminal_cwd(tmp_path, monkeypatch):
+    home = _managed_home(tmp_path, teammates=("remote",))
+    target_home = home / "profiles" / "remote"
+    target_home.joinpath("config.yaml").write_text(
+        "terminal:\n  backend: ssh\n  cwd: /home/hermes/work/artemis\n", encoding="utf-8")
+    calls = _capture_spawn(monkeypatch)
+    monkeypatch.setattr(bot_relay, "_hermes_cli", lambda: "hermes")
+    result = json.loads(bot_mode_dm.message_agent_tool(
+        target="remote", message="delivery test, no action needed", agent=_FakeAgent(home)))
+    assert result["status"] == "queued"
+    _, _, argv = _runner_parts(calls[0]["command"])
+    assert argv == ["hermes", "-p", "remote", "chat", "-c", "Bot Chat", "--create-if-missing", "-Q"]
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    assert bot_relay.local_delivery_command("remote", "message.txt") == [*argv, "--query-file", "message.txt"]
+
+
+def test_local_bot_chat_honors_configured_workdir(tmp_path):
+    home = _managed_home(tmp_path, teammates=("local",))
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    (home / "profiles" / "local" / "config.yaml").write_text(
+        f"terminal:\n  backend: local\n  cwd: {workdir}\n", encoding="utf-8")
+    assert bot_relay.bot_chat_turn_args(home / "profiles" / "local")[1:3] == ("--in", str(workdir))
 
 
 def test_cli_runner_ack_is_queued_with_the_runner_delivery_id(tmp_path, monkeypatch):
@@ -501,7 +528,7 @@ def test_delivery_pins_the_hermes_entrypoint_beside_this_interpreter(tmp_path, m
     mode, _dm_file, transport_argv = _runner_parts(calls[0]["command"])
     assert mode == "query-file"
     assert transport_argv[0] == str(hermes_entry)
-    assert transport_argv[1:] == ["-p", "researcher", "chat", "-c", "Bot Chat",
+    assert transport_argv[1:] == ["-p", "researcher", "chat", "--in", str(Path.home()), "-c", "Bot Chat",
                                   "--create-if-missing", "-Q"]
 
     result2 = json.loads(

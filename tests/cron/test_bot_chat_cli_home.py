@@ -16,6 +16,9 @@ def test_cli_keeps_discovered_home_when_launch_selection_changes(tmp_path, monke
     root = tmp_path / "custom"
     home = root / "profiles" / "beta" if profile == "beta" else root
     home.mkdir(parents=True)
+    if profile == "beta":
+        (home / "config.yaml").write_text(
+            "terminal:\n  backend: ssh\n  cwd: /home/hermes/work/artemis\n", encoding="utf-8")
     other = root / "profiles" / "other"
     other.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -30,7 +33,10 @@ def test_cli_keeps_discovered_home_when_launch_selection_changes(tmp_path, monke
         return None
 
     def run(argv, env, report_path, timeout):
-        assert "--in" not in argv  # The recipient's terminal.cwd remains authoritative.
+        if profile == "beta":
+            assert "--in" not in argv  # Remote terminal.cwd must win over a Mac path.
+        else:
+            assert argv[argv.index("--in") + 1] == str(tmp_path)
         # Exercise the actual startup resolver with the production child env/flags.
         code = ('import json,sys; sys.argv=["hermes"]+json.loads(sys.argv[1]); '
                 'import hermes_cli.main; from hermes_constants import get_hermes_home; '

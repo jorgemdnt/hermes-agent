@@ -82,9 +82,20 @@ class EnvelopeRefusedError(RuntimeError):
 # ``message_agent`` target grammar in ``tools/bot_mode_dm.py``).
 _HANDLE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
-# One turn in a profile's canonical Bot Chat: ``hermes -p <profile> *BOT_CHAT_TURN_ARGS``.
-# ``-c "Bot Chat"`` must match ``bot_mode_probe.BOT_CHAT_TITLE``.
+# Shared flags for a profile's canonical Bot Chat; bot_chat_turn_args adds a
+# cwd only for local backends. The title must match bot_mode_probe.BOT_CHAT_TITLE.
 BOT_CHAT_TURN_ARGS = ("chat", "-c", "Bot Chat", "--create-if-missing", "-Q")
+
+
+def bot_chat_turn_args(profile_home: Path | str) -> tuple[str, ...]:
+    """Pin local Bot Chats to their own workspace; remote backends own their cwd."""
+    from tools.terminal_scope import build_profile_terminal_scope
+
+    policy = build_profile_terminal_scope(profile_home)
+    if policy.get("TERMINAL_ENV", "local") != "local":
+        return BOT_CHAT_TURN_ARGS
+    cwd = policy.get("TERMINAL_CWD") or str(Path.home())
+    return ("chat", "--in", cwd, *BOT_CHAT_TURN_ARGS[1:])
 
 # Set by a dispatcher on the ONE policy-gated re-run of a failed delivery turn (``tools.bot_mode_dm``,
 # ``tui_gateway.methods_bot_relay``). The failed attempt's turn-start persist already left the DM as the
@@ -516,7 +527,9 @@ def _hermes_cli() -> str:
 
 def local_delivery_command(profile: str, query_file: str) -> list[str]:
     """argv that delivers a DM into ``profile``'s Bot Chat on THIS gateway."""
-    return [_hermes_cli(), "-p", profile, *BOT_CHAT_TURN_ARGS, "--query-file", query_file]
+    root = _hermes_root(Path(_default_home()))
+    home = root if profile == "default" else root / "profiles" / profile
+    return [_hermes_cli(), "-p", profile, *bot_chat_turn_args(home), "--query-file", query_file]
 
 
 class DeliveryAuthor:
