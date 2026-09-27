@@ -2501,6 +2501,9 @@ DEFAULT_CONFIG = {
         # long; it restarts on the next use. Idle Xvnc + Xfce hold ~220 MB, an abandoned browser far more.
         # 0 keeps screens up until stopped.
         "idle_stop_minutes": 30,
+        # Optional Linux SSH terminal host: the dashboard remains on the Mac; only this profile's
+        # Xvnc socket and headed Chromium CDP port are forwarded over its existing SSH path.
+        "remote_ssh": {"host": "", "user": "", "source_dir": "", "cdp_local_port": 0},
     },
     "computer_use": {
         # cua-driver's upstream PostHog telemetry defaults ON; Hermes sets
