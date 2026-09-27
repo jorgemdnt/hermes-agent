@@ -139,7 +139,9 @@ def send_pending(home: Path, profile: str, kind: str, request_id: str) -> bool:
         except WebPushException as exc:
             if exc.response is not None and exc.response.status_code in (404, 410):
                 unsubscribe(home, row["subscription"]["endpoint"], row["user_id"])
-            log.warning("Mobile push delivery failed: %s", type(exc).__name__)
+            log.warning("Mobile push delivery failed: HTTP %s (%s)",
+                        exc.response.status_code if exc.response is not None else "no response",
+                        type(exc).__name__)
         except Exception:
             log.exception("Mobile push delivery failed")
     return delivered
