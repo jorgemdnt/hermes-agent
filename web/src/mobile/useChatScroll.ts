@@ -8,6 +8,10 @@ export function useChatScroll(identity: string, content: string, active = true) 
   const [position, setPosition] = useState({ identity, atBottom: true });
   const atBottom = position.identity !== identity || position.atBottom;
   const anchored = useRef(true);
+  // Only a real gesture may unpin the chat from the bottom. Late layout (markdown,
+  // avatars, notices, the first history page) fires scroll events too, and treating
+  // those as "the user scrolled up" is what left chats stranded above the bottom.
+  const interacted = useRef(false);
   const prepending = useRef<{ identity: string; top: number; height: number } | null>(null);
   const preserveOnPrepend = useCallback(() => {
     const node = container.current;
@@ -23,6 +27,10 @@ export function useChatScroll(identity: string, content: string, active = true) 
 
   const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const node = event.currentTarget;
+    if (!interacted.current) {
+      if (anchored.current) node.scrollTop = node.scrollHeight;
+      return;
+    }
     const bottom = node.scrollHeight - node.scrollTop - node.clientHeight <= BOTTOM_THRESHOLD;
     anchored.current = bottom;
     if (bottom) positions.current.delete(identity);
@@ -33,6 +41,7 @@ export function useChatScroll(identity: string, content: string, active = true) 
   useLayoutEffect(() => {
     if (!active || !container.current) return;
     const saved = positions.current.get(identity);
+    interacted.current = false;
     anchored.current = saved === undefined;
     container.current.scrollTop = saved ?? container.current.scrollHeight;
     setPosition({ identity, atBottom: saved === undefined });
@@ -59,5 +68,14 @@ export function useChatScroll(identity: string, content: string, active = true) 
     return () => observer.disconnect();
   }, [identity, active]);
 
-  return { container, atBottom, onScroll, scrollToLatest, preserveOnPrepend };
+  useLayoutEffect(() => {
+    const node = container.current;
+    if (!active || !node) return;
+    const touch = () => { interacted.current = true; };
+    const gestures = ["touchstart", "wheel", "pointerdown", "keydown"] as const;
+    for (const name of gestures) node.addEventListener(name, touch, { passive: true });
+    return () => { for (const name of gestures) node.removeEventListener(name, touch); };
+  }, [identity, active]);
+  const userScrolled = useCallback(() => interacted.current, []);
+  return { container, atBottom, onScroll, scrollToLatest, preserveOnPrepend, userScrolled };
 }

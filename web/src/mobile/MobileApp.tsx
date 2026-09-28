@@ -555,7 +555,7 @@ export default function MobileApp() {
     return () => { alive = false; };
   }, [profile, selected, connection, view, route.profile]);
 
-  const { container: messagesRef, atBottom, onScroll, scrollToLatest, preserveOnPrepend } = useChatScroll(`${profile}/${selected}`, `${chat?.rows.length || 0}:${chat?.draft || ""}:${Object.keys(prompts).join(",")}`, view === "chat");
+  const { container: messagesRef, atBottom, onScroll, scrollToLatest, preserveOnPrepend, userScrolled } = useChatScroll(`${profile}/${selected}`, `${chat?.rows.length || 0}:${chat?.draft || ""}:${Object.keys(prompts).join(",")}`, view === "chat");
   const loadOlder = async () => {
     const key = chatKey(profile, selected);
     if (paging.key !== key || !paging.hasOlder || paging.loading || !chat) return;
@@ -857,7 +857,7 @@ export default function MobileApp() {
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
         {view === "chat" && <>
-          <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
+          <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
             <div className="m-message-content">
               {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}

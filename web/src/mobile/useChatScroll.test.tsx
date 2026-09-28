@@ -24,7 +24,7 @@ it("restores a scrolled chat after leaving and returning, without snapping to th
   try {
     act(() => root.render(<Transcript id="same" text="Earlier" />));
     const box = host.querySelector(".messages") as HTMLDivElement;
-    act(() => { box.scrollTop = 160; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    act(() => { box.dispatchEvent(new Event("wheel")); box.scrollTop = 160; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
     act(() => root.render(<Transcript id="same" text="Earlier" active={false} />));
     act(() => root.render(<Transcript id="same" text="Earlier" />));
     expect((host.querySelector(".messages") as HTMLDivElement).scrollTop).toBe(160);
@@ -50,14 +50,14 @@ it("follows streaming only while at the bottom, offers a jump, and resets on con
     height = 600;
     act(() => root.render(<Transcript id="first" text="Hello, streamed" />));
     expect(box.scrollTop).toBe(600);
-    act(() => { box.scrollTop = 80; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    act(() => { box.dispatchEvent(new Event("wheel")); box.scrollTop = 80; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
     expect(host.textContent).toContain("Latest");
     height = 900;
     act(() => root.render(<Transcript id="first" text="Hello, streamed more" />));
     expect(box.scrollTop).toBe(80);
     act(() => (host.querySelector("button") as HTMLButtonElement).click());
     expect(box.scrollTop).toBe(900);
-    act(() => { box.scrollTop = 50; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    act(() => { box.dispatchEvent(new Event("wheel")); box.scrollTop = 50; box.dispatchEvent(new Event("scroll", { bubbles: true })); });
     act(() => root.render(<Transcript id="second" text="New chat" />));
     expect(box.scrollTop).toBe(900);
   } finally {

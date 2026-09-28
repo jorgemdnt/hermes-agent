@@ -280,7 +280,7 @@ it("hydrates fifty recent messages and prepends older pages without moving the v
   expect(log.querySelectorAll('.m-message')).toHaveLength(50);
   expect(log.textContent).not.toContain('Message 0');
   Object.defineProperty(log, 'scrollHeight', { get: () => log.querySelectorAll('.m-message').length * 100 });
-  await act(async () => { log.scrollTop = 40; log.dispatchEvent(new Event('scroll', { bubbles: true })); });
+  await act(async () => { log.dispatchEvent(new Event("wheel")); log.scrollTop = 40; log.dispatchEvent(new Event('scroll', { bubbles: true })); });
   await settle();
   expect(mocks.getSessionMessages).toHaveBeenCalledWith('stored', 'frodo', { limit: 50, offset: 50, order: 'latest', includeCompacted: true });
   expect(log.querySelectorAll('.m-message')).toHaveLength(100);
