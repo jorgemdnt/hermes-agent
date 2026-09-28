@@ -16,7 +16,8 @@ const mocks = vi.hoisted(() => ({
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
   ] })),
-  getSessionMessages: vi.fn(async (_id: string, profile: string) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
+  uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
+  getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }) => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "profiles.list") return { profiles: ["frodo", "gandalf", "samwise", "author", "default", "gimli"].map(name => ({ name, canonical_session: name === mocks.rosterAbsent ? null : {
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   events: new Set<(event: unknown) => void>(),
   requests: new Set<(request: unknown) => void>(),
 }));
+vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
 vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
@@ -474,6 +476,42 @@ it("resumes a profile's stored session, streams its runtime id, stops the turn, 
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
   await act(async () => (host.querySelector('button[aria-label="Stop"]') as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.interrupt", { profile: "frodo", session_id: "runtime" });
+});
+
+it("uploads a selected photo to the bot profile, attaches it before submitting, and renders a photo chip", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:mobile-photo") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const input = host.querySelector('.m-composer input[type="file"]') as HTMLInputElement;
+  const photo = new File(["png"], "test.png", { type: "image/png" });
+  Object.defineProperty(input, "files", { configurable: true, value: [photo] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(host.querySelector('.m-photo-preview img')?.getAttribute('alt')).toBe('test.png');
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(mocks.uploadChatImage).toHaveBeenCalledWith(photo, 'frodo');
+  expect(mocks.request).toHaveBeenCalledWith('image.attach', { session_id: 'runtime', profile: 'frodo', path: '/sample/image.png' });
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'frodo', text: 'What do you see in this photo?' });
+  expect(host.querySelector('.m-message.m-user:last-of-type')?.textContent).toContain('Photo');
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain('/sample/image.png');
+  expect(host.querySelector('.m-photo-preview')).toBeNull();
+});
+
+it("keeps the selected photo and text when its upload fails without sending a ghost message", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:failed-photo") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const input = host.querySelector('.m-composer input[type="file"]') as HTMLInputElement;
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["png"], "test.png", { type: "image/png" })] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  mocks.uploadChatImage.mockRejectedValueOnce(new Error('Upload unavailable'));
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-photo-preview')).not.toBeNull();
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain('What do you see in this photo?');
+  expect(mocks.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
 });
 
 it("copies the exact message from its long-press action without changing the conversation", async () => {

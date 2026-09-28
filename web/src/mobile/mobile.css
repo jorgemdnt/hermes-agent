@@ -128,11 +128,20 @@
 .m-user { width: fit-content; max-width: 86%; margin-left: auto; padding: 10px 14px; background: var(--chat-bubble); color: var(--chat-bubble-foreground); border: 1px solid var(--border); border-radius: 18px; }
 .m-message-time { display: block; margin-top: 5px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .m-user .m-message-time { text-align: right; }
+.m-image-ref { display: flex; align-items: center; gap: 6px; width: fit-content; margin-top: 4px; font-size: 13px; color: var(--muted-foreground); }
 .m-thinking { display: flex; align-items: center; min-height: 26px; gap: 8px; color: var(--muted-foreground); font-size: 13px; margin: 8px 0 12px; }
 .m-thinking .m-status-dot { margin: 0; background: var(--foreground); animation: m-breathe 1.3s ease-in-out infinite; }
 @keyframes m-breathe { 50% { opacity: .35; transform: scale(.8); } }
 .m-jump-latest { position: absolute; bottom: calc(82px + env(safe-area-inset-bottom)); right: 16px; z-index: 2; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); box-shadow: 0 3px 12px var(--shadow); }
-.m-composer { flex: none; display: flex; align-items: end; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--background); }
+.m-composer { flex: none; display: block; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--background); }
+.m-composer-row { display: flex; align-items: end; gap: 8px; }
+.m-photo-previews { display: flex; gap: 8px; overflow-x: auto; padding: 0 4px 10px; }
+.m-photo-preview { position: relative; flex: none; width: 68px; height: 68px; }
+.m-photo-preview img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--border); border-radius: 12px; }
+.m-shell .m-composer .m-photo-preview button { position: absolute; right: -13px; top: -13px; width: 44px; height: 44px; background: transparent; color: var(--background); }
+.m-photo-preview button svg { width: 26px; height: 26px; padding: 5px; border-radius: 50%; background: var(--foreground); }
+.m-shell .m-add-photo { background: var(--card); color: var(--foreground); border: 1px solid var(--border); }
+.m-shell .m-add-photo:disabled { opacity: .5; }
 .m-shell[data-keyboard="true"] .m-composer { padding-bottom: 10px; }
 .m-shell[data-keyboard="true"] .m-jump-latest { bottom: 82px; }
 .m-shell .m-composer textarea { flex: 1; width: auto; min-width: 0; height: 46px; max-height: 120px; min-height: 46px; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); font-size: 16px; }

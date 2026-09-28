@@ -4,7 +4,7 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -15,6 +15,7 @@ import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui"
 import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
+import { uploadChatImage } from "@/lib/chatImagePaste";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
@@ -68,6 +69,12 @@ export default function MobileApp() {
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
+  const [photos, setPhotos] = useState<Array<{ file: File; preview: string }>>([]);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const photosRef = useRef(photos);
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  useEffect(() => () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.preview); }, []);
+  const clearPhotos = () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.preview); setPhotos([]); };
   const cache = useRef(new Map<string, MobileChat>());
   const pages = useRef(new Map<string, { offset: number; hasOlder: boolean }>());
   const [paging, setPaging] = useState({ key: "", offset: 0, hasOlder: false, loading: false, error: "" });
@@ -584,6 +591,7 @@ export default function MobileApp() {
       } catch (e) { setError(errorText(e)); return; }
     }
     const session = targetSession;
+    if (name !== profile || session !== selected) clearPhotos();
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
@@ -598,13 +606,25 @@ export default function MobileApp() {
     navigate("chat", name, session);
   };
 
+  const choosePhotos = (files: FileList | null) => {
+    const added = Array.from(files || []).slice(0, Math.max(0, 4 - photos.length));
+    const valid = added.filter(file => {
+      if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type) || !file.size || file.size > 25 * 1024 * 1024) {
+        toast.error("Choose a PNG, JPEG, GIF, WebP or BMP under 25 MB"); return false;
+      }
+      return true;
+    });
+    setPhotos([...photos, ...valid.map(file => ({ file, preview: URL.createObjectURL(file) }))]);
+  };
   const send = async (event: FormEvent) => {
     event.preventDefault();
-    const message = text.trim();
+    const message = text.trim() || (photos.length ? "What do you see in this photo?" : "");
     const gw = client.current;
     if (!message || !gw || connection !== "open" || busy || chat?.running) return;
     setBusy(true); setError("");
     let target = chat;
+    const staged: string[] = [];
+    let optimistic = false;
     try {
       if (!target) {
         const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false });
@@ -617,15 +637,39 @@ export default function MobileApp() {
         routerNavigate(chatPath(profile, target.storedId), { replace: true });
       }
       const runtimeId = target.runtimeId;
+      for (const photo of photos) {
+        const uploaded = await uploadChatImage(photo.file, profile);
+        await gw.request("image.attach", { session_id: runtimeId, profile, path: uploaded.path });
+        staged.push(uploaded.path);
+      }
+      const shown = staged.length ? `${message}\n${staged.map(path => `@image:${path}`).join("\n")}` : message;
+      optimistic = true;
       setChat(prev => {
         if (prev?.runtimeId !== runtimeId) return prev;
-        const next = { ...prev, running: true, rows: [...prev.rows, { role: "user", text: message }] };
+        const next = { ...prev, running: true, rows: [...prev.rows, { role: "user", text: shown }] };
         cache.current.set(chatKey(profile, next.storedId), next);
         return next;
       });
       await gw.request("prompt.submit", { session_id: runtimeId, profile, text: message });
-      setText("");
-    } catch (e) { setError(errorText(e)); toast.error(errorText(e)); }
+      staged.length = 0;
+      setText(""); clearPhotos();
+    } catch (e) {
+      if (staged.length && target) {
+        const runtimeId = target.runtimeId;
+        await Promise.allSettled(staged.map(path => gw.request("image.detach", { session_id: runtimeId, profile, path })));
+      }
+      if (optimistic && target) {
+        const runtimeId = target.runtimeId;
+        setChat(prev => {
+          if (prev?.runtimeId !== runtimeId) return prev;
+          const rows = prev.rows.at(-1)?.role === "user" && (prev.rows.at(-1)?.text === message || prev.rows.at(-1)?.text.startsWith(`${message}\n@image:`)) ? prev.rows.slice(0, -1) : prev.rows;
+          const next = { ...prev, rows, running: false };
+          cache.current.set(chatKey(profile, next.storedId), next);
+          return next;
+        });
+      }
+      setError(errorText(e)); toast.error(errorText(e));
+    }
     finally { setBusy(false); }
   };
 
@@ -779,9 +823,16 @@ export default function MobileApp() {
             </div>
           </div>
           {!atBottom && <button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button>}
-          <form className="m-composer" onSubmit={e => void send(e)}><Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
-            {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
-              : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={!text.trim() || busy || connection !== "open"}><ArrowUp size={20} /></Button>}
+          <form className="m-composer" onSubmit={e => void send(e)}>
+            {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
+              <img src={photo.preview} alt={photo.file.name} /><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
+            </div>)}</div>}
+            <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
+              <button type="button" className="m-add-photo" aria-label="Add photo" disabled={busy || photos.length >= 4 || connection !== "open"} onClick={() => photoInput.current?.click()}><ImagePlus size={20} aria-hidden="true" /></button>
+              <Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
+              {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
+                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={(!text.trim() && !photos.length) || busy || connection !== "open"}><ArrowUp size={20} /></Button>}
+            </div>
           </form>
         </>}
         {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} />}
