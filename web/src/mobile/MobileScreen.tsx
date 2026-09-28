@@ -18,7 +18,6 @@ export default function MobileScreen({ gateway, onContinue }: { gateway: Gateway
   const socket = useRef<WebSocket | null>(null);
   const rfb = useRef<RFB | null>(null);
   const viewer = useRef("");
-  const attachedOnce = useRef(false);
   const generation = useRef(0);
   const [digest, setDigest] = useState("");
   const [status, setStatus] = useState<ScreenStatus | null>(null);
@@ -84,7 +83,20 @@ export default function MobileScreen({ gateway, onContinue }: { gateway: Gateway
   }, [gateway, refresh, detach]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { if (status?.running && state === "idle" && !attachedOnce.current) { attachedOnce.current = true; void attach(); } }, [status?.running, state, attach]);
+  useEffect(() => {
+    if (!status?.running || state !== "idle" || document.visibilityState === "hidden") return;
+    const timer = window.setTimeout(() => void attach(), 1500);
+    return () => clearTimeout(timer);
+  }, [status?.running, state, attach]);
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") { detach(); setState("idle"); }
+      else { void refresh(); if (status?.running) void attach(); }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onVisibility);
+    return () => { document.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("online", onVisibility); };
+  }, [attach, detach, refresh, status?.running]);
   useEffect(() => {
     if (!gateway) return;
     return gateway.onEvent(ev => {

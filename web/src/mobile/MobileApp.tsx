@@ -793,7 +793,7 @@ export default function MobileApp() {
         {view === "screen" && <MobileScreen gateway={screenGateway} onContinue={async () => {
           const gw = client.current;
           if (!gw || !chat?.runtimeId || profile !== "samwise") throw new Error("Open Samwise's chat before continuing");
-          const text = "I cleared the check; continue";
+          const text = "I handed back the screen; continue from the current state.";
           if (chat.running) {
             const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
             if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });

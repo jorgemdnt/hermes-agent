@@ -483,7 +483,7 @@ it("sends Continue to Samwise's selected chat after a screen hand-back", async (
   await openDestination("Screen");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("prompt.submit", {
-    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+    profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(host.textContent).toContain("Earlier");
   await vi.waitFor(() => expect(host.querySelectorAll('.m-detail')).toHaveLength(1));
@@ -499,7 +499,7 @@ it("steers the running Samwise turn instead of starting a second one", async () 
   await openDestination("Screen");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.steer", {
-    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+    profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
 });
@@ -598,10 +598,10 @@ it("submits Continue to the same chat when a running turn finishes before steer"
   mocks.request.mockImplementationOnce(async () => ({ status: "rejected" }));
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Continue after hand back") as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.steer", {
-    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+    profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(mocks.request).toHaveBeenCalledWith("prompt.submit", {
-    profile: "samwise", session_id: "runtime", text: "I cleared the check; continue",
+    profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(host.textContent).toContain("Earlier");
 });
