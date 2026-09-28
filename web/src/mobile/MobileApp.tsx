@@ -197,6 +197,8 @@ export default function MobileApp() {
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [activity, setActivity] = useState<string[]>([]);
   const [working, setWorking] = useState("");
+  const runningTools = useRef(new Map<string, string>());
+  const toolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -366,14 +368,28 @@ export default function MobileApp() {
       }
       if (ev.session_id === chatRef.current?.runtimeId) {
         if (ev.type === "tool.start") {
-          const name = (ev.payload as { name?: unknown } | undefined)?.name;
-          if (typeof name === "string" && /^[\w.-]{1,64}$/.test(name)) {
+          const { name, tool_id } = (ev.payload || {}) as { name?: unknown; tool_id?: unknown };
+          if (typeof name === "string" && /^[\w.-]{1,64}$/.test(name) && typeof tool_id === "string") {
+            if (toolTimer.current) clearTimeout(toolTimer.current);
             const label = name.replaceAll("_", " ").replaceAll(".", " ");
+            runningTools.current.set(tool_id, `Using ${label}`);
             setWorking(`Using ${label}`);
             setActivity(prev => [`Used ${label}`, ...prev].slice(0, 12));
           }
         }
-        if (ev.type === "message.complete") { setWorking(""); setActivity(prev => ["Finished a reply", ...prev].slice(0, 12)); }
+        if (ev.type === "tool.complete") {
+          const id = (ev.payload as { tool_id?: unknown } | undefined)?.tool_id;
+          if (typeof id === "string" && runningTools.current.delete(id)) {
+            const active = [...runningTools.current.values()].at(-1);
+            if (active) setWorking(active);
+            else toolTimer.current = setTimeout(() => { toolTimer.current = null; setWorking(""); }, 450);
+          }
+        }
+        if (ev.type === "message.start" || ev.type === "message.complete") {
+          if (toolTimer.current) clearTimeout(toolTimer.current);
+          runningTools.current.clear(); setWorking("");
+        }
+        if (ev.type === "message.complete") setActivity(prev => ["Finished a reply", ...prev].slice(0, 12));
         setChat(prev => {
           if (!prev) return prev;
           const next = applyChatEvent(prev, ev);
@@ -400,6 +416,8 @@ export default function MobileApp() {
     return () => {
       alive = false;
       clearTimeout(timer);
+      if (toolTimer.current) clearTimeout(toolTimer.current);
+      runningTools.current.clear();
       offState(); offEvents(); offRequest();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("online", onWake);
@@ -434,6 +452,11 @@ export default function MobileApp() {
   }, [connection, profile, profiles]);
 
   useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => {
+    if (toolTimer.current) clearTimeout(toolTimer.current);
+    runningTools.current.clear();
+    setWorking("");
+  }, [selected]);
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => {
     if (connection !== "open" || !profiles.length) return;
@@ -563,6 +586,8 @@ export default function MobileApp() {
       selectedRef.current = session;
       chatRef.current = null;
       setLiveSessions([]); setPrompts({}); setError(""); setWorking(""); setActivity([]);
+      if (toolTimer.current) clearTimeout(toolTimer.current);
+      runningTools.current.clear();
       setConnection("connecting");
       setProfile(name);
     }
@@ -619,7 +644,8 @@ export default function MobileApp() {
   const currentBot = profiles.find(p => p.name === profile);
   const name = currentBot ? botName(currentBot) : "Hermes";
   const avatar = (p: ProfileInfo) => <Avatar src={avatars[p.name]} name={botName(p)} />;
-  const status = connection !== "open" ? "Reconnecting…" : chatPrompts.length ? "Needs your input" : working || (chat?.running ? "Thinking…" : "Ready to talk");
+  const status = connection !== "open" ? "Reconnecting…" : chatPrompts.length ? "Needs your input"
+    : working || (chat?.running ? (chat.draft ? "Writing…" : "Thinking…") : "Ready to talk");
 
   const togglePush = async () => {
     setBusy(true); setError("");
@@ -754,7 +780,7 @@ export default function MobileApp() {
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
               {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
-              {chat?.running && !chat.draft && !chatPrompts.length && <p role="status" className="m-thinking"><i className="m-status-dot" />{status}</p>}
+              {chat?.running && !chatPrompts.length && <p role="status" aria-live="polite" className="m-thinking"><i className="m-status-dot" aria-hidden="true" />{status}</p>}
             </div>
           </div>
           {!atBottom && <button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button>}

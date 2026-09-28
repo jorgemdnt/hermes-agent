@@ -432,6 +432,24 @@ it("resolves legacy notification links to the latest stored chat", async () => {
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier');
 });
 
+it("keeps one live status through thinking, tools, streamed writing, and completion", async () => {
+  mocks.running = true;
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  expect(host.querySelector('.m-thinking')?.textContent).toContain('Thinking…');
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.start', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
+  expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.complete', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
+  expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.delta', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 470)); });
+  expect(host.querySelector('.m-thinking')?.textContent).toBe('Writing…');
+  expect(host.querySelector('.m-streaming')?.textContent).toContain('Here is the result');
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
+  expect(host.querySelector('.m-thinking')).toBeNull();
+});
+
 it("resumes a profile's stored session, streams its runtime id, stops the turn, and answers a pending approval", async () => {
   await renderApp();
   await settle(); await settle();

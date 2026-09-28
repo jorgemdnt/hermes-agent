@@ -124,7 +124,9 @@
 .m-user { width: fit-content; max-width: 86%; margin-left: auto; padding: 10px 14px; background: var(--chat-bubble); color: var(--chat-bubble-foreground); border: 1px solid var(--border); border-radius: 18px; }
 .m-message-time { display: block; margin-top: 5px; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .m-user .m-message-time { text-align: right; }
-.m-thinking { color: var(--muted-foreground); font-size: 13px; margin: 12px 0; }
+.m-thinking { display: flex; align-items: center; min-height: 26px; gap: 8px; color: var(--muted-foreground); font-size: 13px; margin: 8px 0 12px; }
+.m-thinking .m-status-dot { margin: 0; background: var(--foreground); animation: m-breathe 1.3s ease-in-out infinite; }
+@keyframes m-breathe { 50% { opacity: .35; transform: scale(.8); } }
 .m-jump-latest { position: absolute; bottom: calc(82px + env(safe-area-inset-bottom)); right: 16px; z-index: 2; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); box-shadow: 0 3px 12px var(--shadow); }
 .m-composer { flex: none; display: flex; align-items: end; gap: 8px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--background); }
 .m-shell[data-keyboard="true"] .m-composer { padding-bottom: 10px; }
