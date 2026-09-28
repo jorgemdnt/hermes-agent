@@ -49,10 +49,10 @@ const previewText = (text: string) => {
 const humanPreview = (text: string) => !!previewText(text) && !/^\s*(?:work kanban task\s+t_?[a-f\d]{6,}|window:\s*\d{4}-\d{2}-\d{2})/i.test(text);
 const latestPreview = (rows: MobileChat["rows"]) => previewText([...rows].reverse().find(row => humanPreview(row.text))?.text || "");
 
-function MobileListRow({ leading, title, preview, onClick, className = "", onWarm }: {
-  leading: ReactNode; title: string; preview?: string; onClick: () => void; className?: string; onWarm?: () => void;
+function MobileListRow({ leading, title, preview, onClick, className = "", onWarm, current = false }: {
+  leading: ReactNode; title: string; preview?: string; onClick: () => void; className?: string; onWarm?: () => void; current?: boolean;
 }) {
-  return <button type="button" className={`m-list-row ${className}`} onClick={onClick} onTouchStart={onWarm} onMouseEnter={onWarm}>
+  return <button type="button" className={`m-list-row ${className}`} aria-current={current ? "page" : undefined} onClick={onClick} onTouchStart={onWarm} onMouseEnter={onWarm}>
     <span className="m-list-leading">{leading}</span>
     <span className="m-list-copy"><strong>{title}</strong>{preview && <small>{preview}</small>}</span>
     <ChevronRight size={18} aria-hidden="true" />
@@ -64,6 +64,14 @@ export default function MobileApp() {
   const routerNavigate = useNavigate();
   const route = mobileRoute(location.pathname);
   const view = route.view;
+  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 900px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 900px)");
+    const update = () => setDesktop(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState(() => route.profile || "");
   const [sessions, setSessions] = useState<Conversation[]>([]);
@@ -142,7 +150,7 @@ export default function MobileApp() {
   const [conversationTitle, setConversationTitle] = useState("");
   const [conversationBusy, setConversationBusy] = useState(false);
   const [conversationError, setConversationError] = useState("");
-  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
+  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !desktop && !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
   useEffect(() => {
     let edge: { x: number; y: number } | null = null;
     let lastEdgeSwipe = 0;
@@ -185,8 +193,8 @@ export default function MobileApp() {
     }
   }, [swiping, swipePreview]);
   useLayoutEffect(() => {
-    if (view === "bots" && listRef.current) listRef.current.scrollTop = listScroll.current;
-  }, [view]);
+    if ((view === "bots" || desktop) && listRef.current) listRef.current.scrollTop = listScroll.current;
+  }, [view, desktop]);
   useEffect(() => {
     if (route.view !== "chat" || !route.profile) return;
     const sid = route.session === "new" ? "" : route.session || "";
@@ -782,6 +790,7 @@ export default function MobileApp() {
     onMouseEnter: () => { void warmProfile(name).catch(() => undefined); },
     onClick: () => pinClick(name),
   });
+  const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
       <h1 className="sr-only">Bots</h1>
@@ -793,7 +802,7 @@ export default function MobileApp() {
     </header>
     {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder="Search bots & conversations…" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
     {error && <p role="alert" className="m-error">{error}</p>}
-    <main className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
+    <HomeScroller className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
       {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
         <button type="button" className="m-pinned-bot" aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
           {avatar(p)}<span>{botName(p)}</span>
@@ -804,6 +813,17 @@ export default function MobileApp() {
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
         </button>
       </div>)}</div>
+      {desktop && <section className="m-sidebar-conversations" aria-label="Conversations">
+        <div className="m-sidebar-section-head"><h2>Conversations</h2><button type="button" aria-label="View all conversations" onClick={() => setConversationsOpen(true)}><MoreHorizontal size={19} aria-hidden="true" /></button></div>
+        {sessions.map(session => <div className="m-conversation-row" key={`${session.profile}/${session.id}`}>
+          <MobileListRow leading={session.pinned ? <Pin size={18} aria-hidden="true" /> : <MessageSquare size={18} aria-hidden="true" />}
+            title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
+            current={view === "chat" && profile === session.profile && selected === session.id}
+            onClick={() => { void selectProfile(session.profile, session.id); }} />
+          <button type="button" className="m-conversation-more" aria-label={`Options for ${session.title}`} onClick={() => { setConversationAction(session); setConversationTitle(session.title); setConversationError(""); setConversationsOpen(true); }}><MoreHorizontal size={19} aria-hidden="true" /></button>
+        </div>)}
+        {!sessions.length && <p className="m-muted">No conversations yet.</p>}
+      </section>}
       {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
       {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
         {searchError && <p role="alert" className="m-error">Search unavailable: {searchError}</p>}
@@ -819,7 +839,7 @@ export default function MobileApp() {
           <PromptCard pending={p} onAnswer={answer} onReceived={received} />
         </div>;
       })}</section>}
-    </main>
+    </HomeScroller>
   </>;
 
   const skipExit = skipBackAnimation.current && (view === "bots" || view !== swipeSource.current);
@@ -838,9 +858,10 @@ export default function MobileApp() {
   return <div className="m-shell" data-theme={theme} ref={shellRef}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
-      <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={view !== "bots"} inert={view !== "bots"}>
+      <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
         {renderHome()}
       </div>
+      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>Choose a bot or conversation</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
@@ -879,7 +900,12 @@ export default function MobileApp() {
             </div>)}</div>}
             <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
               <button type="button" className="m-add-photo" aria-label="Add photo" disabled={busy || photos.length >= 4 || connection !== "open"} onClick={() => photoInput.current?.click()}><ImagePlus size={20} aria-hidden="true" /></button>
-              <Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
+              <Textarea aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => {
+                if (desktop && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }} placeholder={`Message ${name}…`} rows={1} />
               {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
                 : voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>

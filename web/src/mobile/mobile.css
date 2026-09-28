@@ -284,7 +284,43 @@
 .m-conversation-manage input { min-height: 44px; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--foreground); font-size: 16px; }
 .m-conversation-manage .m-pin-choice { border-top: 1px solid var(--border); }
 .m-modal { overscroll-behavior: contain; }
-@media (min-width: 600px) { .m-shell { width: min(100%, 540px); margin-inline: auto; border-inline: 1px solid var(--border); } }
+@media (min-width: 600px) and (max-width: 899px) { .m-shell { width: min(100%, 540px); margin-inline: auto; border-inline: 1px solid var(--border); } }
+@media (min-width: 900px) {
+  .m-shell { width: 100%; padding: 0; height: 100dvh; }
+  .m-home { width: 320px; border-right: 1px solid var(--border); z-index: 2; }
+  .m-detail { left: 320px; width: calc(100% - 320px); box-shadow: none; transform: none !important; }
+  .m-desktop-empty { position: absolute; inset: 0 0 0 320px; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--muted-foreground); }
+  .m-desktop-empty h2 { margin: 0; font-size: 17px; font-weight: 500; }
+  .m-list-header { padding-inline: 16px; }
+  .m-bot-list { padding: 4px 12px 24px; }
+  .m-pinned { gap: 8px; padding: 12px 0 20px; }
+  .m-shell .m-pinned-bot { border-radius: 12px; padding: 8px 0; }
+  .m-pinned-bot .m-avatar, .m-pinned-bot .m-avatar-fallback { width: 54px; height: 54px; font-size: 22px; }
+  .m-bot-row { height: 64px; }
+  .m-shell .m-bot-main { padding: 0 8px; border-radius: 10px; }
+  .m-sidebar-conversations { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+  .m-sidebar-section-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+  .m-sidebar-section-head h2 { font-size: 13px; color: var(--muted-foreground); margin: 0; font-weight: 600; }
+  .m-shell .m-sidebar-section-head button { display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; width: 40px; height: 40px; }
+  .m-sidebar-conversations .m-conversation-row { border: 0; border-radius: 10px; }
+  .m-sidebar-conversations .m-list-row { height: 56px; border-radius: 10px; padding-left: 6px; }
+  .m-sidebar-conversations .m-list-row::after, .m-sidebar-conversations .m-list-row > svg:last-child { display: none; }
+  .m-sidebar-conversations .m-list-leading { width: 30px; height: 36px; }
+  .m-sidebar-conversations .m-conversation-more { opacity: 0; }
+  .m-sidebar-conversations .m-conversation-row:is(:hover, :focus-within) .m-conversation-more { opacity: 1; }
+  .m-sidebar-conversations .m-list-row[aria-current="page"] { background: var(--secondary); }
+  .m-shell .m-header { padding: 12px 24px; min-height: 72px; border-bottom: 1px solid var(--border); }
+  .m-shell .m-header > button:first-child, .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
+  .m-messages { padding: 28px 24px 20px; }
+  .m-message-content { width: min(100%, 720px); margin-inline: auto; }
+  .m-composer { width: min(100%, 768px); margin-inline: auto; padding: 12px 24px 20px; }
+  .m-jump-latest { right: max(24px, calc((100% - 720px) / 2)); bottom: 92px; }
+  .m-settings, .m-board, .m-screen { width: min(100%, 768px); margin-inline: auto; }
+  @media (hover: hover) {
+    .m-shell :is(.m-bot-main, .m-sidebar-conversations .m-list-row, .m-sidebar-section-head button, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
+    .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
+  }
+}
 @media (prefers-reduced-motion: reduce) { .m-shell *, .m-shell *::before, .m-shell *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 @media (prefers-reduced-motion: no-preference) {
   .m-bot-row, .m-destination, .m-shell button { transition: background-color .18s ease, border-color .18s ease; }

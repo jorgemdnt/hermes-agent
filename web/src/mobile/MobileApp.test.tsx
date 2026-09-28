@@ -115,6 +115,52 @@ it("shows pinned bots above one recency list with real message previews", async 
   expect(host.querySelector('[aria-label="New conversation"]')).not.toBeNull();
 });
 
+it("keeps bot and conversation navigation beside the desktop chat", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  expect(host.querySelector('.m-desktop-empty')?.textContent).toContain('Choose a bot or conversation');
+  expect(host.querySelector('.m-sidebar-conversations')?.textContent).toContain('Prior chat');
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-home')?.getAttribute('aria-hidden')).toBe('false');
+  expect((host.querySelector('.m-home') as HTMLElement).hasAttribute('inert')).toBe(false);
+  expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier from frodo');
+  await act(async () => (host.querySelector('.m-sidebar-conversations .m-list-row') as HTMLButtonElement).click());
+  expect(window.location.pathname).toBe('/m/chat/frodo/side-frodo');
+  expect(host.querySelector('.m-sidebar-conversations [aria-current="page"]')?.textContent).toContain('Prior chat');
+  await act(async () => (host.querySelector('.m-sidebar-conversations .m-conversation-more') as HTMLButtonElement).click());
+  expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Manage conversation');
+  await act(async () => (host.querySelector('[role="dialog"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("sends on Enter but keeps Shift+Enter as a newline only on desktop", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Hello desktop'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  const shifted = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+  await act(async () => textarea.dispatchEvent(shifted));
+  expect(shifted.defaultPrevented).toBe(false);
+  expect(mocks.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
+  const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  await act(async () => textarea.dispatchEvent(enter));
+  expect(enter.defaultPrevented).toBe(true);
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'frodo', text: 'Hello desktop' });
+});
+
+it("leaves Enter as a newline on the phone", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  await act(async () => textarea.dispatchEvent(enter));
+  expect(enter.defaultPrevented).toBe(false);
+  expect(mocks.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
+  expect(host.querySelector('.m-sidebar-conversations')).toBeNull();
+  expect(host.querySelector('.m-home')?.getAttribute('aria-hidden')).toBe('true');
+});
+
 it.each(["chat", "board", "board task", "screen"])("swipes back from %s in standalone mode with a following previous screen", async target => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query.includes("display-mode: standalone"), addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   if (target === "screen") mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
