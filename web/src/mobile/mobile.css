@@ -307,7 +307,10 @@
   .m-pinned-bot .m-avatar, .m-pinned-bot .m-avatar-fallback { width: 54px; height: 54px; font-size: 22px; }
   .m-bot-row { height: 64px; }
   .m-shell .m-bot-main { padding: 0 8px; border-radius: 10px; }
-  .m-shell .m-header { position: relative; padding: 12px 24px; min-height: 72px; border-bottom: 1px solid var(--border); }
+  /* Floating header: only the pill and the computer button; the transcript scrolls behind it. */
+  .m-shell .m-detail > .m-header { position: absolute; top: 0; left: 0; right: 0; z-index: 3; padding: 12px 24px; min-height: 72px; border: 0; background: transparent; pointer-events: none; }
+  .m-shell .m-detail > .m-header > * { pointer-events: auto; }
+  .m-shell .m-detail .m-messages { padding-top: 84px; }
   .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
   .m-shell .m-header .m-chat-identity { position: absolute; left: 50%; transform: translateX(-50%); max-width: calc(100% - 112px); margin: 0; }
   .m-shell .m-header > button[aria-label$="computer"] { margin-left: auto; }
@@ -321,11 +324,7 @@
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
   }
 }
-.m-shell.m-native :is(.m-list-header, .m-header) {
-  min-height: calc(52px + var(--m-native-titlebar-inset));
-  padding-block: var(--m-native-titlebar-inset) 0;
-  -webkit-app-region: drag;
-}
+.m-shell.m-native :is(.m-list-header, .m-header) { -webkit-app-region: drag; }
 @media (prefers-reduced-motion: reduce) { .m-shell *, .m-shell *::before, .m-shell *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 @media (prefers-reduced-motion: no-preference) {
   .m-bot-row, .m-destination, .m-shell button { transition: background-color .18s ease, border-color .18s ease; }
