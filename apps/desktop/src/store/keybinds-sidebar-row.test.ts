@@ -36,6 +36,6 @@ describe('⌘1–9 sidebar rows', () => {
       'sidebar.row.1': ['mod+1']
     })
 
-    expect(index.get(canonicalizeCombo('mod+1'))).toBe('sidebar.row.1')
+    expect(index.get(canonicalizeCombo('mod+1'))?.[0]).toBe('sidebar.row.1')
   })
 })

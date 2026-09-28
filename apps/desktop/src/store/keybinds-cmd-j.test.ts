@@ -21,6 +21,6 @@ describe('⌘J', () => {
       'view.toggleRightSidebar': ['mod+j']
     })
 
-    expect(index.get(canonicalizeCombo('mod+j'))).toBe('view.showTerminal')
+    expect(index.get(canonicalizeCombo('mod+j'))?.[0]).toBe('view.showTerminal')
   })
 })

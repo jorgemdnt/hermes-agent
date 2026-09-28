@@ -40,9 +40,8 @@ export interface KeybindActionMeta {
   editableTargetPolicy?: 'modified'
 }
 
-// Positional switch slots for *named* profiles: ⌘1…⌘9 for profiles 1-9, then
-// ⌘⌥1…⌘⌥9 for 10-18. The default profile gets the two-key mnemonic ⌘D (see
-// `profile.default`) — ⌘` is macOS-reserved (window cycling) and ⌘0 is reset-zoom.
+// Named profiles: on macOS ⌃1…⌃9, then ⌘⌥1…⌘⌥9 for
+// 10–18. Elsewhere retain stock mod+N for 1–9.
 export const PROFILE_SLOT_COUNT = 18
 
 function comboForSlot(slot: number): string {
@@ -52,7 +51,7 @@ function comboForSlot(slot: number): string {
 const PROFILE_SWITCH_ACTIONS: KeybindActionMeta[] = Array.from({ length: PROFILE_SLOT_COUNT }, (_, i) => ({
   id: `profile.switch.${i + 1}`,
   category: 'profiles' as const,
-  defaults: [comboForSlot(i + 1)]
+  defaults: [IS_MAC && i < 9 ? `ctrl+${i + 1}` : comboForSlot(i + 1)]
 }))
 
 // Positional tab-slot jumps — activate the Nth visible tab of the zone under
@@ -66,7 +65,7 @@ export const TAB_SLOT_COUNT = 9
 const TAB_SLOT_ACTIONS: KeybindActionMeta[] = Array.from({ length: TAB_SLOT_COUNT }, (_, i) => ({
   id: `view.tabSlot.${i + 1}`,
   category: 'view' as const,
-  defaults: [comboForSlot(i + 1)],
+  defaults: IS_MAC ? [] : [comboForSlot(i + 1)],
   passthrough: true
 }))
 
@@ -76,7 +75,7 @@ export const SESSION_SLOT_COUNT = 9
 const SESSION_SLOT_ACTIONS: KeybindActionMeta[] = Array.from({ length: SESSION_SLOT_COUNT }, (_, i) => ({
   id: `session.slot.${i + 1}`,
   category: 'session' as const,
-  defaults: [`ctrl+${i + 1}`]
+  defaults: [IS_MAC ? `mod+${i + 1}` : `ctrl+${i + 1}`]
 }))
 
 export const KEYBIND_ACTIONS: readonly KeybindActionMeta[] = [
