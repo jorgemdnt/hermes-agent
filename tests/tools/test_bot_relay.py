@@ -189,9 +189,11 @@ def test_waiter_is_a_runner_entrypoint_the_approval_gate_lets_through(root):
     parts = shlex.split(cmd)
 
     assert detect_dangerous_command(cmd)[0] is False, cmd
-    assert parts[1].endswith("bot_mode_dm.py") and parts[2] == "--wait-reply"
-    assert parts[3] == str(bot_relay.relay_root(root) / bot_relay.REPLIES_DIR / f"{'b' * 32}.json")
-    assert parts[4:] == ["@researcher on ssh-vps", str(bot_relay.REPLY_WAIT_SECONDS)]
+    prefix = bot_relay.delivery_runner_command(bot_relay._hermes_cli())
+    assert parts[:len(prefix)] == prefix
+    assert parts[len(prefix)] == "--wait-reply"
+    assert parts[len(prefix) + 1] == str(bot_relay.relay_root(root) / bot_relay.REPLIES_DIR / f"{'b' * 32}.json")
+    assert parts[len(prefix) + 2:] == ["@researcher on ssh-vps", str(bot_relay.REPLY_WAIT_SECONDS)]
 
 
 def test_waiter_outlives_the_desktop_deliver_deadline():
@@ -271,7 +273,7 @@ def test_hostile_roster_fields_ride_as_argv_data(root):
     parts = shlex.split(cmd)
 
     assert "-c" not in parts
-    assert parts[4] == f"@researcher on {inj}"
+    assert parts[parts.index("--wait-reply") + 2] == f"@researcher on {inj}"
     reply_path = bot_relay.relay_root(root) / bot_relay.REPLIES_DIR / f"{env['id']}.json"
     reply_path.parent.mkdir(parents=True, exist_ok=True)
     reply_path.write_text(json.dumps({"reply": "pong"}), encoding="utf-8")

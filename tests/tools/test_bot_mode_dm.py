@@ -964,6 +964,50 @@ def test_delivery_runner_uses_cli_venv_when_host_interpreter_lacks_dependencies(
     assert not dm_file.exists()
 
 
+@pytest.mark.platforms("posix")
+def test_published_launcher_runs_delivery_and_waiter_with_real_imports(tmp_path, monkeypatch):
+    """A store-Python caller must enter the published CLI's dependency environment for both helpers."""
+    from hermes_cli._launchers import mint_launcher
+
+    source = Path(bot_mode_dm.__file__).resolve().parents[1]
+    install = tmp_path / "source install"
+    published_bin = install / ".hermes" / "bin"
+    published_bin.mkdir(parents=True)
+    published = mint_launcher("hermes", source, published_bin, Path(sys.executable), None)
+    assert published is not None
+    monkeypatch.setattr(bot_relay, "__file__", str(install / "tools" / "bot_relay.py"))
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "bare-python-without-ruamel"))
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HERMES_HOME": str(home)}
+    dm_file = tmp_path / "message.txt"
+    dm_file.write_text("delivery test", encoding="utf-8")
+    cli = tmp_path / "delivered.sh"
+    cli.write_text("#!/bin/sh\nprintf 'delivered\\n'\n", encoding="utf-8")
+    cli.chmod(0o755)
+    author = {"id": "bot:default", "name": "hermes", "is_bot": True}
+    command = bot_mode_dm._delivery_command(
+        [str(published), "-p", "default", "chat"], str(dm_file), stdin_file=False,
+        profile_home=home, author=author,
+    )
+    parts = shlex.split(command)
+    assert parts[:3] == [str(published), "--run-module", "tools.bot_mode_dm"]
+    # Keep the real CLI bootstrap but substitute only the transport for this local round-trip.
+    parts[parts.index("--profile-home") + 2:] = [str(cli), "-p", "default", "chat"]
+    result = subprocess.run(parts, cwd=source, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout.strip() == "delivered"
+    assert not dm_file.exists()
+
+    envelope = {"id": "a" * 32, "target_handle": "gimli", "target_connection": "local"}
+    bot_relay.write_reply(home, envelope["id"], reply="ready")
+    waiter = shlex.split(bot_relay.waiter_command(home, envelope))
+    assert waiter[:3] == parts[:3]
+    result = subprocess.run(waiter, cwd=source, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert "ready" in result.stdout
+
+
 @pytest.mark.platforms("windows")
 def test_delivery_command_round_trip_through_windows_local_shell(tmp_path):
     """Native runner paths must survive the Git Bash process boundary."""

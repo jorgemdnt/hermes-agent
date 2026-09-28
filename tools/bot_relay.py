@@ -501,8 +501,7 @@ def waiter_command(root: Path | str, envelope: dict) -> str:
     """
     reply_path = str(relay_root(root) / REPLIES_DIR / f"{envelope['id']}.json")
     label = f"@{envelope.get('target_handle', '')} on {envelope.get('target_connection', '')}"
-    runner = str(Path(__file__).resolve().with_name("bot_mode_dm.py"))
-    argv = [sys.executable or "python3", runner, "--wait-reply", reply_path, label, str(REPLY_WAIT_SECONDS)]
+    argv = [*delivery_runner_command(_hermes_cli()), "--wait-reply", reply_path, label, str(REPLY_WAIT_SECONDS)]
     if sys.platform == "win32":
         # Same rewrite as the delivery runner: the tracked local backend uses Git Bash on native
         # Windows, where forward-slash drive paths run and backslash paths parse as command names.
@@ -526,6 +525,23 @@ def _hermes_cli() -> str:
         return str(published)
     sibling = Path(sys.executable or "").parent / name
     return str(sibling) if sibling.is_file() else shutil.which("hermes") or "hermes"
+
+
+def delivery_runner_command(cli: str) -> list[str]:
+    """Run DM helpers under the same dependency generation as the selected CLI.
+
+    The published launcher is a store-Python shim, not a venv console script:
+    its --run-module entry activates the current install dependencies before
+    admission imports Hermes. An older sibling console script still uses its
+    own venv; source/developer installs retain the host-interpreter fallback.
+    """
+    published = Path(__file__).resolve().parents[1] / ".hermes" / "bin" / (
+        "hermes.exe" if sys.platform == "win32" else "hermes")
+    if Path(cli) == published and published.is_file():
+        return [cli, "--run-module", "tools.bot_mode_dm"]
+    sibling = Path(cli).parent / ("python.exe" if sys.platform == "win32" else "python3")
+    python = str(sibling) if Path(cli).is_absolute() and sibling.is_file() else sys.executable or "python3"
+    return [python, str(Path(__file__).resolve().with_name("bot_mode_dm.py"))]
 
 
 def local_delivery_command(profile: str, query_file: str) -> list[str]:

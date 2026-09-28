@@ -585,14 +585,10 @@ def _delivery_command(argv: list[str], dm_file: str, *, stdin_file: bool,
                       profile_home: Path | None = None, author: Optional[dict] = None) -> str:
     """Build an argv-safe command for the cleanup-owning background runner:
     ``--run-delivery [--author <json>] <mode> <dm_file> [--profile-home <path>] <argv...>``."""
-    cli = Path(argv[0]) if argv else Path("")
-    sibling_python = cli.parent / ("python.exe" if sys.platform == "win32" else "python3")
-    # A Desktop-spawned backend can run on PM's bare toolchain Python while
-    # `hermes` resolves to an install venv. The runner imports the same Hermes
-    # modules as the CLI (including ruamel.yaml), so it must use that venv too.
-    runner_python = str(sibling_python) if cli.is_absolute() and sibling_python.is_file() else sys.executable
-    runner_argv = [runner_python, str(Path(__file__).resolve()), "--run-delivery",
-                   "stdin" if stdin_file else "query-file", dm_file]
+    from tools.bot_relay import delivery_runner_command
+
+    prefix = delivery_runner_command(argv[0])
+    runner_argv = [*prefix, "--run-delivery", "stdin" if stdin_file else "query-file", dm_file]
     if profile_home is not None:
         runner_argv.extend(["--profile-home", str(Path(profile_home).resolve())])
     runner_argv.extend(argv)
@@ -602,7 +598,7 @@ def _delivery_command(argv: list[str], dm_file: str, *, stdin_file: bool,
         runner_argv = [part.replace("\\", "/") for part in runner_argv]
     if author:
         # Inserted after the slash rewrite: JSON escapes are backslashes too.
-        runner_argv[3:3] = ["--author", json.dumps(author, separators=(",", ":"))]
+        runner_argv[len(prefix) + 1:len(prefix) + 1] = ["--author", json.dumps(author, separators=(",", ":"))]
     return shlex.join(runner_argv)
 
 

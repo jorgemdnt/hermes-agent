@@ -31,8 +31,9 @@ def test_delivery_prefers_install_launcher_over_old_generation(launchers):
     argv = bot_relay.local_delivery_command("researcher", "message with spaces.txt")
     assert argv[0] == str(published)
     assert str(sibling) not in argv
-    assert argv[1:] == ["-p", "researcher", *bot_relay.BOT_CHAT_TURN_ARGS,
-                       "--query-file", "message with spaces.txt"]
+    assert argv[1:] == ["-p", "researcher", *bot_relay.bot_chat_turn_args(
+        Path(bot_relay._default_home()) / "profiles" / "researcher"),
+        "--query-file", "message with spaces.txt"]
 
 
 def test_unpublished_install_retains_interpreter_sibling(launchers):
