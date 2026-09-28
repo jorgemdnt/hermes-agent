@@ -2881,18 +2881,25 @@ def _default_spawn(task: Task, workspace: str, *, board: Optional[str] = None) -
     # Tag the session `kanban` so session-browsing surfaces filter it out by
     # source instead of rendering one sidebar row per attempt.
     env["HERMES_SESSION_SOURCE"] = "kanban"
-    # TERMINAL_CWD takes precedence over process cwd in file_tools and
-    # build_context_files_prompt; without it relative writes land in the gateway
-    # user's home and workers load the gateway's AGENTS.md. file_tools rejects
-    # relative / sentinel values, so only set a real absolute directory.
-    # Pin TERMINAL_CWD to the task's workspace so the worker's file tools and context-file loader anchor on
-    # the workspace, not whatever cwd the dispatching gateway happened to export. The worker subprocess is
-    # already launched with cwd=workspace, but TERMINAL_CWD takes precedence over the process cwd in both
-    # file_tools._resolve_base_dir (#41312 — relative write_file paths were landing in the gateway user's
-    # home) and build_context_files_prompt (#34619 — workers loaded the dispatching gateway's AGENTS.md
-    # instead of the task's). Setting it to the workspace fixes both: the workspace is where the task's work
-    # actually happens.
-    if workspace and os.path.isabs(workspace) and os.path.isdir(workspace):
+    # The subprocess runs on this host from the workspace, but its terminal may run
+    # elsewhere. Pin the workspace for local tools/context (#34619, #41312); for a
+    # remote backend the assigned profile's cwd is in the target's namespace.
+    if profile_home:
+        from tools.terminal_scope import get_terminal_scope, enforce_no_refusal
+        with _worker_profile_scope(profile_home):
+            enforce_no_refusal()
+            terminal_policy = get_terminal_scope() or {}
+        remote_backend = terminal_policy.get("TERMINAL_ENV", "local").strip().lower() != "local"
+    else:
+        remote_backend = False
+        terminal_policy = {}
+    if remote_backend:
+        profile_cwd = terminal_policy.get("TERMINAL_CWD", "").strip()
+        if profile_cwd:
+            env["TERMINAL_CWD"] = profile_cwd
+        else:
+            env.pop("TERMINAL_CWD", None)
+    elif workspace and os.path.isabs(workspace) and os.path.isdir(workspace):
         env["TERMINAL_CWD"] = workspace
     if task.branch_name:
         env["HERMES_KANBAN_BRANCH"] = task.branch_name
