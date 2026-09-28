@@ -298,17 +298,6 @@
   .m-pinned-bot .m-avatar, .m-pinned-bot .m-avatar-fallback { width: 54px; height: 54px; font-size: 22px; }
   .m-bot-row { height: 64px; }
   .m-shell .m-bot-main { padding: 0 8px; border-radius: 10px; }
-  .m-sidebar-conversations { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
-  .m-sidebar-section-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
-  .m-sidebar-section-head h2 { font-size: 13px; color: var(--muted-foreground); margin: 0; font-weight: 600; }
-  .m-shell .m-sidebar-section-head button { display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; width: 40px; height: 40px; }
-  .m-sidebar-conversations .m-conversation-row { border: 0; border-radius: 10px; }
-  .m-sidebar-conversations .m-list-row { height: 56px; border-radius: 10px; padding-left: 6px; }
-  .m-sidebar-conversations .m-list-row::after, .m-sidebar-conversations .m-list-row > svg:last-child { display: none; }
-  .m-sidebar-conversations .m-list-leading { width: 30px; height: 36px; }
-  .m-sidebar-conversations .m-conversation-more { opacity: 0; }
-  .m-sidebar-conversations .m-conversation-row:is(:hover, :focus-within) .m-conversation-more { opacity: 1; }
-  .m-sidebar-conversations .m-list-row[aria-current="page"] { background: var(--secondary); }
   .m-shell .m-header { padding: 12px 24px; min-height: 72px; border-bottom: 1px solid var(--border); }
   .m-shell .m-header > button:first-child, .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
   .m-messages { padding: 28px 24px 20px; }
@@ -317,7 +306,7 @@
   .m-jump-latest { right: max(24px, calc((100% - 720px) / 2)); bottom: 92px; }
   .m-settings, .m-board, .m-screen { width: min(100%, 768px); margin-inline: auto; }
   @media (hover: hover) {
-    .m-shell :is(.m-bot-main, .m-sidebar-conversations .m-list-row, .m-sidebar-section-head button, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
+    .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
   }
 }

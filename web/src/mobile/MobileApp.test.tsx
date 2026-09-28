@@ -115,22 +115,15 @@ it("shows pinned bots above one recency list with real message previews", async 
   expect(host.querySelector('[aria-label="New conversation"]')).not.toBeNull();
 });
 
-it("keeps bot and conversation navigation beside the desktop chat", async () => {
+it("lists only bots beside the desktop chat", async () => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
-  expect(host.querySelector('.m-desktop-empty')?.textContent).toContain('Choose a bot or conversation');
-  expect(host.querySelector('.m-sidebar-conversations')?.textContent).toContain('Prior chat');
+  expect(host.querySelector('.m-desktop-empty')?.textContent).toContain('Choose a bot');
+  expect(host.querySelector('.m-home')?.textContent).not.toContain('Prior chat');
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   expect(host.querySelector('.m-home')?.getAttribute('aria-hidden')).toBe('false');
   expect((host.querySelector('.m-home') as HTMLElement).hasAttribute('inert')).toBe(false);
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier from frodo');
-  await act(async () => (host.querySelector('.m-sidebar-conversations .m-list-row') as HTMLButtonElement).click());
-  expect(window.location.pathname).toBe('/m/chat/frodo/side-frodo');
-  expect(host.querySelector('.m-sidebar-conversations [aria-current="page"]')?.textContent).toContain('Prior chat');
-  await act(async () => (host.querySelector('.m-sidebar-conversations .m-conversation-more') as HTMLButtonElement).click());
-  expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Manage conversation');
-  await act(async () => (host.querySelector('[role="dialog"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-  expect(host.querySelector('[role="dialog"]')).toBeNull();
 });
 
 it("sends on Enter but keeps Shift+Enter as a newline only on desktop", async () => {

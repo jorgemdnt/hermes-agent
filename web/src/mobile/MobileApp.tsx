@@ -813,17 +813,6 @@ export default function MobileApp() {
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
         </button>
       </div>)}</div>
-      {desktop && <section className="m-sidebar-conversations" aria-label="Conversations">
-        <div className="m-sidebar-section-head"><h2>Conversations</h2><button type="button" aria-label="View all conversations" onClick={() => setConversationsOpen(true)}><MoreHorizontal size={19} aria-hidden="true" /></button></div>
-        {sessions.map(session => <div className="m-conversation-row" key={`${session.profile}/${session.id}`}>
-          <MobileListRow leading={session.pinned ? <Pin size={18} aria-hidden="true" /> : <MessageSquare size={18} aria-hidden="true" />}
-            title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
-            current={view === "chat" && profile === session.profile && selected === session.id}
-            onClick={() => { void selectProfile(session.profile, session.id); }} />
-          <button type="button" className="m-conversation-more" aria-label={`Options for ${session.title}`} onClick={() => { setConversationAction(session); setConversationTitle(session.title); setConversationError(""); setConversationsOpen(true); }}><MoreHorizontal size={19} aria-hidden="true" /></button>
-        </div>)}
-        {!sessions.length && <p className="m-muted">No conversations yet.</p>}
-      </section>}
       {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
       {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
         {searchError && <p role="alert" className="m-error">Search unavailable: {searchError}</p>}
@@ -861,7 +850,7 @@ export default function MobileApp() {
       <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
         {renderHome()}
       </div>
-      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>Choose a bot or conversation</h2></main>}
+      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>Choose a bot</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
