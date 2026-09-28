@@ -387,3 +387,8 @@
 .m-task-detail .m-markdown { white-space: normal; }
 .m-computer-activity ul { padding-left: 18px; font-size: 13px; }
 .m-computer-activity li { margin: 10px 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+
+/* Selected bot: a quiet tint on its container, stronger than hover. */
+.m-shell :is(.m-pinned-bot, .m-bot-main)[aria-current="page"] { background: var(--secondary); opacity: 1; }
+.m-shell .m-bot-main[aria-current="page"] { border-radius: 10px; }
+.m-shell .m-pinned-bot[aria-current="page"] { border-radius: 12px; }

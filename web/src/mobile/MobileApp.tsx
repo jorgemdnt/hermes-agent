@@ -862,12 +862,12 @@ export default function MobileApp() {
     {error && <p role="alert" className="m-error">{error}</p>}
     <HomeScroller className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
       {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
-        <button type="button" className="m-pinned-bot" aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
+        <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
           {avatar(p)}<span>{botName(p)}</span>
         </button>
       </div>)}</div>}
       <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
-        <button type="button" className="m-bot-main" {...botGesture(p.name)}>
+        <button type="button" className="m-bot-main" aria-current={view === "chat" && p.name === profile ? "page" : undefined} {...botGesture(p.name)}>
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
         </button>
       </div>)}</div>
