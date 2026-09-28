@@ -4,6 +4,8 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { useLatestBuild } from "./useLatestBuild";
+
+const LAST_BOT_KEY = "hermes-mobile-last-bot";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
 import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
@@ -143,6 +145,7 @@ export default function MobileApp() {
   const setBoardScroll = useCallback((top: number) => { boardScroll.current = top; }, []);
   const [prompts, setPrompts] = useState<Record<string, PendingPrompt>>({});
   const [connection, setConnection] = useState("connecting");
+  const [screenState, setScreenState] = useState("Checking…");
   const skipBackAnimation = useRef(false);
   const swipeSource = useRef<Exclude<MobileView, "bots">>("chat");
   const [offsets] = useState(() => ({
@@ -247,6 +250,8 @@ export default function MobileApp() {
   }, []);
   const [activity, setActivity] = useState<string[]>([]);
   const [working, setWorking] = useState("");
+  const lastTurnSignal = useRef(Date.now());
+  const checkingTurn = useRef(false);
   const runningTools = useRef(new Map<string, string>());
   const toolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [text, setText] = useState("");
@@ -437,6 +442,7 @@ export default function MobileApp() {
       setConnection(state);
       if (state === "open") setScreenGateway(gw);
       if (state === "closed" || state === "error") {
+        setScreenGateway(null);
         for (const [key, value] of cache.current) if (key.startsWith(`${profile}/`)) cache.current.set(key, { ...value, runtimeId: "" });
         setPrompts({});
         setLiveSessions([]);
@@ -444,6 +450,20 @@ export default function MobileApp() {
       }
     });
     const offEvents = gw.onEvent(ev => {
+      if (ev.session_id === chatRef.current?.runtimeId) {
+        if (ev.type === "status.update" || ev.type.startsWith("message.") || ev.type.startsWith("tool.")) lastTurnSignal.current = Date.now();
+        if (ev.type === "status.update") {
+          const kind = (ev.payload as { kind?: string } | undefined)?.kind;
+          if (kind === "compacting") setWorking("Compacting conversation…");
+          else if (kind === "compacted") setWorking("");
+        }
+        if (ev.type === "message.complete") {
+          const outcome = ev.payload as { status?: string; error?: string } | undefined;
+          if (outcome?.status === "error" || outcome?.status === "interrupted") {
+            setError(outcome.error || (outcome.status === "interrupted" ? "The turn was interrupted." : "The turn failed."));
+          } else setError("");
+        }
+      }
       if (ev.type === "request.cancel") {
         const id = (ev.payload as { id?: string } | undefined)?.id;
         if (id) setPrompts(prev => { const next = { ...prev }; delete next[id]; return next; });
@@ -541,6 +561,40 @@ export default function MobileApp() {
   }, [selected]);
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => {
+    if (!chat?.running || !selected || connection !== "open") return;
+    const key = chatKey(profile, selected);
+    const check = async () => {
+      if (checkingTurn.current || Date.now() - lastTurnSignal.current < 30000 || document.visibilityState === "hidden") return;
+      const gw = client.current;
+      if (!gw) return;
+      checkingTurn.current = true;
+      try {
+        const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
+        if (chatKey(profile, selectedRef.current) !== key || !chatRef.current?.running) return;
+        const live = active.sessions.find(s => s.id === chatRef.current?.runtimeId || s.session_key === selected);
+        if (live && ["working", "waiting", "starting", "running"].includes(live.status)) return;
+        const snapshot = await gw.request<SessionSnapshot>("session.resume", { profile, session_id: selected, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
+        const page = await api.getSessionMessages(selected, profile, historyPage());
+        if (chatKey(profile, selectedRef.current) !== key) return;
+        const rows = displayRows(page.messages);
+        const running = !!snapshot.running || !!snapshot.inflight?.streaming;
+        setChat(prev => {
+          if (!prev || prev.storedId !== selected) return prev;
+          const next = { ...prev, runtimeId: snapshot.session_id, running, draft: snapshot.inflight?.assistant || "", rows: prependOlder(prev.rows, rows) };
+          cache.current.set(key, next);
+          return next;
+        });
+        if (!running) {
+          setWorking("");
+          if (rows.at(-1)?.role === "user") setError("The turn stopped without a reply. Edit and retry your message.");
+        }
+      } catch (e) { if (chatKey(profile, selectedRef.current) === key) setError(`Could not check this turn: ${errorText(e)}`); }
+      finally { lastTurnSignal.current = Date.now(); checkingTurn.current = false; }
+    };
+    const timer = window.setInterval(() => void check(), 10000);
+    return () => window.clearInterval(timer);
+  }, [chat?.running, selected, profile, connection]);
+  useEffect(() => {
     if (connection !== "open" || !profiles.length) return;
     let alive = true;
     const gw = client.current;
@@ -568,6 +622,7 @@ export default function MobileApp() {
     void client.current?.request<SessionSnapshot>("session.resume", { profile, session_id: selected, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true }).then(async snapshot => {
       if (!alive) return;
       const baseRows = cached?.rows ?? [];
+      lastTurnSignal.current = Date.now();
       const next: MobileChat = { runtimeId: snapshot.session_id, storedId: snapshot.stored_session_id || selected,
         rows: baseRows, draft: snapshot.inflight?.assistant || "", running: !!snapshot.running || !!snapshot.inflight?.streaming };
       cache.current.set(key, next);
@@ -646,6 +701,18 @@ export default function MobileApp() {
       document.removeEventListener("focusin", onFocusIn);
     };
   }, []);
+
+  // Desktop/hermetic reopen the last bot instead of the empty "Choose a bot" pane.
+  useEffect(() => {
+    if (view === "chat" && profile) localStorage.setItem(LAST_BOT_KEY, profile);
+  }, [view, profile]);
+  const reopened = useRef(false);
+  useEffect(() => {
+    if (reopened.current || !desktop || view !== "bots" || connection !== "open" || !profiles.length) return;
+    reopened.current = true;
+    const last = localStorage.getItem(LAST_BOT_KEY);
+    if (last && profiles.some(p => p.name === last)) void selectProfile(last);
+  });
 
   const selectProfile = async (name: string, targetSession?: string) => {
     if (!profiles.some(p => p.name === name)) return;
@@ -739,9 +806,10 @@ export default function MobileApp() {
       const shown = staged.length ? `${submitted}\n${staged.map(path => `@image:${path}`).join("\n")}` : submitted;
       optimisticText = shown;
       optimistic = true;
+      lastTurnSignal.current = Date.now();
       setChat(prev => {
         if (prev?.runtimeId !== runtimeId) return prev;
-        const next = { ...prev, running: true, rows: [...prev.rows, { role: "user", text: shown }] };
+        const next = { ...prev, running: true, rows: [...prev.rows, { role: "user", text: shown, timestamp: Date.now() / 1000 }] };
         cache.current.set(chatKey(profile, next.storedId), next);
         return next;
       });
@@ -938,10 +1006,13 @@ export default function MobileApp() {
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header">{!desktop && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>}
-        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: profile === "samwise" ? "Screen" : `${name} computer`, settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
       </header>
-      {error && <p role="alert" className="m-error">{error}</p>}
+      {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
+        const last = [...chat.rows].reverse().find(row => row.role === "user");
+        if (last) { setText(last.text); composerInput.current?.focus(); setError(""); }
+      }}>Edit and retry</button>}</div>}
       <main className="m-main">
         {view === "chat" && <>
           <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
@@ -997,7 +1068,7 @@ export default function MobileApp() {
           </form>
         </>}
         {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
-        {view === "screen" && (profile === "samwise" ? <MobileScreen gateway={screenGateway} onContinue={async () => {
+        {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? async () => {
           const gw = client.current;
           if (!gw || !chat?.runtimeId) throw new Error("Open Samwise's chat before continuing");
           const text = "I handed back the screen; continue from the current state.";
@@ -1006,7 +1077,7 @@ export default function MobileApp() {
             if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           navigate("chat");
-        }} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
+        } : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
           <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
           {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
           <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul>

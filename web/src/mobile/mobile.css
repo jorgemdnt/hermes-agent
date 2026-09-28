@@ -88,6 +88,9 @@
   .m-shell .m-icon-button, .m-shell .m-chat-identity, .m-shell .m-composer textarea { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 .m-chat-identity .m-avatar, .m-chat-identity .m-avatar-fallback { width: 34px; height: 34px; font-size: 16px; }
+.m-shell .m-screen-identity { margin-inline: auto; max-width: calc(100% - 52px); }
+.m-screen-identity small { color: var(--muted-foreground); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.m-screen-identity small::before { content: "·"; margin-right: 8px; }
 .m-chat-identity > span:not(.m-avatar, .m-avatar-fallback, .sr-only) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .m-chat-identity .m-avatar-skeleton { width: 34px; height: 34px; }
 .m-shell .m-composer textarea { box-shadow: 0 3px 14px var(--shadow); }
@@ -254,6 +257,20 @@
 .m-screen-empty strong { color: var(--foreground); font-size: 16px; }
 .m-screen-empty button { margin-top: 12px; }
 .m-screen-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.m-screen-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.m-screen-mode { font-weight: 600; }
+.m-screen-frame { position: relative; display: grid; place-items: center; }
+.m-screen-image-button { display: grid; place-items: center; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: crosshair; }
+.m-screen-image-button:disabled { cursor: default; }
+.m-screen-image-button:focus-visible { outline: 2px solid var(--foreground); outline-offset: -2px; }
+.m-screen-frame img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; }
+.m-screen-frame:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
+.m-screen-controlled { border-color: var(--foreground); }
+.m-screen-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: var(--screen); color: var(--muted-foreground); font-size: 14px; pointer-events: none; }
+.m-screen .m-error { overflow-wrap: anywhere; }
+.m-screen .m-error button { text-decoration: underline; text-underline-offset: 3px; }
+.m-screen-actions button:hover, .m-screen .m-error button:hover { background: var(--accent); }
+.m-screen-actions button:focus-visible, .m-screen .m-error button:focus-visible { outline: 2px solid var(--foreground); outline-offset: 2px; }
 .m-shell button { touch-action: manipulation; }
 .m-board, .m-settings { padding-top: 16px; }
 .m-column { margin-bottom: 22px; }
@@ -318,7 +335,8 @@
   .m-message-content { width: min(100%, 720px); margin-inline: auto; }
   .m-composer { width: min(100%, 768px); margin-inline: auto; padding: 12px 24px 20px; }
   .m-jump-row { padding-right: max(24px, calc((100% - 720px) / 2)); }
-  .m-settings, .m-board, .m-screen { width: min(100%, 768px); margin-inline: auto; }
+  .m-settings, .m-board { width: min(100%, 768px); margin-inline: auto; }
+  .m-screen { width: min(100%, 1240px); margin-inline: auto; padding-top: 84px; }
   @media (hover: hover) {
     .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }

@@ -517,6 +517,45 @@ it("resolves legacy notification links to the latest stored chat", async () => {
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier');
 });
 
+it("timestamps a just-sent message before a reload", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const input = host.querySelector('[aria-label="Message"]') as HTMLTextAreaElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Fresh send'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-message.m-user:last-of-type time')?.getAttribute('datetime')).toBeTruthy();
+});
+
+it("shows compaction and a failed turn with an edit-and-retry action instead of spinning", async () => {
+  mocks.running = true;
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'status.update', session_id: 'runtime', payload: { kind: 'compacting', text: 'Compacting context' } }); });
+  expect(host.querySelector('.m-thinking')?.textContent).toContain('Compacting conversation…');
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { status: 'error', error: 'Compression interrupted', text: '' } }); });
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Compression interrupted');
+  expect(host.querySelector('[aria-label="Edit and retry message"]')).not.toBeNull();
+});
+
+it("re-checks the server after a silent turn and stops a ghost spinner", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  vi.useFakeTimers();
+  try {
+    await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
+    expect(host.querySelector('.m-thinking')).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+    expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
+    expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
+    expect(host.querySelector('.m-thinking')).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
+  } finally { vi.useRealTimers(); }
+});
+
 it("keeps one live status through thinking, tools, streamed writing, and completion", async () => {
   mocks.running = true;
   await renderApp(); await settle(); await settle();
