@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { TRANSLATIONS } from '@/i18n/catalog'
 import { en } from '@/i18n/en'
 
-import { defaultBindings, KEYBIND_ACTIONS, KEYBIND_READONLY, keybindAction } from './actions'
+import {
+  defaultBindings,
+  KEYBIND_ACTIONS,
+  KEYBIND_READONLY,
+  keybindAction,
+  keybindActionAllowedInEditableTarget
+} from './actions'
 import { canonicalizeCombo } from './combo'
 
 // Relationship checks between the action table and its consumers, not the
@@ -38,6 +44,24 @@ describe('KEYBIND_ACTIONS', () => {
     expect(defaultBindings()['composer.dictate']).toEqual([])
     expect(en.keybinds.actions['composer.dictate']).toBe('Start / stop dictation')
     expect(KEYBIND_ACTIONS.filter(candidate => candidate.id === 'composer.dictate')).toHaveLength(1)
+  })
+
+  // #71627: reasoning level up/down ship unbound (users pick their own chord)
+  // and opt into firing from an editable target on MODIFIED combos only.
+  it('registers reasoning level actions unbound, editable on modified combos only', () => {
+    for (const id of ['composer.reasoningUp', 'composer.reasoningDown'] as const) {
+      expect(keybindAction(id)).toMatchObject({ category: 'composer', defaults: [], editableTargetPolicy: 'modified' })
+      expect(defaultBindings()[id]).toEqual([])
+      expect(en.keybinds.actions[id]).toBeTruthy()
+    }
+
+    expect(keybindActionAllowedInEditableTarget('composer.reasoningUp', 'alt+.')).toBe(true)
+    expect(keybindActionAllowedInEditableTarget('composer.reasoningDown', 'mod+alt+down')).toBe(true)
+    // Bare / shift-only rebinds must never hijack typing.
+    expect(keybindActionAllowedInEditableTarget('composer.reasoningUp', '.')).toBe(false)
+    expect(keybindActionAllowedInEditableTarget('composer.reasoningUp', 'shift+.')).toBe(false)
+    // Actions without the policy never qualify, modified combo or not.
+    expect(keybindActionAllowedInEditableTarget('appearance.toggleMode', 'alt+x')).toBe(false)
   })
 
   // jsdom never reports a Mac platform, so this is the Windows/Linux default.
@@ -91,5 +115,20 @@ describe('⌘J', () => {
   it('toggles the terminal, not the right sidebar', () => {
     expect(defaultBindings()['view.showTerminal']).toEqual(['mod+j'])
     expect(defaultBindings()['view.toggleRightSidebar']).toEqual(['mod+alt+b'])
+  })
+})
+
+describe('view.tabSlot.N layers over profile.switch.N on mod+N (#92569)', () => {
+  it('the tab slot passes through to the profile switch when no strip exists', () => {
+    for (let slot = 1; slot <= 9; slot += 1) {
+      expect(keybindAction(`view.tabSlot.${slot}`)).toMatchObject({ category: 'view', passthrough: true })
+      expect(keybindAction(`profile.switch.${slot}`)?.passthrough).toBeUndefined()
+    }
+  })
+
+  it('tab-slot actions precede profile switchers when their chords overlap', () => {
+    const ids = KEYBIND_ACTIONS.map(action => action.id)
+    expect(ids.indexOf('view.tabSlot.1')).toBeGreaterThanOrEqual(0)
+    expect(ids.indexOf('profile.switch.1')).toBeGreaterThan(ids.indexOf('view.tabSlot.1'))
   })
 })

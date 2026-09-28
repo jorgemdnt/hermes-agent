@@ -51,21 +51,49 @@ function aheadOfNewestDurableRow(localMessages: ChatMessage[], remoteChat: ChatM
 
   // The whole page is newer than anything this window holds.
   if (remoteIndex < 0) {
-    return lastDurableIndex(remoteChat) >= 0 ? true : null
+    return lastDurableIndex(remoteChat) >= 0 ? authoredMessageCount(remoteChat) > 0 : null
   }
 
-  return remoteChat.length - remoteIndex > localMessages.length - localIndex
+  return authoredMessageCount(remoteChat.slice(remoteIndex + 1)) > authoredMessageCount(localMessages.slice(localIndex + 1))
+}
+
+/**
+ * Transcript content a view actually authored. Backend-written notices
+ * (`ChatMessage.systemNotice`) render on the timeline but belong to no view, so
+ * counting them reports a second window that does not exist: an in-place model
+ * switch alone refused every send with "this window was behind another view of
+ * the same chat".
+ */
+function authoredMessageCount(messages: ChatMessage[]): number {
+  return messages.reduce((count, message) => (message.systemNotice ? count : count + 1), 0)
+}
+
+/**
+ * Latest persisted backend row the view carries. Retention only ever releases
+ * the head (rows older than the window plus its budget — see
+ * app/chat/transcript-retention.ts), so the last durable row is always the
+ * live tail; unpersisted rows (optimistic prompts, live streams) sit past it.
+ */
+function lastDurableRowId(messages: readonly ChatMessage[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const rowId = messages[index].rowId
+
+    if (typeof rowId === 'number') {
+      return rowId
+    }
+  }
+
+  return undefined
 }
 
 /**
  * Chat messages to install when the authoritative latest page is ahead of the
  * local view. Null when the local view is current.
  *
- * Counts are compared after `toChatMessages`, so tool rows folded into an
- * assistant bubble are not "ahead". A backfilled prefix is kept when the
- * refreshed tail anchors inside it. Live stream ids that have no stored row
- * yet count against the page's newer rows, so the window that just finished
- * the turn is not blocked.
+ * Compare authored content after the newest shared durable row: a trimmed
+ * local history is not stale just because its head is shorter, and backend
+ * notices do not count as another view's turn. Unstored local stream rows
+ * count against newer remote rows. Keep the backfilled prefix on refresh.
  */
 export function messagesIfTranscriptBehind(
   localMessages: ChatMessage[],
@@ -79,10 +107,15 @@ export function messagesIfTranscriptBehind(
     return remoteChat
   }
 
-  const grafted = graftRefreshedTailOntoBackfill(remoteChat, localMessages)
-  const ahead = aheadOfNewestDurableRow(localMessages, remoteChat) ?? grafted.length > localMessages.length
+  const localTip = lastDurableRowId(localMessages)
+  const remoteTip = lastDurableRowId(remoteChat)
+  if (localTip !== undefined && localTip === remoteTip) {
+    return null
+  }
 
-  return ahead ? grafted : null
+  const grafted = graftRefreshedTailOntoBackfill(remoteChat, localMessages)
+  const ahead = aheadOfNewestDurableRow(localMessages, remoteChat)
+  return (ahead ?? authoredMessageCount(grafted) > authoredMessageCount(localMessages)) ? grafted : null
 }
 
 /**

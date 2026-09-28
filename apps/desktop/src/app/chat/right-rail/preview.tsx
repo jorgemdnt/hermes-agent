@@ -1,11 +1,15 @@
 import { useStore } from '@nanostores/react'
+import { useEffect } from 'react'
 
 import { $restartPreviewServer } from '@/app/contrib/panes'
-import { $previewReloadRequest, $previewTabsBySession, previewTabTarget } from '@/store/preview'
+import { $previewReloadRequest, $previewTabs, $previewTabsBySession, adoptPersistedBrowserTab, previewTabTarget } from '@/store/preview'
+import { isBrowserWindow } from '@/store/windows'
 
 import { PreviewPane } from './preview-pane'
 
 interface PreviewTilePaneProps {
+  /** The tab's own Close, for body states that offer one (a failed load). */
+  onClose?: () => void
   /** The `$previewTabs` id this pane renders. */
   tabId: string
 }
@@ -20,10 +24,18 @@ interface PreviewTilePaneProps {
  * bridge the old rail wrapper used, since the mirror renders this pane with no
  * props to thread.
  */
-export function PreviewTilePane({ tabId }: PreviewTilePaneProps) {
+export function PreviewTilePane({ onClose, tabId }: PreviewTilePaneProps) {
   const previewReloadRequest = useStore($previewReloadRequest)
   useStore($previewTabsBySession)
+  const previewTabs = useStore($previewTabs)
   const restartPreviewServer = useStore($restartPreviewServer)
+  // Pop-outs start with no focused session; adopt the tab's persisted owner.
+  useEffect(() => {
+    if (isBrowserWindow() && tabId && !previewTabs.some(tab => tab.id === tabId)) {
+      adoptPersistedBrowserTab(tabId, true)
+    }
+  }, [previewTabs, tabId])
+
   const target = previewTabTarget(tabId)
 
   // The tab closed while this pane was still mounted (the mirror disposes it a
@@ -35,6 +47,7 @@ export function PreviewTilePane({ tabId }: PreviewTilePaneProps) {
   return (
     <PreviewPane
       embedded
+      onClose={onClose}
       onRestartServer={target.kind === 'url' ? (restartPreviewServer ?? undefined) : undefined}
       reloadRequest={previewReloadRequest}
       tabId={tabId}

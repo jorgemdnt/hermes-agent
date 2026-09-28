@@ -58,33 +58,30 @@ export function withoutRailOnModJ(bindings: KeybindBindings): KeybindBindings {
   return next
 }
 
-export function buildComboIndex(bindings: KeybindBindings): Map<string, string> {
-  const index = new Map<string, string>()
+export function buildComboIndex(bindings: KeybindBindings): Map<string, string[]> {
+  const index = new Map<string, string[]>()
   const resolved = withoutRailOnModJ(bindings)
 
   for (const action of allKeybindActions()) {
-    for (const combo of resolved[action.id] ?? bindingsFor(action.id, resolved)) {
+    for (const combo of bindingsFor(action.id, resolved)) {
       const key = canonicalizeCombo(combo)
-
-      if (!index.has(key)) {
-        index.set(key, action.id)
-      }
+      index.set(key, [...(index.get(key) ?? []), action.id])
     }
   }
 
-  // ⌘1–9 are sidebar rows (active Sessions or Bots tab). Profile slots ship
-  // `mod+N` first in KEYBIND_ACTIONS, so first-wins would keep ⌘1 on
-  // profile.switch.1 — a no-op when only `default` exists. Same pattern as ⌘J.
+  // The contributed sidebar-row action owns ⌘N when installed. Keep the
+  // remaining actions in order for the upstream passthrough dispatcher.
   for (let slot = 1; slot <= 9; slot += 1) {
     const id = `sidebar.row.${slot}`
-
-    if (allKeybindActions().some(action => action.id === id)) {
-      index.set(canonicalizeCombo(`mod+${slot}`), id)
+    const key = canonicalizeCombo(`mod+${slot}`)
+    const actions = index.get(key)
+    if (actions?.includes(id)) {
+      index.set(key, [id, ...actions.filter(action => action !== id)])
     }
   }
 
-  index.set(canonicalizeCombo(MOD_J), 'view.showTerminal')
-
+  const terminal = canonicalizeCombo(MOD_J)
+  index.set(terminal, ['view.showTerminal', ...(index.get(terminal) ?? []).filter(id => id !== 'view.showTerminal')])
   return index
 }
 
@@ -143,10 +140,8 @@ export function bindingsFor(id: string, bindings: KeybindBindings = $bindings.ge
   return bindings[id] ?? storedOverrides[id] ?? [...(keybindAction(id)?.defaults ?? [])]
 }
 
-// Reverse lookup combo → actionId for dispatch. First action wins on conflict;
-// the panel/edit overlay surface conflicts so users can resolve them. Keys go
-// through `canonicalizeCombo` so a `ctrl+…` binding resolves everywhere.
-// Recomputes on registry mutations so contributed actions dispatch live.
+// Reverse lookup combo → action ids; a passthrough action can decline and
+// hand the chord to the next. Rebuild on late plugin registrations.
 export const $comboIndex = computed([$bindings, $registryVersion], bindings => buildComboIndex(bindings))
 
 export function setBinding(actionId: string, combos: string[]): void {
@@ -176,13 +171,25 @@ export function resetAllBindings(): void {
   $bindings.set(defaultBindings())
 }
 
-// Other actions that already use `combo` (excluding `actionId` itself).
+// Other actions that already use `combo` (excluding `actionId` itself). A
+// `passthrough` action layered over a later one shares the chord by design,
+// so that pair is not reported from either side.
 export function conflictsFor(actionId: string, combo: string): string[] {
   const bindings = $bindings.get()
+  const actions = allKeybindActions()
+  const self = actions.findIndex(action => action.id === actionId)
 
-  return allKeybindActions()
+  return actions
+    .filter((action, index) => {
+      if (index === self || !bindingsFor(action.id, bindings).includes(combo)) {
+        return false
+      }
+
+      const earlier = index < self ? action : actions[self]
+
+      return !earlier?.passthrough
+    })
     .map(action => action.id)
-    .filter(id => id !== actionId && bindingsFor(id, bindings).includes(combo))
 }
 
 // ── Capture ─────────────────────────────────────────────────────────────────

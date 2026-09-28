@@ -893,6 +893,7 @@ export function applyStoredToolResultToParts(
   next[partIndex] = {
     ...existing,
     completedAt: toolMessage.timestamp,
+    storedResultToolName: toolName,
     result: parseStoredToolResult(content),
     toolResultMetadata: storedToolResultMetadata(toolMessage),
     isError: false
@@ -916,6 +917,7 @@ export function storedToolMessagePart(toolMessage: SessionMessage, fallbackIndex
     type: 'tool-call',
     toolCallId: toolMessage.tool_call_id || `stored-tool-message-${fallbackIndex}`,
     toolName: name,
+    unpairedStoredToolResult: true,
     args: args as never,
     argsText: Object.keys(args).length ? JSON.stringify(args) : '',
     timestamp: toolMessage.timestamp,

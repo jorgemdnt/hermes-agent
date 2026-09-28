@@ -448,29 +448,33 @@ export function commitBrowserTabLocation(tabId: string, url: string, title?: str
   )
 }
 
-/** Pull one tab from storage into this renderer's atom. A sibling window
- *  (the pop-out) may have committed a newer URL that we never saw. */
-export function adoptPersistedBrowserTab(tabId: string) {
-  if (!tabId) {
-    return
-  }
-
+/** Re-home a popped-out Browser onto the persisted session that owns its tab,
+ * or pick up the URL it committed when docking back into the main window. */
+export function adoptPersistedBrowserTab(tabId: string, rehome = false) {
+  if (!tabId) return
   try {
-    const raw = readKey(TABS_STORAGE_KEY)
+    const stored = readKey(TABS_STORAGE_KEY_V3)
+    if (!stored) return
+    const parsed = JSON.parse(stored) as PreviewTabsBySession
+    for (const [owner, raw] of Object.entries(parsed.tabs ?? {})) {
+      const tabs = decodePreviewTabs(JSON.stringify(raw))
+      const persisted = tabs.find(tab => tab.id === tabId)
+      if (!persisted || persisted.target.kind !== 'url') continue
 
-    if (!raw) {
+      const current = $previewTabsBySession.get().tabs[owner] ?? []
+      if (current.some(tab => tab.id === tabId)) {
+        writeTabsForOwner(owner, current.map(tab => tab.id === tabId ? persisted : tab))
+      } else {
+        writeTabsForOwner(owner, [...current, persisted])
+      }
+      if (rehome && !$previewTabs.get().some(tab => tab.id === tabId)) {
+        focusedStoredId = owner
+        applyPreviewOwner(owner)
+      }
       return
     }
-
-    const persisted = decodePreviewTabs(raw).find(tab => tab.id === tabId)
-
-    if (!persisted || persisted.target.kind !== 'url') {
-      return
-    }
-
-    commitBrowserTabLocation(tabId, persisted.target.url, persisted.target.label)
   } catch {
-    // Storage can throw; the in-memory tab stays as it was.
+    // Storage access may fail; keep the in-memory tab unchanged.
   }
 }
 

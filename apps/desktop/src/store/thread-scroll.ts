@@ -108,17 +108,41 @@ export const requestScrollToBottom = (sessionId: string | null = null) => {
   handlers.get(sessionId)?.forEach(handler => handler())
 }
 
-/** Sessions | Bots tab switch: land on the newest messages, not a stale
- *  keep-alive offset recorded while the pane was hidden. */
+/** Sessions | Bots tab switch: land on the newest messages. */
 export function pinChatToLatest(sessionId: string | null | undefined) {
   const id = String(sessionId || '').trim()
-
-  if (!id) {
-    return
-  }
-
+  if (!id) return
   saveThreadScrollPosition(id, THREAD_SCROLL_BOTTOM)
   requestScrollToBottom(id)
+}
+
+export type ThreadPageDirection = -1 | 1
+
+// Bare PageUp/PageDown are global keybinds, while the scroll owner lives in
+// the focused thread. Route the intent by stable session key so kept-alive and
+// split transcripts cannot page together.
+const pageHandlers = new Map<string | null, Set<(direction: ThreadPageDirection) => void>>()
+
+export const onThreadPageScrollRequest = (
+  handler: (direction: ThreadPageDirection) => void,
+  sessionKey: string | null = null
+) => {
+  const scoped = pageHandlers.get(sessionKey) ?? new Set<(direction: ThreadPageDirection) => void>()
+
+  scoped.add(handler)
+  pageHandlers.set(sessionKey, scoped)
+
+  return () => {
+    scoped.delete(handler)
+
+    if (scoped.size === 0) {
+      pageHandlers.delete(sessionKey)
+    }
+  }
+}
+
+export const requestThreadPageScroll = (direction: ThreadPageDirection, sessionKey: string | null = null) => {
+  pageHandlers.get(sessionKey)?.forEach(handler => handler(direction))
 }
 
 // Inline edit grows a sticky human bubble. Fire on pointerdown so the viewport

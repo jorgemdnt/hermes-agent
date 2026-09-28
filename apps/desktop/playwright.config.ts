@@ -1,3 +1,4 @@
+import './e2e/run-tmp'
 import './e2e/fix-electron-tracing'
 
 import { defineConfig, type ReporterDescription } from '@playwright/test'
@@ -32,8 +33,8 @@ export default defineConfig({
    * app) and is owned by the vitest `electron` project. Without this the
    * default testMatch would claim those files too and run them twice.
    * e2e/core/ has its own config (retries 0, one worker) and CI job;
-   * e2e/renderer/ runs in plain Chromium via its own config. */
-  testIgnore: ['**/*.unit.test.ts', 'core/**', 'renderer/**'],
+   * e2e/renderer/ and e2e/update/ have their own configs. */
+  testIgnore: ['**/*.unit.test.ts', 'core/**', 'renderer/**', 'update/**'],
   /* The desktop app can take a while to bootstrap on cold CI runners — 90 s
    * per test gives us headroom without masking real hangs. */
   timeout: 90_000,

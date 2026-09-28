@@ -31,7 +31,7 @@ import {
   setInterfaceMode
 } from '@/store/interface-mode'
 import { $introSplash, setIntroSplash } from '@/store/intro-splash'
-import { $panesFlipped, togglePanesFlipped } from '@/store/layout'
+import { $fileBrowserOpen, $panesFlipped, setFileBrowserOpen, togglePanesFlipped } from '@/store/layout'
 import { notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
@@ -440,6 +440,8 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
   const composerPopoutGesturesEnabled = useStore($composerPopoutGesturesEnabled)
+  const fileBrowserOpen = useStore($fileBrowserOpen)
+  const fileBrowserShadowed = useStore($modeShadowed('fileBrowserOpen'))
   const translucency = useStore($translucency)
   const glassMode = translucency.mode === 'glass' && GLASS_SUPPORTED
   const userBubbleTransparency = useStore($userBubbleTransparency)
@@ -987,6 +989,19 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
               id={settingElementId(ids.introSplash)}
               label={a.introSplashTitle}
               onChange={setIntroSplash}
+            />
+          )}
+
+          {/* The same state as the titlebar toggle / ⌘J, which persists across
+              launches — so this is the file browser's standing default. Simple
+              mode shadows it; a flip there only lasts the session, so say so. */}
+          {show('window-layout') && (
+            <ToggleRow
+              checked={fileBrowserOpen}
+              description={withModeNote(a.fileBrowserDesc, fileBrowserShadowed)}
+              id={settingElementId(ids.fileBrowser)}
+              label={a.fileBrowserTitle}
+              onChange={setFileBrowserOpen}
             />
           )}
 
