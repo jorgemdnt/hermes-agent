@@ -402,6 +402,12 @@ function appendSessionFilters(url: string, options: SessionQueryOptions): string
   return appendProfileParam(next, options.profile);
 }
 
+const MOBILE_CONVERSATION_EXCLUDED_SOURCES = [
+  "cron", "kanban", "oneshot", "subagent", "tool", "telegram", "discord", "slack", "mattermost",
+  "matrix", "signal", "whatsapp", "bluebubbles", "photon", "homeassistant", "email", "sms",
+  "webhook", "api_server", "weixin", "wecom", "qqbot", "yuanbao", "dingtalk", "feishu",
+].join(",");
+
 export const api = {
   buildWsUrl,
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
@@ -437,6 +443,10 @@ export const api = {
       window.location.assign("/login");
       return r;
     }),
+  getAllProfileSessions: (limit = 200) =>
+    fetchJSON<PaginatedSessions>(
+      `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=1&archived=exclude&order=recent&profile=all&exclude_sources=${encodeURIComponent(MOBILE_CONVERSATION_EXCLUDED_SOURCES)}`,
+    ),
   getSessions: (
     limit = 20,
     offset = 0,
@@ -2099,6 +2109,7 @@ export interface SessionInfo {
   last_active: number;
   is_active: boolean;
   message_count: number;
+  pinned?: boolean;
   tool_call_count: number;
   input_tokens: number;
   output_tokens: number;

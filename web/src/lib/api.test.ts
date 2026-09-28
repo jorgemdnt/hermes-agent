@@ -95,6 +95,24 @@ describe("fetchJSON", () => {
   });
 });
 
+describe("mobile conversations REST list", () => {
+  it("queries every profile with desktop recents filters rather than the active management profile", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = jsonFetchMock({ sessions: [] });
+    vi.stubGlobal("fetch", fetchMock);
+    setManagementProfile("gandalf");
+
+    await api.getAllProfileSessions();
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string, "http://localhost");
+    expect(url.pathname).toBe("/api/profiles/sessions");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      profile: "all", min_messages: "1", archived: "exclude", order: "recent", limit: "200",
+    });
+    expect(url.searchParams.get("exclude_sources")?.split(",")).toEqual(expect.arrayContaining(["cron", "kanban", "oneshot", "subagent", "tool", "telegram"]));
+  });
+});
+
 describe("api.getModelOptions", () => {
 
   it("keeps explicit profile scoping when refreshing", async () => {

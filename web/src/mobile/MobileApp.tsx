@@ -8,6 +8,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid,
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
+import { sideConversations, type Conversation } from "./conversations";
 import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
 import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui";
@@ -20,7 +21,8 @@ import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity
 import "./mobile-theme.css";
 import "./mobile.css";
 
-interface SessionRow { id: string; title: string; preview: string }
+interface CanonicalChat { id: string; resolved_id: string; preview: string; last_active: number }
+interface Roster { profiles: Array<{ name: string; canonical_session?: CanonicalChat | null }> }
 interface LiveSession { id: string; session_key: string; title: string; preview?: string; status: string; last_active?: number }
 interface SessionSnapshot {
   session_id: string;
@@ -60,12 +62,13 @@ export default function MobileApp() {
   const view = route.view;
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState(() => route.profile || "");
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [sessions, setSessions] = useState<Conversation[]>([]);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const cache = useRef(new Map<string, MobileChat>());
   const latest = useRef(new Map<string, BotActivity>());
+  const canonical = useRef(new Map<string, CanonicalChat>());
   const warming = useRef(new Map<string, Promise<void>>());
   const [activityByBot, setActivityByBot] = useState<Record<string, BotActivity>>({});
   const [waitingByBot, setWaitingByBot] = useState<Record<string, LiveSession>>({});
@@ -92,7 +95,7 @@ export default function MobileApp() {
   };
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Array<{ profile: string; session: string; title: string; preview: string }>>([]);
+  const [searchResults, setSearchResults] = useState<Array<{ profile: string; session: string; title: string; preview: string; pinned: boolean }>>([]);
   const [searchError, setSearchError] = useState("");
   const listScroll = useRef(0);
   const listRef = useRef<HTMLElement>(null);
@@ -173,11 +176,15 @@ export default function MobileApp() {
     setChat(cache.current.get(chatKey(route.profile, sid)) ?? null);
   }, [location.pathname]);
   useEffect(() => {
-    if (view === "screen" && profile !== "samwise" && profiles.some(p => p.name === "samwise")) {
+    if (view !== "screen") return;
+    if (profile !== "samwise" && profiles.some(p => p.name === "samwise")) {
       setProfile("samwise"); setSelected(latest.current.get("samwise")?.session || "");
       setConnection("connecting");
+    } else if (!selected) {
+      const id = canonical.current.get(profile)?.resolved_id || canonical.current.get(profile)?.id;
+      if (id) setSelected(id);
     }
-  }, [view, profile, profiles]);
+  }, [view, profile, profiles, selected, activityByBot]);
   const [theme, setTheme] = useState<"system" | "light" | "dark">(() => {
     const saved = window.localStorage?.getItem("hermes-mobile-theme");
     return saved === "light" || saved === "dark" ? saved : "system";
@@ -208,22 +215,42 @@ export default function MobileApp() {
   const warmProfile = (name: string) => {
     const inFlight = warming.current.get(name);
     if (inFlight) return inFlight;
-    if (latest.current.has(name)) return Promise.resolve();
+    const session = canonical.current.get(name);
+    if (!session) return Promise.resolve();
+    const id = session.resolved_id || session.id;
+    if (cache.current.has(chatKey(name, id))) return Promise.resolve();
     const work = (async () => {
-      const listing = await api.getSessions(1, 0, name, "recent");
-      const session = listing.sessions[0];
-      const result = session ? await api.getSessionMessages(session.id, name) : null;
-      const rows = result ? displayRows(result.messages) : [];
-      const entry = { session: session?.id || "", preview: latestPreview(rows), lastActive: session?.last_active || 0 };
+      const result = await api.getSessionMessages(id, name);
+      const rows = displayRows(result.messages);
+      const entry = { session: id, preview: latestPreview(rows) || previewText(session.preview || ""), lastActive: session.last_active || 0 };
       latest.current.set(name, entry);
-      if (session) {
-        const key = chatKey(name, session.id);
-        if (!cache.current.get(key)?.runtimeId) cache.current.set(key, { runtimeId: "", storedId: session.id, rows, draft: "", running: false });
-      }
+      const key = chatKey(name, id);
+      if (!cache.current.get(key)?.runtimeId) cache.current.set(key, { runtimeId: "", storedId: id, rows, draft: "", running: false });
       setActivityByBot(prev => ({ ...prev, [name]: entry }));
     })().finally(() => warming.current.delete(name));
     warming.current.set(name, work);
     return work;
+  };
+  const refreshConversations = async () => {
+    const data = await api.getAllProfileSessions();
+    setSessions(sideConversations(data.sessions, 200));
+  };
+  const refreshRoster = async (gw: GatewayClient) => {
+    const roster = await gw.request<Roster>("profiles.list", { include_sessions: true });
+    for (const bot of roster.profiles) {
+      if (!bot.canonical_session) {
+        canonical.current.delete(bot.name); latest.current.delete(bot.name);
+        setActivityByBot(prev => { const next = { ...prev }; delete next[bot.name]; return next; });
+        continue;
+      }
+      const session = bot.canonical_session;
+      canonical.current.set(bot.name, session);
+      const entry = { session: session.resolved_id || session.id, preview: previewText(session.preview || ""), lastActive: session.last_active || 0 };
+      latest.current.set(bot.name, entry);
+      setActivityByBot(prev => ({ ...prev, [bot.name]: entry }));
+      void warmProfile(bot.name).catch(() => undefined);
+    }
+    return roster;
   };
 
   useEffect(() => {
@@ -234,9 +261,6 @@ export default function MobileApp() {
       const wanted = route.profile || profileFromUrl();
       const initial = data.profiles.find(p => p.name === wanted)?.name ?? data.profiles.find(p => p.is_default)?.name ?? data.profiles[0]?.name ?? "";
       setProfile(initial);
-      if (profileFromUrl() && !route.profile) void warmProfile(initial).then(() => {
-        if (alive) routerNavigate(chatPath(initial, latest.current.get(initial)?.session || "new"), { replace: true });
-      }).catch(() => { if (alive) routerNavigate(chatPath(initial, "new"), { replace: true }); });
     }).catch(e => { if (alive) setError(errorText(e)); });
     if ("serviceWorker" in navigator) void registerMobileWorker().catch(() => undefined);
     return () => { alive = false; };
@@ -247,22 +271,32 @@ export default function MobileApp() {
     let alive = true;
     const timer = window.setTimeout(async () => {
       try {
+        const query = searchQuery.trim().toLowerCase();
+        const visible = new Map(sessions.map(row => [`${row.profile}/${row.id}`, row]));
+        const found = new Map<string, { profile: string; session: string; title: string; preview: string; time: number; pinned: boolean }>();
+        for (const row of sessions) {
+          if (`${row.title} ${row.preview}`.toLowerCase().includes(query)) found.set(`${row.profile}/${row.id}`, {
+            profile: row.profile, session: row.id, title: row.title, preview: previewText(row.preview), time: row.lastActive, pinned: row.pinned,
+          });
+        }
         let cursor = 0;
-        const found: Array<{ profile: string; session: string; title: string; preview: string; time: number }> = [];
         const worker = async () => {
           while (cursor < profiles.length) {
             const bot = profiles[cursor++];
             const response = await api.searchSessions(searchQuery.trim(), bot.name);
-            for (const row of response.results) found.push({ profile: bot.name, session: row.session_id,
-              title: previewText(row.title || row.preview || row.snippet || "") || "Conversation", preview: previewText(row.snippet || row.preview || ""), time: row.last_active });
+            for (const row of response.results) {
+              const stored = visible.get(`${bot.name}/${row.session_id}`);
+              if (stored) found.set(`${bot.name}/${stored.id}`, { profile: bot.name, session: stored.id,
+                title: stored.title, preview: previewText(row.snippet || stored.preview), time: stored.lastActive, pinned: stored.pinned });
+            }
           }
         };
         await Promise.all(Array.from({ length: Math.min(3, profiles.length) }, () => worker()));
-        if (alive) { setSearchResults(found.sort((a, b) => b.time - a.time)); setSearchError(""); }
+        if (alive) { setSearchResults([...found.values()].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.time - a.time)); setSearchError(""); }
       } catch (e) { if (alive) setSearchError(errorText(e)); }
     }, 250);
     return () => { alive = false; clearTimeout(timer); };
-  }, [searchOpen, searchQuery, profiles]);
+  }, [searchOpen, searchQuery, profiles, sessions]);
 
   useEffect(() => {
     window.localStorage?.setItem(PIN_STORAGE_KEY, JSON.stringify(pins));
@@ -270,18 +304,7 @@ export default function MobileApp() {
 
   useEffect(() => {
     if (!profiles.length) return;
-    let alive = true;
-    // REST reads do not mint live agent sessions. Limit the fan-out on large bot fleets.
-    let cursor = 0;
-    const worker = async () => {
-      while (alive && cursor < profiles.length) {
-        const name = profiles[cursor++].name;
-        try { await warmProfile(name); }
-        catch { /* A profile without history still opens a new conversation. */ }
-      }
-    };
-    for (let n = 0; n < Math.min(3, profiles.length); n++) void worker();
-    return () => { alive = false; };
+    void refreshConversations().catch(e => setError(errorText(e)));
   }, [profiles]);
 
   useEffect(() => {
@@ -303,15 +326,17 @@ export default function MobileApp() {
         await gw.connect();
         connected = true;
         if (!alive) return;
-        const listed = await gw.request<{ sessions: SessionRow[] }>("session.list", { profile, limit: 40 });
-        if (alive) setSessions(listed.sessions);
+        await refreshRoster(gw);
+        if (view === "screen" && !selectedRef.current) {
+          const id = canonical.current.get(profile)?.resolved_id || canonical.current.get(profile)?.id;
+          if (id && alive) setSelected(id);
+        }
+        if (profileFromUrl() && !route.profile) {
+          const id = canonical.current.get(profile)?.resolved_id || canonical.current.get(profile)?.id || "new";
+          if (alive) routerNavigate(chatPath(profile, id), { replace: true });
+        }
         const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
         if (alive) setLiveSessions(active.sessions);
-        if (!route.session && !selectedRef.current) {
-          const waiting = active.sessions.find(s => s.status === "waiting" && s.session_key);
-          const recent = waiting ? null : await gw.request<{ session_id?: string | null }>("session.most_recent", { profile });
-          if (alive && !selectedRef.current) setSelected(waiting?.session_key || recent?.session_id || "");
-        }
       } catch (e) { if (alive) { setError(errorText(e)); if (!connected) retry(); } }
     };
     const offState = gw.onState(state => {
@@ -348,9 +373,8 @@ export default function MobileApp() {
         });
       }
       if (ev.type === "message.complete" || ev.type === "sessions.changed") {
-        latest.current.delete(profile);
-        void warmProfile(profile).catch(() => undefined);
-        void gw.request<{ sessions: SessionRow[] }>("session.list", { profile, limit: 40 }).then(data => { if (alive) setSessions(data.sessions); }).catch(() => undefined);
+        void refreshRoster(gw).catch(() => undefined);
+        void refreshConversations().catch(() => undefined);
         refreshLiveSessions();
       }
     });
@@ -382,6 +406,8 @@ export default function MobileApp() {
     const gateway = client.current;
     const refresh = async () => {
       if (document.visibilityState !== "visible") return;
+      void refreshRoster(gateway).catch(() => undefined);
+      void refreshConversations().catch(() => undefined);
       const next: Record<string, LiveSession> = {};
       await Promise.all(profiles.map(async bot => {
         try {
@@ -453,12 +479,35 @@ export default function MobileApp() {
 
   const selectProfile = async (name: string, targetSession?: string) => {
     if (!profiles.some(p => p.name === name)) return;
-    try { await warmProfile(name); } catch { /* A new chat remains available. */ }
-    const session = targetSession ?? waitingByBot[name]?.session_key ?? latest.current.get(name)?.session ?? (name === profile ? sessions[0]?.id : "") ?? "";
+    if (targetSession === undefined) {
+      const gw = client.current;
+      if (!gw || connection !== "open") { setError("Still connecting. Try again."); return; }
+      try {
+        const roster = await refreshRoster(gw);
+        const entry = roster.profiles.find(p => p.name === name)?.canonical_session;
+        if (entry) targetSession = entry.resolved_id || entry.id;
+        else {
+          const existing = await gw.request<{ sessions: Array<{ id: string; resolved_id?: string }> }>("session.list", { profile: name, title: "Bot Chat", include_hidden: true });
+          targetSession = existing.sessions[0]?.resolved_id || existing.sessions[0]?.id;
+          if (!targetSession) {
+            const created = await gw.request<SessionSnapshot>("session.create", { profile: name, source: "mobile", title: "Bot Chat", hidden: true, follow_profile_config: true, close_on_disconnect: false });
+            try {
+              await gw.request("session.title", { session_id: created.session_id, title: "Bot Chat" });
+              targetSession = created.stored_session_id || created.session_id;
+            } catch (e) {
+              const winner = await gw.request<{ sessions: Array<{ id: string; resolved_id?: string }> }>("session.list", { profile: name, title: "Bot Chat", include_hidden: true });
+              targetSession = winner.sessions[0]?.resolved_id || winner.sessions[0]?.id;
+              if (!targetSession) throw e;
+            }
+          }
+        }
+      } catch (e) { setError(errorText(e)); return; }
+    }
+    const session = targetSession;
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
-      setSessions([]); setLiveSessions([]); setPrompts({}); setError(""); setWorking(""); setActivity([]);
+      setLiveSessions([]); setPrompts({}); setError(""); setWorking(""); setActivity([]);
       setConnection("connecting");
       setProfile(name);
     }
@@ -484,7 +533,6 @@ export default function MobileApp() {
         setSelected(target.storedId);
         setChat(target);
         routerNavigate(chatPath(profile, target.storedId), { replace: true });
-        setSessions(prev => [{ id: target!.storedId, title: "New chat", preview: message }, ...prev]);
       }
       const runtimeId = target.runtimeId;
       setChat(prev => {
@@ -699,9 +747,9 @@ export default function MobileApp() {
     </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
       <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>
-      <div className="m-conversation-list">{sessions.length ? sessions.map(session => <MobileListRow key={session.id} leading={<MessageSquare size={20} aria-hidden="true" />}
-        title={previewText(session.title || session.preview || "") || "Conversation"} preview={previewText(session.preview || "")}
-        onClick={() => { setConversationsOpen(false); navigate("chat", profile, session.id); }} />) : <p className="m-muted">No conversations yet.</p>}</div>
+      <div className="m-conversation-list">{sessions.length ? sessions.map(session => <MobileListRow key={`${session.profile}/${session.id}`} leading={<MessageSquare size={20} aria-hidden="true" />}
+        title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
+        onClick={() => { setConversationsOpen(false); void selectProfile(session.profile, session.id); }} />) : <p className="m-muted">No conversations yet.</p>}</div>
     </Sheet>}
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
