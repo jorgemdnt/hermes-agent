@@ -1,5 +1,6 @@
 import { useEffect, useRef, type TouchEvent } from "react";
-import { Copy, Image as ImageIcon } from "lucide-react";
+import { Bot, Copy, Image as ImageIcon, Info } from "lucide-react";
+import { classifyUserText } from "./message-kind";
 import { Markdown } from "@/components/Markdown";
 import type { ChatRow } from "./mobile-state";
 
@@ -7,12 +8,14 @@ interface MobileMessageProps {
   row: ChatRow;
   previous?: ChatRow;
   onAction: (text: string) => void;
+  avatarFor?: (handle: string) => string | undefined;
 }
 
-export default function MobileMessage({ row, previous, onAction }: MobileMessageProps) {
+export default function MobileMessage({ row, previous, onAction, avatarFor }: MobileMessageProps) {
+  const kind = row.role === "user" ? classifyUserText(row.text) : null;
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const origin = useRef({ x: 0, y: 0 });
-  const grouped = previous?.role === row.role;
+  const grouped = previous?.role === row.role && !(kind && kind.kind !== "human") && !(previous?.role === "user" && classifyUserText(previous.text).kind !== "human");
   const imageCount = row.role === "user" ? (row.text.match(/^@image:[^\n]+$/gm) || []).length : 0;
   const displayText = imageCount ? row.text.replace(/^@image:[^\n]+\n?/gm, "").trim() : row.text;
   const cancelPress = () => { if (press.current) clearTimeout(press.current); press.current = null; };
@@ -26,6 +29,23 @@ export default function MobileMessage({ row, previous, onAction }: MobileMessage
   const movePress = (event: TouchEvent) => {
     if (Math.hypot(event.touches[0].clientX - origin.current.x, event.touches[0].clientY - origin.current.y) > 10) cancelPress();
   };
+  if (kind && kind.kind !== "human") {
+    const avatar = kind.kind === "agent" ? avatarFor?.(kind.handle) : undefined;
+    const title = kind.kind === "agent" ? `Message from ${kind.sender}` : kind.label;
+    const body = kind.body;
+    return <article className="m-message m-notice">
+      <div className="m-notice-head">
+        {kind.kind === "agent"
+          ? (avatar ? <img src={avatar} alt="" aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />)
+          : <Info size={14} aria-hidden="true" />}
+        <span>{title}</span>
+      </div>
+      {body && <details className="m-notice-body">
+        <summary>Show message</summary>
+        <div className="m-notice-card"><Markdown content={body} /></div>
+      </details>}
+    </article>;
+  }
   return <article className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}
     onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
     onContextMenu={event => { if (!(event.target as Element).closest("a, button")) { event.preventDefault(); onAction(displayText || "Photo"); } }}>

@@ -735,6 +735,10 @@ export default function MobileApp() {
   const currentBot = profiles.find(p => p.name === profile);
   const name = currentBot ? botName(currentBot) : "Hermes";
   const avatar = (p: ProfileInfo) => <Avatar src={avatars[p.name]} name={botName(p)} />;
+  const avatarForHandle = (handle: string) => {
+    const p = profiles.find(x => x.name === handle || (x.is_default && handle === "hermes") || botName(x).toLowerCase() === handle);
+    return p ? avatars[p.name] : undefined;
+  };
   const status = connection !== "open" ? "Reconnecting…" : chatPrompts.length ? "Needs your input"
     : working || (chat?.running ? (chat.draft ? "Writing…" : "Thinking…") : "Ready to talk");
 
@@ -859,7 +863,7 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
               {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
-              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} />)}
+              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} avatarFor={avatarForHandle} />)}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>

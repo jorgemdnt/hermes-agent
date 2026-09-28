@@ -292,3 +292,10 @@
   .m-thinking .m-status-dot { animation: m-pulse 1s ease-in-out infinite; }
   @keyframes m-enter { from { opacity: 0; transform: translateY(6px); } }
 }
+
+.m-notice { align-self: center; max-width: 86%; margin: 10px auto; text-align: center; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
+.m-notice-head { display: inline-flex; align-items: center; gap: 6px; }
+.m-notice-head img { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; }
+.m-notice-body summary { list-style: none; cursor: pointer; margin-top: 2px; opacity: .7; -webkit-tap-highlight-color: transparent; }
+.m-notice-body summary::-webkit-details-marker { display: none; }
+.m-notice-card { margin-top: 6px; padding: 10px 12px; text-align: left; color: var(--foreground); font-size: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
