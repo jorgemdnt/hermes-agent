@@ -466,9 +466,11 @@ export default function MobileApp() {
     const viewport = window.visualViewport;
     if (!shell || !viewport) return;
     const resize = () => {
-      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      const keyboardOpen = inset >= 80;
-      shell.style.setProperty("--keyboard-inset", keyboardOpen ? `${inset}px` : "0px");
+      // The visual viewport is the sole height owner. Subtracting its keyboard
+      // inset from 100dvh double-shrinks on Safari when dvh already follows it.
+      shell.style.setProperty("--visual-height", `${viewport.height}px`);
+      shell.style.setProperty("--visual-top", `${viewport.offsetTop}px`);
+      const keyboardOpen = window.innerHeight - viewport.height - viewport.offsetTop >= 80;
       shell.dataset.keyboard = keyboardOpen ? "true" : "false";
     };
     viewport.addEventListener("resize", resize);
