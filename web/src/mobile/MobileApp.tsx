@@ -4,7 +4,7 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -14,6 +14,7 @@ import PromptCard from "./PromptCard";
 import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui";
 import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
+import MobileMessage from "./MobileMessage";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
@@ -78,6 +79,7 @@ export default function MobileApp() {
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [messageAction, setMessageAction] = useState("");
   const [pinMenu, setPinMenu] = useState("");
   const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinTriggered = useRef(false);
@@ -768,14 +770,7 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
               {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
-              {chat?.rows.map((row, index) => {
-                const previous = chat.rows[index - 1];
-                const grouped = previous?.role === row.role;
-                return <article key={index} className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}>
-                  {row.role === "assistant" ? <Markdown content={row.text} /> : <div className="m-preserve">{row.text}</div>}
-                  {row.timestamp && (!grouped || !previous?.timestamp || row.timestamp - previous.timestamp > 300) && <time dateTime={new Date(row.timestamp * 1000).toISOString()} className="m-message-time">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(row.timestamp * 1000)}</time>}
-                </article>;
-              })}
+              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} />)}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
@@ -827,6 +822,10 @@ export default function MobileApp() {
       <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinned.some(p => p.name === pinMenu)
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
         : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
+    </Sheet>}
+    {!!messageAction && <Sheet open onClose={() => setMessageAction("")} label="Message actions">
+      <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction("")}><X size={20} aria-hidden="true" /></button></div>
+      <button type="button" className="m-pin-choice" onClick={() => { void navigator.clipboard.writeText(messageAction).then(() => { setMessageAction(""); toast.success("Copied message"); }).catch(() => toast.error("Could not copy message")); }}><Copy size={18} aria-hidden="true" />Copy text</button>
     </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
       <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>

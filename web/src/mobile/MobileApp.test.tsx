@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
   ] })),
-  getSessionMessages: vi.fn(async (_id: string, profile: string, _page?: { offset?: number }) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
+  getSessionMessages: vi.fn(async (_id: string, profile: string) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "profiles.list") return { profiles: ["frodo", "gandalf", "samwise", "author", "default", "gimli"].map(name => ({ name, canonical_session: name === mocks.rosterAbsent ? null : {
@@ -474,6 +474,20 @@ it("resumes a profile's stored session, streams its runtime id, stops the turn, 
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
   await act(async () => (host.querySelector('button[aria-label="Stop"]') as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith("session.interrupt", { profile: "frodo", session_id: "runtime" });
+});
+
+it("copies the exact message from its long-press action without changing the conversation", async () => {
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const message = host.querySelector('.m-message') as HTMLElement;
+  await act(async () => message.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  expect(host.textContent).toContain('Copy text');
+  await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Copy text') as HTMLButtonElement).click());
+  expect(writeText).toHaveBeenCalledWith('Earlier from frodo');
+  await vi.waitFor(() => expect(host.textContent).not.toContain('Copy text'));
 });
 
 it("sends Continue to Samwise's selected chat after a screen hand-back", async () => {

@@ -118,7 +118,11 @@
 .m-empty { text-align: center; color: var(--muted-foreground); padding: 14vh 8px 0; font-size: 14px; }
 .m-empty-avatar { display: flex; justify-content: center; }
 .m-empty-avatar .m-avatar { width: 70px; height: 70px; }
-.m-message { max-width: 100%; min-width: 0; margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.m-message { position: relative; max-width: 100%; min-width: 0; margin: 0 0 22px; line-height: 1.55; overflow-wrap: anywhere; }
+.m-copy-trigger { position: absolute; top: 0; right: 0; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; background: var(--card); color: var(--muted-foreground); opacity: 0; pointer-events: none; }
+.m-user .m-copy-trigger { right: auto; left: -40px; }
+.m-message:hover .m-copy-trigger, .m-copy-trigger:focus-visible { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .m-message:hover .m-copy-trigger:not(:focus-visible) { opacity: 0; pointer-events: none; } }
 .m-message.m-grouped { margin-top: -13px; }
 .m-assistant { width: 100%; padding: 0; color: var(--foreground); }
 .m-user { width: fit-content; max-width: 86%; margin-left: auto; padding: 10px 14px; background: var(--chat-bubble); color: var(--chat-bubble-foreground); border: 1px solid var(--border); border-radius: 18px; }
