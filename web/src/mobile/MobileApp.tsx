@@ -16,6 +16,7 @@ import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
+import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
@@ -67,6 +68,8 @@ export default function MobileApp() {
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const cache = useRef(new Map<string, MobileChat>());
+  const pages = useRef(new Map<string, { offset: number; hasOlder: boolean }>());
+  const [paging, setPaging] = useState({ key: "", offset: 0, hasOlder: false, loading: false, error: "" });
   const latest = useRef(new Map<string, BotActivity>());
   const canonical = useRef(new Map<string, CanonicalChat>());
   const warming = useRef(new Map<string, Promise<void>>());
@@ -174,6 +177,8 @@ export default function MobileApp() {
     if (route.profile !== profile) { setProfile(route.profile); setConnection("connecting"); }
     if (sid !== selected) setSelected(sid);
     setChat(cache.current.get(chatKey(route.profile, sid)) ?? null);
+    const page = pages.current.get(chatKey(route.profile, sid));
+    setPaging({ key: chatKey(route.profile, sid), offset: page?.offset ?? 0, hasOlder: page?.hasOlder ?? false, loading: false, error: "" });
   }, [location.pathname]);
   useEffect(() => {
     if (view !== "screen") return;
@@ -220,12 +225,15 @@ export default function MobileApp() {
     const id = session.resolved_id || session.id;
     if (cache.current.has(chatKey(name, id))) return Promise.resolve();
     const work = (async () => {
-      const result = await api.getSessionMessages(id, name);
+      const result = await api.getSessionMessages(id, name, historyPage());
       const rows = displayRows(result.messages);
       const entry = { session: id, preview: latestPreview(rows) || previewText(session.preview || ""), lastActive: session.last_active || 0 };
       latest.current.set(name, entry);
       const key = chatKey(name, id);
-      if (!cache.current.get(key)?.runtimeId) cache.current.set(key, { runtimeId: "", storedId: id, rows, draft: "", running: false });
+      if (!cache.current.get(key)?.runtimeId) {
+        cache.current.set(key, { runtimeId: "", storedId: id, rows, draft: "", running: false });
+        pages.current.set(key, { offset: result.messages.length, hasOlder: !!result.pagination && result.messages.length === HISTORY_PAGE_SIZE });
+      }
       setActivityByBot(prev => ({ ...prev, [name]: entry }));
     })().finally(() => warming.current.delete(name));
     warming.current.set(name, work);
@@ -248,7 +256,8 @@ export default function MobileApp() {
       const entry = { session: session.resolved_id || session.id, preview: previewText(session.preview || ""), lastActive: session.last_active || 0 };
       latest.current.set(bot.name, entry);
       setActivityByBot(prev => ({ ...prev, [bot.name]: entry }));
-      void warmProfile(bot.name).catch(() => undefined);
+      const open = mobileRoute(window.location.pathname);
+      if (!(open.view === "chat" && open.profile === bot.name && open.session === entry.session)) void warmProfile(bot.name).catch(() => undefined);
     }
     return roster;
   };
@@ -449,17 +458,61 @@ export default function MobileApp() {
     if (cached) setChat(cached);
     else setChat(null);
     setError("");
-    void client.current?.request<SessionSnapshot>("session.resume", { profile, session_id: selected, source: "mobile", close_on_disconnect: false }).then(snapshot => {
+    const prior = pages.current.get(key);
+    setPaging({ key, offset: prior?.offset ?? 0, hasOlder: prior?.hasOlder ?? false, loading: true, error: "" });
+    void client.current?.request<SessionSnapshot>("session.resume", { profile, session_id: selected, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true }).then(async snapshot => {
       if (!alive) return;
+      const baseRows = cached?.rows ?? [];
       const next: MobileChat = { runtimeId: snapshot.session_id, storedId: snapshot.stored_session_id || selected,
-        rows: transcriptRows(snapshot.messages), draft: snapshot.inflight?.assistant || "", running: !!snapshot.running || !!snapshot.inflight?.streaming };
+        rows: baseRows, draft: snapshot.inflight?.assistant || "", running: !!snapshot.running || !!snapshot.inflight?.streaming };
       cache.current.set(key, next);
       setChat(next);
-    }).catch(e => { if (alive) setError(errorText(e)); });
+      try {
+        const page = await api.getSessionMessages(selected, profile, historyPage());
+        if (!alive) return;
+        const tail = displayRows(page.messages);
+        const info = { offset: page.messages.length, hasOlder: !!page.pagination && page.messages.length === HISTORY_PAGE_SIZE };
+        pages.current.set(key, info);
+        setPaging({ key, ...info, loading: false, error: "" });
+        setChat(prev => {
+          if (prev?.runtimeId !== snapshot.session_id) return prev;
+          const rows = appendLive(tail, prev.rows.slice(baseRows.length));
+          const updated = { ...prev, rows };
+          cache.current.set(key, updated);
+          return updated;
+        });
+      } catch (e) {
+        if (alive) setPaging(prev => ({ ...prev, loading: false, error: errorText(e) }));
+      }
+    }).catch(e => { if (alive) { setPaging(prev => ({ ...prev, loading: false, error: "" })); setError(errorText(e)); } });
     return () => { alive = false; };
   }, [profile, selected, connection, view, route.profile]);
 
-  const { container: messagesRef, atBottom, onScroll, scrollToLatest } = useChatScroll(`${profile}/${selected}`, `${chat?.rows.length || 0}:${chat?.draft || ""}:${Object.keys(prompts).join(",")}`, view === "chat");
+  const { container: messagesRef, atBottom, onScroll, scrollToLatest, preserveOnPrepend } = useChatScroll(`${profile}/${selected}`, `${chat?.rows.length || 0}:${chat?.draft || ""}:${Object.keys(prompts).join(",")}`, view === "chat");
+  const loadOlder = async () => {
+    const key = chatKey(profile, selected);
+    if (paging.key !== key || !paging.hasOlder || paging.loading || !chat) return;
+    const offset = paging.offset;
+    setPaging(prev => ({ ...prev, loading: true, error: "" }));
+    try {
+      const page = await api.getSessionMessages(selected, profile, historyPage(offset));
+      if (chatKey(profile, selectedRef.current) !== key) return;
+      const older = displayRows(page.messages);
+      const current = chatRef.current;
+      if (current?.storedId === chat.storedId && prependOlder(older, current.rows).length > current.rows.length) preserveOnPrepend();
+      setChat(prev => {
+        if (!prev || prev.storedId !== chat.storedId) return prev;
+        const next = { ...prev, rows: prependOlder(older, prev.rows) };
+        cache.current.set(key, next);
+        return next;
+      });
+      const info = { offset: offset + page.messages.length, hasOlder: !!page.pagination && page.messages.length === HISTORY_PAGE_SIZE };
+      pages.current.set(key, info);
+      setPaging({ key, ...info, loading: false, error: "" });
+    } catch (e) {
+      setPaging(prev => ({ ...prev, loading: false, error: errorText(e) }));
+    }
+  };
 
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>(".m-shell");
@@ -683,9 +736,11 @@ export default function MobileApp() {
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
         {view === "chat" && <>
-          <div className="m-messages" ref={messagesRef} onScroll={onScroll} role="log" aria-live="polite">
+          <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
             <div className="m-message-content">
-              {!chat && selected && !error && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
+              {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
+              {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
+              {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
               {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
               {chat?.rows.map((row, index) => {
                 const previous = chat.rows[index - 1];

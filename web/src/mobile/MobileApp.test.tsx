@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
   ] })),
-  getSessionMessages: vi.fn(async (_id: string, profile: string) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
+  getSessionMessages: vi.fn(async (_id: string, profile: string, _page?: { offset?: number }) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "profiles.list") return { profiles: ["frodo", "gandalf", "samwise", "author", "default", "gimli"].map(name => ({ name, canonical_session: name === mocks.rosterAbsent ? null : {
@@ -89,7 +89,7 @@ it.each(["another chat", "new conversation"])("keeps a foreign-session approval 
   expect(host.querySelector('.m-inbox')?.textContent).toContain("test foreign");
   await act(async () => (host.querySelector('.m-inbox button') as HTMLButtonElement).click());
   await settle();
-  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "other-stored", source: "mobile", close_on_disconnect: false });
+  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "other-stored", source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
   expect(host.querySelector('.m-messages')?.textContent).toContain("test foreign");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Allow once") as HTMLButtonElement).click());
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
@@ -261,11 +261,32 @@ it("opens a stored conversation from a deep link after reload", async () => {
   expect(host.querySelector('.m-detail')?.textContent).toContain("Earlier");
 });
 
+it("hydrates fifty recent messages and prepends older pages without moving the visible row", async () => {
+  mocks.getSessionMessages.mockImplementation(async (_id, _profile, page) => {
+    const start = page?.offset === 50 ? 0 : 50;
+    return { messages: Array.from({ length: 50 }, (_, index) => ({ role: "user", content: `Message ${start + index}` })),
+      pagination: { limit: 50, offset: page?.offset ?? 0, order: "latest" as const, returned: 50 } };
+  });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const log = host.querySelector('.m-messages') as HTMLElement;
+  expect(log.querySelectorAll('.m-message')).toHaveLength(50);
+  expect(log.textContent).not.toContain('Message 0');
+  Object.defineProperty(log, 'scrollHeight', { get: () => log.querySelectorAll('.m-message').length * 100 });
+  await act(async () => { log.scrollTop = 40; log.dispatchEvent(new Event('scroll', { bubbles: true })); });
+  await settle();
+  expect(mocks.getSessionMessages).toHaveBeenCalledWith('stored', 'frodo', { limit: 50, offset: 50, order: 'latest', includeCompacted: true });
+  expect(log.querySelectorAll('.m-message')).toHaveLength(100);
+  expect(log.querySelector('.m-message')?.textContent).toContain('Message 0');
+  expect(log.scrollTop).toBe(5040);
+});
+
 it("prefetches both bots, pushes real URLs, and restores cached chat on browser back without resuming again", async () => {
   await renderApp();
   await settle(); await settle();
-  expect(mocks.getSessionMessages).toHaveBeenCalledWith('stored', 'frodo');
-  expect(mocks.getSessionMessages).toHaveBeenCalledWith('gandalf-stored', 'gandalf');
+  expect(mocks.getSessionMessages).toHaveBeenCalledWith('stored', 'frodo', { limit: 50, offset: 0, order: 'latest', includeCompacted: true });
+  expect(mocks.getSessionMessages).toHaveBeenCalledWith('gandalf-stored', 'gandalf', { limit: 50, offset: 0, order: 'latest', includeCompacted: true });
   expect(mocks.getAllProfileSessions).toHaveBeenCalled();
   expect(host.textContent).toContain("Gandalf");
   await act(async () => (Array.from(host.querySelectorAll('.m-pinned-bot')).find(row => row.textContent?.includes('Gandalf')) as HTMLButtonElement).click());
@@ -418,7 +439,7 @@ it("resumes a profile's stored session, streams its runtime id, stops the turn, 
   expect(mocks.request).not.toHaveBeenCalledWith("session.resume", expect.anything());
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "stored", source: "mobile", close_on_disconnect: false });
+  expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "stored", source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
   expect(host.querySelector('.m-nav')).toBeNull();
   expect(host.textContent).toContain("Earlier");
   await act(async () => { for (const handler of mocks.events) handler({ type: "message.delta", session_id: "runtime", payload: { text: "Streaming" } }); });

@@ -461,13 +461,14 @@ export const api = {
       ),
     );
   },
-  getSessionMessages: (id: string, profile = getManagementProfile()) =>
-    fetchJSON<SessionMessagesResponse>(
-      appendProfileParam(
-        `/api/sessions/${encodeURIComponent(id)}/messages?limit=500&order=latest`,
-        profile,
-      ),
-    ),
+  getSessionMessages: (id: string, profile = getManagementProfile(), page: { limit?: number; offset?: number; order?: "latest" | "oldest"; includeCompacted?: boolean } = {}) => {
+    const query = new URLSearchParams({ limit: String(page.limit ?? 500), order: page.order ?? "latest" });
+    if (page.offset !== undefined) query.set("offset", String(page.offset));
+    if (page.includeCompacted !== undefined) query.set("include_compacted", String(page.includeCompacted));
+    return fetchJSON<SessionMessagesResponse>(
+      appendProfileParam(`/api/sessions/${encodeURIComponent(id)}/messages?${query}`, profile),
+    );
+  },
   getSessionDetail: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
