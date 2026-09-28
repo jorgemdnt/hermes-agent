@@ -26,7 +26,7 @@ from typing import Dict, Optional
 from hermes_cli.dashboard_auth.base import Session
 
 _PENDING_TTL_SECONDS = 600  # whole interactive login (mirrors the PKCE cookie)
-_CODE_TTL_SECONDS = 120  # loopback redirect + immediate token POST only
+_CODE_TTL_SECONDS = 60  # loopback redirect + immediate exchange only
 _MAX_ENTRIES = 256  # global cap so a misbehaving client cannot grow the store unbounded
 # Per-IP cap on PENDING entries: /auth/native/authorize is a public pre-auth route, so one
 # spammer must not fill the global store and lock out logins.

@@ -25,43 +25,24 @@ _LOGIN_HTML_TEMPLATE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in — Hermes Agent</title>
 <style>
-  /* Brand fonts shipped by @nous-research/ui — same files the SPA loads. */
-  @font-face {{
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/Collapse-Regular.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Collapse';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url('/fonts/Collapse-Bold.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Regular.woff2') format('woff2');
-  }}
-  @font-face {{
-    font-family: 'Rules Compressed';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
-  }}
-
   :root {{
-    --background-base: #170d02;
-    --background: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
-    --hairline-strong: color-mix(in srgb, #ffac02 35%, transparent);
+    color-scheme: light dark;
+    --background-base: #ffffff;
+    --background: #ffffff;
+    --midground: #171717;
+    --foreground: #171717;
+    --hairline: #e5e5e5;
+    --hairline-strong: #a3a3a3;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --background-base: #0a0a0a;
+      --background: #0a0a0a;
+      --midground: #fafafa;
+      --foreground: #fafafa;
+      --hairline: #262626;
+      --hairline-strong: #737373;
+    }}
   }}
 
   *, *::before, *::after {{ box-sizing: border-box; }}
@@ -72,35 +53,14 @@ _LOGIN_HTML_TEMPLATE = """\
     min-height: 100%;
     background: var(--background-base);
     color: var(--foreground);
-    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 16px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }}
 
-  /* Subtle dot-grid backdrop — DS idiom (see `.dither` in globals.css). */
-  body {{
-    background-image:
-      radial-gradient(
-        ellipse at top,
-        color-mix(in srgb, var(--midground) 6%, transparent) 0%,
-        transparent 55%
-      ),
-      repeating-conic-gradient(
-        color-mix(in srgb, var(--midground) 4%, transparent) 0% 25%,
-        transparent 0% 50%
-      );
-    background-size: auto, 3px 3px;
-    background-attachment: fixed;
-  }}
-
-  /* Layout: vertically center on tall screens, top-anchor on short. */
-  body {{
-    display: grid;
-    place-items: center;
-    padding: clamp(1.5rem, 6vh, 6rem) 1.25rem;
-  }}
+  body {{ display: grid; place-items: center; min-height: 100dvh; padding: clamp(1.5rem, 6vh, 6rem) 1.25rem; }}
 
   main {{
     width: 100%;
@@ -118,48 +78,34 @@ _LOGIN_HTML_TEMPLATE = """\
     main {{ animation: none; }}
   }}
 
-  /* Brand wordmark above the card — same uppercase + wide-tracking
-     idiom DS Buttons use. */
   .brand {{
     text-align: center;
     margin-bottom: 1.75rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     font-weight: 600;
     font-size: 1.05rem;
-    letter-spacing: 0.32em;
-    text-transform: uppercase;
-    color: var(--midground);
+    color: var(--foreground);
   }}
-  .brand .dot {{
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    background: var(--midground);
-    margin: 0 0.55em 0.18em;
-    vertical-align: middle;
-    border-radius: 1px;
-  }}
+  .brand svg {{ width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }}
 
   .card {{
     position: relative;
     padding: 2.25rem 2rem 2rem;
-    background: color-mix(in srgb, #ffffff 2%, var(--background-base));
+    background: var(--background-base);
     border: 1px solid var(--hairline);
-    /* Hairline highlight + bevel shadow — matches DS Button SHADOW_DEFAULT
-       (`inset -1px -1px 0 #00000080, inset 1px 1px 0 #ffffff80`) at panel scale. */
-    box-shadow:
-      inset 1px 1px 0 0 color-mix(in srgb, #ffffff 5%, transparent),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-      0 24px 60px -20px rgba(0, 0, 0, 0.6);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px -24px #0008;
   }}
 
   h1 {{
     margin: 0 0 0.4rem;
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
+    font-family: inherit;
     font-weight: 600;
     font-size: 1.85rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    letter-spacing: -.025em;
     color: var(--foreground);
   }}
 
@@ -174,53 +120,37 @@ _LOGIN_HTML_TEMPLATE = """\
     gap: 0.75rem;
   }}
 
-  /* Provider button — mirrors DS Button (default variant):
-     amber surface, dark text, uppercase + wide tracking, inset bevel. */
   .provider-btn {{
     display: block;
     width: 100%;
     box-sizing: border-box;
-    padding: 0.95rem 1rem;
+    padding: 0.85rem 1rem;
     text-align: center;
     background: var(--midground);
     color: var(--background-base);
-    font-family: 'Collapse', sans-serif;
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.9rem;
+    letter-spacing: 0;
     text-decoration: none;
-    border: 0;
-    border-radius: 0;  /* DS Button is squared — no rounded corners. */
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
     cursor: pointer;
-    box-shadow:
-      inset 1px 1px 0 0 rgba(255, 255, 255, 0.5),
-      inset -1px -1px 0 0 rgba(0, 0, 0, 0.5);
-    transition: filter 0.12s ease-out;
+    transition: opacity 0.12s ease-out;
   }}
-  .provider-btn:hover {{
-    filter: brightness(1.08);
-  }}
-  .provider-btn:active {{
-    /* DS Button uses `active:invert` on the default surface. */
-    filter: invert(1);
-  }}
-  .provider-btn:focus-visible {{
-    outline: 2px solid var(--midground);
-    outline-offset: 3px;
-  }}
+  .provider-btn:hover {{ opacity: 0.85; }}
+  .provider-btn:focus-visible {{ outline: 2px solid var(--midground); outline-offset: 3px; }}
 
-  /* Password provider form — same visual language as the OAuth buttons:
-     squared inputs, hairline borders, amber focus ring. */
+  /* Password provider form shares the same card and button tokens. */
   .provider-form {{
     display: grid;
     gap: 0.75rem;
     text-align: left;
   }}
   .form-title {{
-    font-family: 'Rules Compressed', 'Collapse', sans-serif;
+    font-family: inherit;
     font-weight: 600;
-    font-size: 0.72rem;
+    font-size: 0.85rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: color-mix(in srgb, var(--foreground) 70%, transparent);
@@ -239,11 +169,11 @@ _LOGIN_HTML_TEMPLATE = """\
     width: 100%;
     box-sizing: border-box;
     padding: 0.7rem 0.8rem;
-    background: color-mix(in srgb, #000000 25%, var(--background-base));
+    background: color-mix(in srgb, var(--foreground) 4%, var(--background-base));
     color: var(--foreground);
     border: 1px solid var(--hairline-strong);
-    border-radius: 0;
-    font-family: 'Collapse', sans-serif;
+    border-radius: 8px;
+    font-family: inherit;
     font-size: 0.95rem;
   }}
   .field-input:focus-visible {{
@@ -287,19 +217,32 @@ _LOGIN_HTML_TEMPLATE = """\
 </head>
 <body>
 <main>
-  <div class="brand">Nous<span class="dot"></span>Research</div>
+  <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4H8M9 14h.01M15 14h.01M9 17h6"/></svg>Hermes Bots</div>
   <div class="card">
-    <h1>Sign in</h1>
-    <p class="subtitle">Choose a sign-in method to continue to the Hermes Agent dashboard.</p>
+    <h1>Welcome back</h1>
+    <p class="subtitle">Sign in to continue to your bots.</p>
     <div class="provider-list">
 {provider_buttons}
     </div>
+    <p id="native-status" role="status"></p>
   </div>
-  <footer>
-    <span class="sep"></span>Public bind &middot; Auth required<span class="sep"></span>
-  </footer>
+  <footer>Secure sign-in to Hermes</footer>
 </main>
 {password_script}
+<script>
+  document.addEventListener('click', function (event) {{
+    var link = event.target.closest('a[data-native-provider]');
+    if (!link || !window.hermetic || typeof window.hermetic.signIn !== 'function') return;
+    event.preventDefault();
+    link.setAttribute('aria-busy', 'true');
+    var status = document.getElementById('native-status');
+    status.textContent = 'Continue signing in in your browser…';
+    window.hermetic.signIn(link.dataset.nativeProvider).catch(function () {{
+      link.removeAttribute('aria-busy');
+      status.textContent = 'Could not open sign-in. Please try again.';
+    }});
+  }});
+</script>
 </body>
 </html>
 """
@@ -327,17 +270,21 @@ _EMPTY_HTML = """\
     src: url('/fonts/RulesCompressed-Medium.woff2') format('woff2');
   }
   :root {
-    --background-base: #170d02;
-    --midground: #ffac02;
-    --foreground: #ffffff;
-    --hairline: color-mix(in srgb, #ffac02 18%, transparent);
+    color-scheme: light dark;
+    --background-base: #fff;
+    --midground: #171717;
+    --foreground: #171717;
+    --hairline: #e5e5e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --background-base: #0a0a0a; --midground: #fafafa; --foreground: #fafafa; --hairline: #262626; }
   }
   *, *::before, *::after { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; min-height: 100%;
     background: var(--background-base);
     color: var(--foreground);
-    font-family: 'Collapse', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 16px; line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
@@ -455,7 +402,8 @@ def render_login_html(*, next_path: str = "") -> str:
     buttons = [
         _render_password_form(p, next_path) if getattr(p, "supports_password", False) else
         f'      <a class="provider-btn" '
-        f'href="/auth/login?provider={html.escape(p.name, quote=True)}{next_qs}">'
+        f'href="/auth/login?provider={html.escape(p.name, quote=True)}{next_qs}" '
+        f'data-native-provider="{html.escape(p.name, quote=True)}">'
         f'Sign in with {html.escape(p.display_name)}</a>'
         for p in providers
     ]

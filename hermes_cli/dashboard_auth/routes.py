@@ -10,6 +10,7 @@ allowlists the public ones.
   POST /auth/password-login    username/password login (JSON)
   POST /auth/logout            revokes the upstream grant (best-effort), clears cookies
   POST /auth/native/token      loopback code -> bearer tokens
+  POST /auth/native/session    loopback code -> normal dashboard cookies
   POST /auth/native/refresh    desktop-held refresh token rotation
   GET  /api/auth/providers     list registered providers (login bootstrap)
   GET  /api/auth/me            current Session as JSON (auth-required)
@@ -18,6 +19,7 @@ allowlists the public ones.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -227,6 +229,13 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
         raise _http(400, "native redirect_uri must be http:// on the loopback interface")
     if (parsed.hostname or "").lower() not in ("127.0.0.1", "::1"):
         raise _http(400, "native redirect_uri host must be a loopback IP literal (127.0.0.1 / ::1)")
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if (not port or parsed.username or parsed.password or parsed.fragment or parsed.query or
+            not parsed.path.startswith("/")):
+        raise _http(400, "native redirect_uri must be a loopback URL with a port and path")
     return raw
 
 
@@ -250,8 +259,10 @@ async def auth_native_authorize(
     go to the ``/login`` form instead."""
     if code_challenge_method.upper() != "S256":
         raise _http(400, "code_challenge_method must be S256")
-    if not code_challenge:
-        raise _http(400, "code_challenge required")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", code_challenge):
+        raise _http(400, "code_challenge must be S256 base64url")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", state):
+        raise _http(400, "state must be URL-safe")
     _validate_loopback_redirect_uri(redirect_uri)
     p = _select_native_provider(provider)
     if p is None and not provider:
@@ -520,6 +531,24 @@ async def auth_native_token(request: Request, body: _NativeTokenBody):
     _audit(request, AuditEvent.NATIVE_TOKEN_SUCCESS, provider=session.provider,
            user_id=session.user_id)
     return _bearer_payload(session)
+
+
+@router.post("/auth/native/session", name="auth_native_session")
+async def auth_native_session(request: Request, body: _NativeTokenBody):
+    """Redeem the same one-time PKCE code into the dashboard's normal HttpOnly cookies.
+
+    The webview's session cookie jar stores the response; tokens never enter page JS.
+    """
+    try:
+        session = native_flow.redeem_code(code=body.code, code_verifier=body.code_verifier)
+    except (native_flow.CodeInvalid, UnicodeEncodeError):
+        _audit(request, AuditEvent.NATIVE_TOKEN_FAILURE, reason="invalid_code_or_pkce")
+        raise _http(400, "Invalid or expired authorization code.")
+    resp = JSONResponse({"ok": True}, headers=_NO_STORE)
+    _set_session(resp, request, session)
+    _audit(request, AuditEvent.NATIVE_TOKEN_SUCCESS, provider=session.provider,
+           user_id=session.user_id)
+    return resp
 
 
 class _NativeRefreshBody(BaseModel):
