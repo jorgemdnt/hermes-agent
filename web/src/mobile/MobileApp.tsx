@@ -4,7 +4,7 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, MoreHorizontal, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, MoreHorizontal, Pin, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -267,7 +267,7 @@ export default function MobileApp() {
   useEffect(() => {
     if (conversationsOpen && archivedOpen) void refreshArchived().catch(e => setConversationError(errorText(e)));
   }, [conversationsOpen, archivedOpen]);
-  const changeConversation = async (action: "rename" | "archive") => {
+  const changeConversation = async (action: "rename" | "archive" | "pin") => {
     if (!conversationAction || conversationBusy) return;
     const target = conversationAction;
     const title = conversationTitle.trim();
@@ -275,13 +275,15 @@ export default function MobileApp() {
     setConversationBusy(true); setConversationError("");
     try {
       if (action === "rename") await api.renameSession(target.id, title, target.profile);
-      else await api.setSessionArchived(target.id, !archivedOpen, target.profile);
+      else if (action === "archive") await api.setSessionArchived(target.id, !archivedOpen, target.profile);
+      else await api.setSessionPinned(target.id, !target.pinned, target.profile);
       await Promise.all([refreshConversations(), refreshArchived()]);
       setConversationAction(null);
       if (action === "archive" && !archivedOpen && profile === target.profile && selected === target.id) {
         setConversationsOpen(false); navigate("bots");
       }
-      toast.success(action === "rename" ? "Conversation renamed" : archivedOpen ? "Conversation restored" : "Conversation archived");
+      const feedback = { rename: "Conversation renamed", pin: target.pinned ? "Conversation unpinned" : "Conversation pinned", archive: archivedOpen ? "Conversation restored" : "Conversation archived" };
+      toast.success(feedback[action]);
     } catch (e) { setConversationError(errorText(e)); }
     finally { setConversationBusy(false); }
   };
@@ -919,10 +921,11 @@ export default function MobileApp() {
           <input id="m-conversation-title" value={conversationTitle} maxLength={200} onChange={e => setConversationTitle(e.target.value)} />
           <Button type="submit" disabled={conversationBusy || !conversationTitle.trim() || conversationTitle.trim() === conversationAction.title}>Save name</Button>
         </form>
+        <button className="m-pin-choice" type="button" disabled={conversationBusy} onClick={() => void changeConversation("pin")}>{conversationAction.pinned ? "Unpin conversation" : "Pin conversation"}</button>
         <button className="m-pin-choice" type="button" disabled={conversationBusy} onClick={() => void changeConversation("archive")}>{archivedOpen ? "Restore conversation" : "Archive conversation"}</button>
       </div> : <>
         <div className="m-conversation-tabs" role="group" aria-label="Conversation view"><button type="button" aria-pressed={!archivedOpen} onClick={() => { setArchivedOpen(false); setConversationError(""); }}>Recent</button><button type="button" aria-pressed={archivedOpen} onClick={() => { setArchivedOpen(true); setConversationError(""); }}>Archived</button></div>
-        <div className="m-conversation-list">{(archivedOpen ? archivedSessions : sessions).length ? (archivedOpen ? archivedSessions : sessions).map(session => <div className="m-conversation-row" key={`${session.profile}/${session.id}`}><MobileListRow leading={<MessageSquare size={20} aria-hidden="true" />}
+        <div className="m-conversation-list">{(archivedOpen ? archivedSessions : sessions).length ? (archivedOpen ? archivedSessions : sessions).map(session => <div className="m-conversation-row" key={`${session.profile}/${session.id}`}><MobileListRow leading={session.pinned ? <Pin size={20} aria-hidden="true" /> : <MessageSquare size={20} aria-hidden="true" />}
           title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
           onClick={() => { setConversationsOpen(false); void selectProfile(session.profile, session.id); }} /><button type="button" className="m-conversation-more" aria-label={`Options for ${session.title}`} onClick={() => { setConversationAction(session); setConversationTitle(session.title); setConversationError(""); }}><MoreHorizontal size={21} aria-hidden="true" /></button></div>) : <p className="m-muted">{archivedOpen ? "No archived conversations." : "No conversations yet."}</p>}</div>
       </>}

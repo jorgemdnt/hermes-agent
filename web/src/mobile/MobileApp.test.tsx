@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   ] }; }),
   renameSession: vi.fn(async (_id: string, title: string, _profile: string) => { void _profile; return { ok: true, title }; }),
   setSessionArchived: vi.fn(async (_id: string, archived: boolean, _profile: string) => { void _profile; return { ok: true, archived }; }),
+  setSessionPinned: vi.fn(async (_id: string, pinned: boolean, _profile: string) => { void _profile; return { ok: true, pinned }; }),
   uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
   getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }) => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
@@ -37,7 +38,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -60,7 +61,7 @@ const storage = new Map<string, string>();
 beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
-  ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+  ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.setSessionPinned.mockImplementation(async (_id, pinned) => ({ ok: true, pinned })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
@@ -544,6 +545,26 @@ it("renames and archives a foreign bot conversation and restores it from the arc
   await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Restore conversation') as HTMLButtonElement).click());
   expect(mocks.setSessionArchived).toHaveBeenCalledWith('gandalf-found', false, 'gandalf');
   expect(host.querySelector('.m-conversation-list')?.textContent).not.toContain('Renamed Gandalf chat');
+});
+
+it("pins and unpins a side conversation for its owning profile", async () => {
+  let pinned = false;
+  mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
+    { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2, pinned },
+  ] }));
+  mocks.setSessionPinned.mockImplementation(async (_id, next) => { pinned = next; return { ok: true, pinned }; });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (host.querySelector('[aria-label="Conversations"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('[aria-label="Options for Found chat"]') as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Pin conversation') as HTMLButtonElement).click());
+  expect(mocks.setSessionPinned).toHaveBeenCalledWith('gandalf-found', true, 'gandalf');
+  expect(host.querySelector('.m-conversation-row .lucide-pin')).not.toBeNull();
+  await act(async () => (host.querySelector('[aria-label="Options for Found chat"]') as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Unpin conversation') as HTMLButtonElement).click());
+  expect(mocks.setSessionPinned).toHaveBeenCalledWith('gandalf-found', false, 'gandalf');
+  expect(host.querySelector('.m-conversation-row .lucide-pin')).toBeNull();
 });
 
 it("copies the exact message from its long-press action without changing the conversation", async () => {

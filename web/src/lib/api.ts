@@ -536,6 +536,15 @@ export const api = {
         body: JSON.stringify({ archived, profile }),
       },
     ),
+  setSessionPinned: (id: string, pinned: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; pinned: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned, profile }),
+      },
+    ),
   getSessionStats: (profile = getManagementProfile()) =>
     fetchJSON<SessionStoreStats>(appendProfileParam("/api/sessions/stats", profile)),
   exportSessionUrl: (id: string, profile = getManagementProfile()) =>
