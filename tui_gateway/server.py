@@ -178,6 +178,8 @@ _LONG_HANDLERS = frozenset({
     "wake.status", "session.active_list", "session.branch", "session.compress", "session.list",
     "session.resume", "session.workspace.move", "shell.exec", "skills.manage", "slash.exec",
     "command.dispatch",  # /goal draft invokes the auxiliary model; never block the RPC reader
+    # VPS SSH status/forward/start can take seconds; never park the WS reader (including heartbeats).
+    "display.status", "display.start", "display.stop", "display.observe", "display.thumbnail",
 })
 
 _rpc_pool_workers = max(2, env_int("HERMES_TUI_RPC_POOL_WORKERS", 8))

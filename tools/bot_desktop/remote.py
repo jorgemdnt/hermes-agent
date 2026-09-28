@@ -16,6 +16,8 @@ from pathlib import Path
 
 from hermes_constants import get_hermes_home
 
+_last_live_status: dict[str, tuple[float, int, dict]] = {}
+
 
 def settings() -> dict:
     from hermes_cli.config import load_config_readonly
@@ -59,11 +61,29 @@ def _run(cfg: dict, code: str) -> object:
 
 
 def status(cfg: dict) -> dict:
-    data = _run(cfg, "import json; from tools.bot_desktop.runtime import status; print(json.dumps(status().as_dict()))")
+    key = str(_state())
+    cached = _last_live_status.get(key)
+    if cached and time.monotonic() - cached[0] < 30:
+        try:
+            pid = int((_state() / "forward.pid").read_text())
+        except (OSError, ValueError):
+            pid = 0
+        if pid and (_state() / "rfb.sock").exists() and _forward_alive(pid, cfg, cached[1]):
+            return cached[2].copy()
+    _last_live_status.pop(key, None)
+    # One SSH/Python bootstrap for both status and the CDP port. Two separate _run calls made each
+    # poll take ~6s on the VPS and queued observe/start behind a stale WebSocket heartbeat.
+    result = _run(cfg, "import json; from tools.bot_desktop.runtime import status; from tools.bot_desktop.browser import profile_dir, running_instance_cdp_port; print(json.dumps({'status': status().as_dict(), 'port': running_instance_cdp_port(str(profile_dir()))}))")
+    if not isinstance(result, dict):
+        raise RuntimeError("remote Bot Desktop returned invalid status")
+    data = result["status"]
+    port = result["port"]
     data["profile"] = "samwise" if get_hermes_home().name == "samwise" else get_hermes_home().name
     # Never disclose the VPS's private socket as if it were accessible to the browser client.
-    data["socket"] = str(_state() / "rfb.sock") if data["running"] and ensure_forward(cfg) else None
+    data["socket"] = str(_state() / "rfb.sock") if data["running"] and ensure_forward(cfg, remote_port=port) else None
     data["running"] = bool(data["running"] and data["socket"])
+    if data["running"]:
+        _last_live_status[key] = (time.monotonic(), port, data.copy())
     return data
 
 
@@ -88,6 +108,7 @@ def start(cfg: dict) -> dict:
 def stop(cfg: dict) -> dict:
     before = status(cfg)
     _service(cfg, "stop")
+    _last_live_status.pop(str(_state()), None)
     _run(cfg, "import json; from tools.bot_desktop.runtime import stop; print(json.dumps(stop()))")
     close_forward()
     data = status(cfg)
@@ -144,14 +165,16 @@ def close_forward() -> None:
         (sd / "rfb.sock").unlink(missing_ok=True)
 
 
-def ensure_forward(cfg: dict) -> bool:
+def ensure_forward(cfg: dict, *, remote_port: int | None = None) -> bool:
     import fcntl
     sd = _state()
     sd.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(sd, 0o700)
     with (sd / "forward.lock").open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        port = _remote_port(cfg)
+        port = remote_port if remote_port is not None else _remote_port(cfg)
+        if not isinstance(port, int) or not 1024 <= port <= 65535:
+            raise RuntimeError("start headed Chromium from the VPS Bot Desktop Browser dock before watching")
         pid_file = sd / "forward.pid"
         try:
             pid = int(pid_file.read_text())
