@@ -585,18 +585,28 @@ export default function MobileApp() {
     const shell = document.querySelector<HTMLElement>(".m-shell");
     const viewport = window.visualViewport;
     if (!shell || !viewport) return;
+    // iOS Safari ignores interactive-widget and pans the page to reveal a focused
+    // field. The shell is pinned at top 0 and sized to the visual viewport; any
+    // pan is undone so layout and the keyboard never move the shell twice.
+    const unpan = () => { if (window.scrollY !== 0 || viewport.offsetTop !== 0) window.scrollTo(0, 0); };
     const resize = () => {
-      // The visual viewport is the sole height owner. Subtracting its keyboard
-      // inset from 100dvh double-shrinks on Safari when dvh already follows it.
+      unpan();
       shell.style.setProperty("--visual-height", `${viewport.height}px`);
-      shell.style.setProperty("--visual-top", `${viewport.offsetTop}px`);
-      const keyboardOpen = window.innerHeight - viewport.height - viewport.offsetTop >= 80;
+      const keyboardOpen = window.innerHeight - viewport.height >= 80;
       shell.dataset.keyboard = keyboardOpen ? "true" : "false";
     };
+    const onFocusIn = () => { unpan(); requestAnimationFrame(unpan); };
     viewport.addEventListener("resize", resize);
-    viewport.addEventListener("scroll", resize);
+    viewport.addEventListener("scroll", unpan);
+    window.addEventListener("scroll", unpan, { passive: true });
+    document.addEventListener("focusin", onFocusIn);
     resize();
-    return () => { viewport.removeEventListener("resize", resize); viewport.removeEventListener("scroll", resize); };
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      viewport.removeEventListener("scroll", unpan);
+      window.removeEventListener("scroll", unpan);
+      document.removeEventListener("focusin", onFocusIn);
+    };
   }, []);
 
   const selectProfile = async (name: string, targetSession?: string) => {
