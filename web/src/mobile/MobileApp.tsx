@@ -4,7 +4,7 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X, Ellipsis } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -73,6 +73,23 @@ export default function MobileApp() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [pinMenu, setPinMenu] = useState("");
+  const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinTriggered = useRef(false);
+  const startPinPress = (name: string) => {
+    clearTimeout(pinTimer.current ?? undefined);
+    pinTriggered.current = false;
+    pinTimer.current = setTimeout(() => { pinTriggered.current = true; setPinMenu(name); }, 550);
+  };
+  const stopPinPress = () => { clearTimeout(pinTimer.current ?? undefined); pinTimer.current = null; };
+  const pinClick = (name: string) => {
+    if (pinTriggered.current) { pinTriggered.current = false; return; }
+    void selectProfile(name);
+  };
+  const pinKey = (event: React.KeyboardEvent, name: string) => {
+    if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) {
+      event.preventDefault(); setPinMenu(name);
+    }
+  };
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ profile: string; session: string; title: string; preview: string }>>([]);
@@ -531,6 +548,16 @@ export default function MobileApp() {
     if (waiting) return `Needs your input: ${previewText(waiting.title || waiting.preview || "Open conversation")}`;
     return activityByBot[p.name]?.preview || "";
   };
+  const botGesture = (name: string) => ({
+    onTouchStart: () => { startPinPress(name); void warmProfile(name).catch(() => undefined); },
+    onTouchMove: stopPinPress,
+    onTouchEnd: stopPinPress,
+    onTouchCancel: stopPinPress,
+    onContextMenu: (event: React.MouseEvent) => { event.preventDefault(); stopPinPress(); setPinMenu(name); },
+    onKeyDown: (event: React.KeyboardEvent) => pinKey(event, name),
+    onMouseEnter: () => { void warmProfile(name).catch(() => undefined); },
+    onClick: () => pinClick(name),
+  });
   const renderHome = () => <>
     <header className="m-list-header">
       <h1 className="sr-only">Bots</h1>
@@ -544,14 +571,14 @@ export default function MobileApp() {
     {error && <p role="alert" className="m-error">{error}</p>}
     <main className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
       {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
-        <button type="button" className="m-pinned-bot" onTouchStart={() => { void warmProfile(p.name).catch(() => undefined); }} onMouseEnter={() => { void warmProfile(p.name).catch(() => undefined); }} onClick={() => { void selectProfile(p.name); }}>
-          {avatar(p)}<span>{botName(p)}</span>{(waitingByBot[p.name] || p.name === profile && !!activePrompts.length) && <small>Needs you</small>}
-        </button><button type="button" className="m-pin-action" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><Ellipsis size={16} aria-hidden="true" /></button>
+        <button type="button" className="m-pinned-bot" aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
+          {avatar(p)}<span>{botName(p)}</span>
+        </button>
       </div>)}</div>}
       <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
-        <button type="button" className="m-bot-main" onTouchStart={() => { void warmProfile(p.name).catch(() => undefined); }} onMouseEnter={() => { void warmProfile(p.name).catch(() => undefined); }} onClick={() => { void selectProfile(p.name); }}>
+        <button type="button" className="m-bot-main" {...botGesture(p.name)}>
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
-        </button><button type="button" className="m-row-action" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><Ellipsis size={17} aria-hidden="true" /></button>
+        </button>
       </div>)}</div>
       {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
       {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
@@ -666,7 +693,9 @@ export default function MobileApp() {
     </Sheet>}
     {!!pinMenu && <Sheet open={!!pinMenu} onClose={() => setPinMenu("")} label="Bot options">
       <div className="m-activity-head"><h2>{profiles.find(p => p.name === pinMenu)?.display_name || pinMenu}</h2><button type="button" className="m-icon-button" aria-label="Close bot options" onClick={() => setPinMenu("")}><X size={20} aria-hidden="true" /></button></div>
-      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => current.includes(pinMenu) ? current.filter(p => p !== pinMenu) : [...current, pinMenu]); setPinMenu(""); }}>{pins.includes(pinMenu) ? "Unpin bot" : "Pin bot"}</button>
+      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinned.some(p => p.name === pinMenu)
+        ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
+        : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
     </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
       <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>

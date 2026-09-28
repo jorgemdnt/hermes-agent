@@ -18,6 +18,27 @@ describe("mobile home order", () => {
     expect(others.map(p => p.name)).toEqual(["gimli", "samwise", "author"]);
   });
 
+  it("partitions the five installed profiles into three default pins and a recency-sorted remainder", () => {
+    const pins = savedPins({ getItem: () => null });
+    expect(pins).toEqual(["default", "gandalf", "samwise"]);
+    expect(savedPins({ getItem: key => key === "hermes-mobile-pins" ? '["default","gandalf","samwise","gimli","author"]' : null })).toEqual(pins);
+    const activity = {
+      author: { session: "a", preview: "", lastActive: 90 },
+      gimli: { session: "b", preview: "", lastActive: 30 },
+    };
+    const { pinned, others } = orderedBots(profiles, pins, activity);
+    expect(pinned.map(p => p.name)).toEqual(["default", "gandalf", "samwise"]);
+    expect(others.map(p => p.name)).toEqual(["author", "gimli"]);
+    expect(new Set([...pinned, ...others].map(p => p.name)).size).toBe(profiles.length);
+  });
+
+  it("aliases the default pin to the real default profile without duplicating an explicit pin", () => {
+    const renamed = [{ name: "frodo", is_default: true }, { name: "gandalf" }] as ProfileInfo[];
+    const { pinned, others } = orderedBots(renamed, ["default", "frodo", "gandalf"], {});
+    expect(pinned.map(p => p.name)).toEqual(["frodo", "gandalf"]);
+    expect(others).toEqual([]);
+  });
+
   it("starts with the requested pins when unset, and labels activity by local calendar day", () => {
     expect(savedPins({ getItem: () => null })).toEqual(expect.arrayContaining(["default", "gandalf", "samwise"]));
     const now = new Date(2026, 8, 27, 10).getTime();

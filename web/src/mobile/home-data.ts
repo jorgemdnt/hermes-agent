@@ -2,8 +2,8 @@ import type { ProfileInfo } from "@/lib/api";
 
 export interface BotActivity { session: string; preview: string; lastActive: number }
 
-const DEFAULT_PINS = ["default", "frodo", "gandalf", "samwise"];
-export const PIN_STORAGE_KEY = "hermes-mobile-pins";
+const DEFAULT_PINS = ["default", "gandalf", "samwise"];
+export const PIN_STORAGE_KEY = "hermes-mobile-pins-v2";
 
 export function savedPins(storage: Pick<Storage, "getItem">): string[] {
   try {
@@ -16,8 +16,12 @@ export function savedPins(storage: Pick<Storage, "getItem">): string[] {
 
 export function orderedBots(profiles: ProfileInfo[], pins: string[], activity: Record<string, BotActivity>) {
   const byName = new Map(profiles.map(profile => [profile.name, profile]));
-  const pinned = pins.map(name => byName.get(name)).filter((profile): profile is ProfileInfo => !!profile);
-  const pinnedNames = new Set(pinned.map(profile => profile.name));
+  const pinned: ProfileInfo[] = [];
+  const pinnedNames = new Set<string>();
+  for (const name of pins) {
+    const bot = name === "default" ? byName.get(name) ?? profiles.find(p => p.is_default) : byName.get(name);
+    if (bot && !pinnedNames.has(bot.name)) { pinned.push(bot); pinnedNames.add(bot.name); }
+  }
   const others = profiles.filter(profile => !pinnedNames.has(profile.name)).sort((a, b) =>
     (activity[b.name]?.lastActive || 0) - (activity[a.name]?.lastActive || 0) || a.name.localeCompare(b.name));
   return { pinned, others };

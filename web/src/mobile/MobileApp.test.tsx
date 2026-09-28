@@ -39,10 +39,12 @@ vi.mock("./mobile-push", () => ({ pushAvailable: () => false, registerMobileWork
 vi.mock("./MobileKanban", () => ({ default: ({ taskId, onSelectTask }: { taskId?: string; onSelectTask: (id: string) => void }) => <div>{taskId ? `Task ${taskId}` : <button onClick={() => onSelectTask("t-1")}>Open task</button>}</div> }));
 vi.mock("./MobileScreen", () => ({ default: ({ onContinue }: { onContinue: () => Promise<void> }) => <button onClick={() => void onContinue()}>Continue after hand back</button> }));
 import MobileApp from "./MobileApp";
+import { PIN_STORAGE_KEY } from "./home-data";
 
 let root: Root;
 let host: HTMLDivElement;
-beforeEach(() => { vi.clearAllMocks(); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+const storage = new Map<string, string>();
+beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } }); vi.clearAllMocks(); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
@@ -294,9 +296,18 @@ it("switches stored conversations from the chat sheet and starts a new one witho
   expect(mocks.request.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(before);
 });
 
+it("shows only the three default pins with Jorge's five real profile names", async () => {
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: ["gimli", "samwise", "gandalf", "default", "author"].map(name => ({ name, is_default: name === "default" })) });
+  await renderApp(); await settle(); await settle();
+  expect(Array.from(host.querySelectorAll(".m-pinned-bot > span:last-of-type")).map(label => label.textContent)).toEqual(["Frodo", "Gandalf", "Samwise"]);
+  expect(Array.from(host.querySelectorAll(".m-bot-main .m-bot-heading strong")).map(label => label.textContent)).toEqual(["Author", "Gimli"]);
+  expect(host.querySelectorAll(".m-pinned-bot, .m-bot-main")).toHaveLength(5);
+  expect(host.querySelector(".m-row-action, .m-pin-action")).toBeNull();
+});
+
 it("refreshes the bot preview when the newest message changes", async () => {
   await renderApp(); await settle(); await settle();
-  await act(async () => (host.querySelector('[aria-label="Options for Frodo"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
   await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
   const frodo = Array.from(host.querySelectorAll('.m-bot-row')).find(row => row.textContent?.includes('Frodo'))!;
   expect(frodo.querySelector('small')?.textContent).toContain('Earlier from frodo');
@@ -416,10 +427,33 @@ it("persists a pin action and moves a bot out of the unpinned list", async () =>
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: 'frodo', is_default: true }, { name: 'gandalf', is_default: false }, { name: 'author', is_default: false }] });
   await renderApp(); await settle();
   expect(host.querySelector('.m-bot-row')?.textContent).toContain('Author');
-  await act(async () => (host.querySelector('[aria-label="Options for Author"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-bot-main') as HTMLButtonElement).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
   await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
   expect(host.querySelector('.m-bot-row')).toBeNull();
-  expect(values.get('hermes-mobile-pins')).toContain('author');
+  expect(values.get(PIN_STORAGE_KEY)).toContain('author');
+});
+
+it("long-presses an unpinned bot to pin it without opening its chat", async () => {
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: 'frodo', is_default: true }, { name: 'author', is_default: false }] });
+  await renderApp(); await settle();
+  const author = host.querySelector('.m-bot-main') as HTMLButtonElement;
+  await act(async () => {
+    const touch = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(touch, 'touches', { value: [{ clientX: 100, clientY: 250 }] });
+    author.dispatchEvent(touch);
+    await new Promise(resolve => setTimeout(resolve, 570));
+  });
+  await act(async () => {
+    const touch = new Event('touchend', { bubbles: true });
+    Object.defineProperty(touch, 'touches', { value: [] });
+    author.dispatchEvent(touch); author.click();
+  });
+  expect(window.location.pathname).toBe('/m');
+  expect(host.querySelector('.m-pin-choice')?.textContent).toBe('Pin bot');
+  await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
+  expect(host.querySelectorAll('.m-pinned-bot')).toHaveLength(2);
+  expect(host.querySelector('.m-bot-row')).toBeNull();
+  expect(storage.get(PIN_STORAGE_KEY)).toContain('author');
 });
 
 it("puts a waiting bot's live request ahead of its stored preview and opens the waiting session", async () => {
@@ -435,7 +469,8 @@ it("puts a waiting bot's live request ahead of its stored preview and opens the 
 it("shows the pending approval in the bot's home status without losing its answer card", async () => {
   await renderApp(); await settle();
   await act(async () => { for (const handler of mocks.requests) handler({ id: 'approval-1', method: 'approval', params: { session_id: 'runtime', command: 'run tests', choices: ['once', 'deny'] }, respond: vi.fn(), fail: vi.fn() }); });
-  expect(host.querySelector('.m-pinned-bot')?.textContent).toContain('Needs you');
+  expect(host.querySelector('.m-pinned-bot')?.getAttribute('aria-label')).toBe('Frodo, needs your input');
+  expect(host.querySelector('.m-pinned-bot > span:last-of-type')?.textContent).toBe('Frodo');
   expect(host.querySelector('.m-inbox')?.textContent).toContain('run tests');
 });
 
