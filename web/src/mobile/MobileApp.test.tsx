@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   running: false,
+  latestBuildIdle: null as (() => boolean) | null,
   liveSessions: [] as Array<{ id: string; session_key: string; title: string; status: string }>,
   waitingProfile: "",
   rosterPreview: {} as Record<string, string>,
@@ -53,6 +54,7 @@ vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   request = mocks.request;
   close() { this.connectionState = "closed"; }
 } }));
+vi.mock("./useLatestBuild", () => ({ useLatestBuild: (_path: string, idle: () => boolean) => { mocks.latestBuildIdle = idle; } }));
 vi.mock("./mobile-push", () => ({ pushAvailable: () => false, registerMobileWorker: vi.fn(), subscribePush: vi.fn(), unsubscribePush: vi.fn(), localSignOut: vi.fn() }));
 vi.mock("./MobileKanban", () => ({ default: ({ taskId, onSelectTask }: { taskId?: string; onSelectTask: (id: string) => void }) => <div>{taskId ? `Task ${taskId}` : <button onClick={() => onSelectTask("t-1")}>Open task</button>}</div> }));
 vi.mock("./MobileScreen", () => ({ default: ({ onContinue }: { onContinue: () => Promise<void> }) => <button onClick={() => void onContinue()}>Continue after hand back</button> }));
@@ -62,7 +64,7 @@ import { PIN_STORAGE_KEY } from "./home-data";
 let root: Root;
 let host: HTMLDivElement;
 const storage = new Map<string, string>();
-beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
+beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
   ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.setSessionPinned.mockImplementation(async (_id, pinned) => ({ ok: true, pinned })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
@@ -388,6 +390,18 @@ it("prefetches both bots, pushes real URLs, and restores cached chat on browser 
   expect(mocks.request.mock.calls.filter(([method]) => method === 'session.resume')).toHaveLength(resumes);
 });
 
+it("resumes a cached bot after its gateway connection was closed", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
+  await settle();
+  expect(mocks.request.mock.calls.filter(([method, params]) => method === 'session.resume' && params?.profile === 'frodo')).toHaveLength(1);
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
+  await settle();
+  expect(mocks.request.mock.calls.filter(([method, params]) => method === 'session.resume' && params?.profile === 'frodo')).toHaveLength(2);
+});
+
 it("restores the bot list scroll after returning through browser history", async () => {
   await renderApp(); await settle(); await settle();
   const list = host.querySelector('.m-bot-list') as HTMLElement;
@@ -517,6 +531,17 @@ it("resolves legacy notification links to the latest stored chat", async () => {
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier');
 });
 
+it("defers build reload while a turn is active, then allows it when done", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  expect(mocks.latestBuildIdle?.()).toBe(true);
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
+  expect(mocks.latestBuildIdle?.()).toBe(false);
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { text: 'Done' } }); });
+  expect(mocks.latestBuildIdle?.()).toBe(true);
+});
+
 it("timestamps a just-sent message before a reload", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
@@ -540,6 +565,14 @@ it("shows compaction and a failed turn with an edit-and-retry action instead of 
   expect(host.querySelector('[aria-label="Edit and retry message"]')).not.toBeNull();
 });
 
+it("marks a saved unanswered turn as interrupted after reconnect and offers edit/retry", async () => {
+  window.history.replaceState({}, "", "/m/chat/frodo/stored");
+  await renderApp(); await settle(); await settle();
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
+  expect(host.querySelector('[aria-label="Edit and retry message"]')).not.toBeNull();
+});
+
 it("re-checks the server after a silent turn and stops a ghost spinner", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
@@ -548,7 +581,9 @@ it("re-checks the server after a silent turn and stops a ghost spinner", async (
   try {
     await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
     expect(host.querySelector('.m-thinking')).not.toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+    await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
     expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
     expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
     expect(host.querySelector('.m-thinking')).toBeNull();
@@ -618,6 +653,24 @@ it("uploads a selected photo to the bot profile, attaches it before submitting, 
   expect(host.querySelector('.m-message.m-user:last-of-type')?.textContent).toContain('Photo');
   expect(host.querySelector('.m-messages')?.textContent).not.toContain('/sample/image.png');
   expect(host.querySelector('.m-photo-preview')).toBeNull();
+});
+
+it("stages pasted photos and dropped files in the same composer", async () => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:pasted-photo") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click()); await settle();
+  const photo = new File(["png"], "pasted.png", { type: "image/png" });
+  const paste = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, 'clipboardData', { value: { files: [photo] } });
+  await act(async () => (host.querySelector('.m-composer textarea') as HTMLTextAreaElement).dispatchEvent(paste));
+  expect(paste.defaultPrevented).toBe(true);
+  expect(host.querySelector('.m-photo-preview img')?.getAttribute('alt')).toBe('pasted.png');
+  const dropped = new Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(dropped, 'dataTransfer', { value: { files: [new File(["PDF"], "dropped.pdf", { type: "application/pdf" })] } });
+  await act(async () => (host.querySelector('.m-main') as HTMLElement).dispatchEvent(dropped));
+  expect(dropped.defaultPrevented).toBe(true);
+  expect(host.querySelector('.m-file-previews')?.textContent).toContain('dropped.pdf');
 });
 
 it("keeps the selected photo and text when its upload fails without sending a ghost message", async () => {
@@ -712,6 +765,7 @@ it("dictates into the draft without submitting the bot turn", async () => {
 });
 
 it("copies the exact message from its long-press action without changing the conversation", async () => {
+  vi.stubGlobal("isSecureContext", true);
   const writeText = vi.fn(async () => {});
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
   await renderApp(); await settle(); await settle();
@@ -725,6 +779,24 @@ it("copies the exact message from its long-press action without changing the con
   await vi.waitFor(() => expect(host.textContent).not.toContain('Copy text'));
 });
 
+it("falls back to selection copy when clipboard permission is denied", async () => {
+  vi.stubGlobal("isSecureContext", true);
+  const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const fallback = vi.fn(() => true);
+  Object.defineProperty(document, "execCommand", { configurable: true, value: fallback });
+  try {
+    await renderApp(); await settle(); await settle();
+    await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+    await settle();
+    await act(async () => (host.querySelector('.m-message') as HTMLElement).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Copy text') as HTMLButtonElement).click());
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('Earlier from frodo'));
+    await vi.waitFor(() => expect(fallback).toHaveBeenCalledWith('copy'));
+    await vi.waitFor(() => expect(host.textContent).not.toContain('Copy text'));
+  } finally { Reflect.deleteProperty(document, "execCommand"); }
+});
+
 it("sends Continue to Samwise's selected chat after a screen hand-back", async () => {
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "samwise", is_default: true }] });
   await renderApp();
@@ -735,8 +807,8 @@ it("sends Continue to Samwise's selected chat after a screen hand-back", async (
     profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(host.textContent).toContain("Earlier");
-  await vi.waitFor(() => expect(host.querySelectorAll('.m-detail')).toHaveLength(1));
-  await vi.waitFor(() => expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
+  await vi.waitFor(() => expect(host.querySelectorAll('.m-detail .m-messages')).toHaveLength(1));
+  await vi.waitFor(() => expect((host.querySelector('.m-detail:has(.m-messages)') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
   expect(host.querySelector('.m-detail .m-messages')?.textContent).toContain("Earlier");
 });
 
@@ -893,6 +965,82 @@ it("opens the composer menu with separate Photo and File actions", async () => {
   expect(host.querySelector('.m-attach-menu')?.textContent).toContain('File');
 });
 
+it("focuses the desktop composer on bot switch and grows and shrinks with text", async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  expect(document.activeElement).toBe(input);
+  Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => input.value.length > 10 ? 500 : 46 });
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Long message that should grow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(parseInt(input.style.height)).toBeGreaterThan(46);
+  expect(input.style.overflowY).toBe('auto');
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'short'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(input.style.height).toBe('46px');
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
+  expect(document.activeElement).toBe(host.querySelector('.m-composer textarea'));
+});
+
+it("does not focus the composer when opening a bot at phone width", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  expect(document.activeElement).not.toBe(host.querySelector('.m-composer textarea'));
+});
+
+it("keeps drafts and attachments scoped to each bot and restores on switch", async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fixture'), revokeObjectURL: vi.fn() });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
+  const type = async (value: string) => {
+    const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  await type('Frodo draft');
+  const photo = host.querySelector('.m-composer input[type="file"]') as HTMLInputElement;
+  Object.defineProperty(photo, 'files', { configurable: true, value: [new File(['photo'], 'frodo.png', { type: 'image/png' })] });
+  await act(async () => photo.dispatchEvent(new Event('change', { bubbles: true })));
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
+  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('');
+  expect(host.querySelector('.m-photo-previews')).toBeNull();
+  await type('Gandalf only');
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Frodo draft');
+  expect(host.querySelector('.m-photo-previews')?.textContent).toContain('frodo.png');
+  expect((host.querySelector('.m-photo-preview img') as HTMLImageElement).alt).toBe('frodo.png');
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'gandalf', text: 'Gandalf only' });
+  expect(mocks.uploadChatImage).not.toHaveBeenCalled();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Frodo draft');
+  expect((host.querySelector('.m-photo-preview img') as HTMLImageElement).alt).toBe('frodo.png');
+});
+
+it("keeps a pending photo upload in its original chat after switching bots", async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:pending'), revokeObjectURL: vi.fn() });
+  let finishUpload!: (result: { path: string; name: string; bytes: number; mime_type: string }) => void;
+  mocks.uploadChatImage.mockImplementationOnce(() => new Promise(resolve => { finishUpload = resolve; }));
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
+  const image = host.querySelector('.m-composer input[type="file"]') as HTMLInputElement;
+  Object.defineProperty(image, 'files', { configurable: true, value: [new File(['photo'], 'frodo.png', { type: 'image/png' })] });
+  await act(async () => image.dispatchEvent(new Event('change', { bubbles: true })));
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-photo-label')?.textContent).toContain('Uploading 1 of 1');
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
+  expect(host.querySelector('.m-photo-previews')).toBeNull();
+  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Gandalf only'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'gandalf', text: 'Gandalf only' });
+  await act(async () => { finishUpload({ path: '/frodo/image.png', name: 'image.png', bytes: 5, mime_type: 'image/png' }); });
+  await settle();
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'frodo', text: 'What do you see in this photo?' });
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain('What do you see in this photo?');
+});
+
 it("attaches a file using the existing gateway RPC before sending", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
@@ -904,6 +1052,38 @@ it("attaches a file using the existing gateway RPC before sending", async () => 
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
   expect(mocks.request).toHaveBeenCalledWith('file.attach', expect.objectContaining({ session_id: 'runtime', profile: 'frodo', name: 'test.txt', data_url: expect.stringMatching(/^data:text\/plain;base64,/) }));
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'frodo', text: 'Please read the attached file.\n@file:attachments/test.txt' });
+  const sent = host.querySelector('.m-message.m-user:last-of-type') as HTMLElement;
+  expect(sent.textContent).toContain('test.txt');
+  expect(sent.textContent).not.toContain('@file:attachments');
+});
+
+it("shows stored attachment chips without exposing injected context or filesystem paths", async () => {
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: 'user', content: 'Please read these.\n@file:.hermes/profiles/gimli/attachments/fixture.txt\n\n--- Attached Context ---\n\n📄 @file:.hermes/profiles/gimli/attachments/fixture.txt (26 tokens)\n```\nPrivate content\n```\n@image:/private/images/photo.png\n[screenshot]', timestamp: 100 }] });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const row = host.querySelector('.m-message.m-user') as HTMLElement;
+  expect(row.textContent).toContain('Please read these.');
+  expect(row.textContent).toContain('fixture.txt');
+  expect(row.textContent).toContain('Photo');
+  expect(row.textContent).not.toContain('@file:');
+  expect(row.textContent).not.toContain('Private content');
+  expect(row.textContent).not.toContain('[screenshot]');
+  expect(row.querySelector<HTMLAnchorElement>('.m-image-attachment')?.href).toContain('/api/chat/attachment/frodo/image/photo.png');
+  expect(row.querySelector<HTMLAnchorElement>('a[download="fixture.txt"]')?.href).toContain('/api/chat/attachment/frodo/file/fixture.txt');
+});
+
+it("hides generated context warnings while retaining photo and file chips", async () => {
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: 'user', content: 'QA attachment check\n@file:/Users/qa/attachments/qa-riverstone.pdf\n\n--- Context Warnings ---\n- @file:/Users/qa/attachments/qa-riverstone.pdf: path is outside the allowed workspace\n@image:/Users/qa/images/qa-lantern.png', timestamp: 100 }] });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click()); await settle();
+  const row = host.querySelector('.m-message.m-user') as HTMLElement;
+  expect(row.textContent).toContain('QA attachment check');
+  expect(row.textContent).toContain('qa-riverstone.pdf');
+  expect(row.textContent).toContain('Photo');
+  expect(row.textContent).not.toContain('Context Warnings');
+  expect(row.textContent).not.toContain('allowed workspace');
+  expect(row.textContent).not.toContain('/Users/qa');
 });
 
 it("persists a thumbs-up reaction and renders a URL preview from a bot reply", async () => {

@@ -5,12 +5,16 @@ import type { ProfileInfo } from "@/lib/api";
 interface Entry { text: string; display?: string; meta?: string; kind?: string }
 interface Suggestion extends Entry { label: string; group: string }
 
-export function useComposerSuggestions({ text, setText, cursor, gateway, sessionId, profiles, input }: {
-  text: string; setText: (text: string) => void; cursor: number; gateway: GatewayClient | null; sessionId?: string; profiles: ProfileInfo[]; input: RefObject<HTMLTextAreaElement | null>;
+export function useComposerSuggestions({ scope, text, setText, cursor, gateway, sessionId, profiles, input }: {
+  scope: string; text: string; setText: (text: string) => void; cursor: number; gateway: GatewayClient | null; sessionId?: string; profiles: ProfileInfo[]; input: RefObject<HTMLTextAreaElement | null>;
 }) {
-  const [items, setItems] = useState<Suggestion[]>([]);
-  const [active, setActive] = useState(0);
-  const [dismissed, setDismissed] = useState("");
+  const [byScope, setByScope] = useState<Record<string, { items: Suggestion[]; active: number; dismissed: string }>>({});
+  const { items, active, dismissed } = byScope[scope] ?? { items: [], active: 0, dismissed: "" };
+  const update = useCallback((change: (state: { items: Suggestion[]; active: number; dismissed: string }) => { items: Suggestion[]; active: number; dismissed: string }) =>
+    setByScope(current => ({ ...current, [scope]: change(current[scope] ?? { items: [], active: 0, dismissed: "" }) })), [scope]);
+  const setItems = useCallback((items: Suggestion[]) => update(state => ({ ...state, items })), [update]);
+  const setActive = useCallback((value: number | ((active: number) => number)) => update(state => ({ ...state, active: typeof value === "function" ? value(state.active) : value })), [update]);
+  const setDismissed = useCallback((dismissed: string) => update(state => ({ ...state, dismissed })), [update]);
   const prefix = text.slice(0, cursor);
   const match = /(^|\s)(\/[\w.-]*(?:\s+[^\n]*)?|@[\w.-]*)$/.exec(prefix);
   const query = match?.[2] || "";
@@ -47,14 +51,14 @@ export function useComposerSuggestions({ text, setText, cursor, gateway, session
     };
     const timer = window.setTimeout(() => void load(), query === "/" ? 0 : 100);
     return () => { alive = false; clearTimeout(timer); };
-  }, [query, gateway, sessionId, profiles]);
+  }, [query, gateway, sessionId, profiles, setItems, setActive]);
   const pick = useCallback((item: Suggestion) => {
     if (!match) return;
     const next = text.slice(0, match.index + match[1].length) + item.text + " " + text.slice(cursor);
     const position = match.index + match[1].length + item.text.length + 1;
     setText(next); setItems([]); setDismissed(item.text);
     requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(position, position); });
-  }, [match, text, cursor, input, setText]);
+  }, [match, text, cursor, input, setText, setItems, setDismissed]);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open || event.nativeEvent.isComposing) return false;
     if (event.key === "Escape") { event.preventDefault(); setDismissed(query); return true; }

@@ -364,6 +364,25 @@ async def upload_chat_image(payload: ChatImageUpload, profile: Optional[str] = N
     return await asyncio.to_thread(_run)
 
 
+@router.get("/api/chat/attachment/{profile}/{kind}/{name}")
+async def read_chat_attachment(profile: str, kind: str, name: str):
+    """Serve only staged chat images/files, never arbitrary paths from message text."""
+    if kind not in {"image", "file"} or not name or name != Path(name).name or name.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid attachment")
+    with _profile_scope(profile) as scoped_home:
+        root = (Path(scoped_home or get_hermes_home()) / ("images" if kind == "image" else "attachments")).resolve()
+        target = (root / name).resolve()
+        if root not in target.parents or not target.is_file():
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        if target.stat().st_size > _CHAT_IMAGE_UPLOAD_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Attachment too large")
+        mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if kind == "image" and (target.suffix.lower() not in _CHAT_IMAGE_ALLOWED_EXTENSIONS or not mime_type.startswith("image/")):
+            raise HTTPException(status_code=415, detail="Unsupported image")
+        return FileResponse(str(target), media_type=mime_type, filename=name,
+                            content_disposition_type="inline" if kind == "image" else "attachment",
+                            headers={"X-Content-Type-Options": "nosniff"})
+
 @router.get("/api/files")
 async def list_managed_files(request: Request, path: Optional[str] = None):
     policy, target, display_path = _resolve_managed_path(path, request)

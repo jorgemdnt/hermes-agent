@@ -617,6 +617,33 @@ async def test_side_thread_expansion_guards_the_served_profile_home(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_staged_chat_attachment_is_allowed_only_under_active_profile(tmp_path, monkeypatch):
+    from agent.context_references import preprocess_context_references_async
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = tmp_path / ".hermes"
+    profile = root / "profiles" / "gimli"
+    monkeypatch.setenv("HERMES_HOME", str(profile))
+    file = profile / "attachments" / "report.txt"
+    file.parent.mkdir(parents=True)
+    file.write_text("ACTIVE-ATTACHMENT", encoding="utf-8")
+    sibling = root / "profiles" / "gandalf" / "attachments" / "secret.txt"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("SIBLING-SECRET", encoding="utf-8")
+    (file.parent / "link.txt").symlink_to(sibling)
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+
+    result = await preprocess_context_references_async(
+        f"see @file:{file} and @file:{sibling} and @file:{file.parent / 'link.txt'}",
+        cwd=workspace, allowed_root=workspace, context_length=100_000,
+    )
+    assert "ACTIVE-ATTACHMENT" in result.message
+    assert "SIBLING-SECRET" not in result.message
+    assert len(result.warnings) == 2
+
+
+@pytest.mark.asyncio
 async def test_composer_paste_outside_workspace_is_attached_but_sibling_dir_is_not(tmp_path, monkeypatch):
     """Desktop saves a large paste under <HERMES_HOME>/composer-pastes and attaches it
     as `@file:`; the chat cwd is almost never an ancestor of that directory, so the

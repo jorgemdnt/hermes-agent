@@ -1,10 +1,11 @@
 import { useEffect, useRef, type TouchEvent } from "react";
-import { ExternalLink, Image as ImageIcon, MoreHorizontal, ThumbsUp } from "lucide-react";
+import { ExternalLink, FileUp, Image as ImageIcon, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { classifyUserText } from "./message-kind";
 import { Markdown } from "@/components/Markdown";
 import type { ChatRow } from "./mobile-state";
 
 interface MobileMessageProps {
+  profile: string;
   row: ChatRow;
   previous?: ChatRow;
   onAction: (text: string) => void;
@@ -13,7 +14,7 @@ interface MobileMessageProps {
   avatarFor?: (handle: string) => string | undefined;
 }
 
-export default function MobileMessage({ row, previous, onAction, onReact, reacted, avatarFor }: MobileMessageProps) {
+export default function MobileMessage({ profile, row, previous, onAction, onReact, reacted, avatarFor }: MobileMessageProps) {
   const link = row.role === "assistant" ? /https?:\/\/[^\s<>)\]]+/i.exec(row.text)?.[0] : undefined;
   const linkedTitle = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(row.text);
   let preview: URL | null = null;
@@ -22,8 +23,11 @@ export default function MobileMessage({ row, previous, onAction, onReact, reacte
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const origin = useRef({ x: 0, y: 0 });
   const grouped = previous?.role === row.role && !(kind && kind.kind !== "human") && !(previous?.role === "user" && classifyUserText(previous.text).kind !== "human");
-  const imageCount = row.role === "user" ? (row.text.match(/^@image:[^\n]+$/gm) || []).length : 0;
-  const displayText = imageCount ? row.text.replace(/^@image:[^\n]+\n?/gm, "").trim() : row.text;
+  const visibleUserText = row.role === "user" ? row.text.split(/\n\n--- (?:Attached Context|Context Warnings) ---\n/)[0] : row.text;
+  const imageNames = row.role === "user" ? [...row.text.matchAll(/^@image:([^\n]+)$/gm)].map(match => match[1].split("/").at(-1) || "Photo") : [];
+  const fileNames = row.role === "user" ? [...visibleUserText.matchAll(/^@file:([^\n]+)$/gm)].map(match => match[1].split("/").at(-1) || "File") : [];
+  const attachmentUrl = (kind: "image" | "file", name: string) => `/api/chat/attachment/${encodeURIComponent(profile)}/${kind}/${encodeURIComponent(name)}`;
+  const displayText = row.role === "user" ? visibleUserText.replace(/^@(?:image|file):[^\n]+\n?/gm, "").trim() : row.text;
   const cancelPress = () => { if (press.current) clearTimeout(press.current); press.current = null; };
   useEffect(() => cancelPress, []);
   const startPress = (event: TouchEvent) => {
@@ -49,7 +53,7 @@ export default function MobileMessage({ row, previous, onAction, onReact, reacte
   return <article className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}
     onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
     onContextMenu={event => { if (!(event.target as Element).closest("a, button")) { event.preventDefault(); onAction(displayText || "Photo"); } }}>
-    {row.role === "assistant" ? <Markdown content={row.text} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{!!imageCount && <span className="m-image-ref"><ImageIcon size={16} aria-hidden="true" />{imageCount === 1 ? "Photo" : `${imageCount} photos`}</span>}</>}
+    {row.role === "assistant" ? <Markdown content={row.text} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <a className="m-image-ref m-image-attachment" key={`${index}-${image}`} href={attachmentUrl("image", image)} target="_blank" rel="noreferrer" aria-label={`Open photo ${image}`}><img src={attachmentUrl("image", image)} alt={image} onError={event => { event.currentTarget.style.display = "none"; }} /><ImageIcon size={16} aria-hidden="true" /><span>Photo</span></a>)}{fileNames.map((file, index) => <a className="m-image-ref" href={attachmentUrl("file", file)} download={file} key={`${index}-${file}`}><FileUp size={16} aria-hidden="true" />{file}</a>)}</>}
     {preview && <a className="m-link-preview" href={preview.href} target="_blank" rel="noreferrer" aria-label={`Open ${preview.hostname}`}>
       <span className="m-link-domain">{preview.hostname}<ExternalLink size={14} aria-hidden="true" /></span>
       <strong>{linkedTitle?.[2] === preview.href ? linkedTitle[1] : preview.pathname.split("/").filter(Boolean).at(-1) || preview.hostname}</strong>

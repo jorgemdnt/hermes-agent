@@ -1,6 +1,7 @@
 """Tests for the dashboard-managed file browser API."""
 
 import base64
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -91,6 +92,31 @@ def _seed_file(client, root, name="out/hello.txt"):
 
 
 
+
+def test_chat_attachments_are_profile_scoped_and_authenticated(monkeypatch, tmp_path):
+    monkeypatch.setattr(_rt_files, "_profile_scope", lambda profile: nullcontext(tmp_path / profile))
+    for profile in ("frodo", "gandalf"):
+        for kind, name, data in (("images", "photo.png", b"\x89PNG\r\n\x1a\n"), ("attachments", "note.txt", profile.encode())):
+            directory = tmp_path / profile / kind
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / name).write_bytes(data)
+    (tmp_path / "frodo" / "attachments" / "outside.txt").symlink_to(tmp_path / "gandalf" / "attachments" / "note.txt")
+    client, previous_auth, previous_host = _client_with_app_state()
+    try:
+        image = client.get("/api/chat/attachment/frodo/image/photo.png")
+        assert image.status_code == 200 and image.content.startswith(b"\x89PNG")
+        assert image.headers["content-type"] == "image/png"
+        file = client.get("/api/chat/attachment/gandalf/file/note.txt")
+        assert file.status_code == 200 and file.content == b"gandalf"
+        assert file.headers["content-disposition"].startswith("attachment;")
+        assert client.get("/api/chat/attachment/frodo/file/note.txt").content == b"frodo"
+        assert client.get("/api/chat/attachment/frodo/file/outside.txt").status_code == 404
+        assert client.get("/api/chat/attachment/frodo/image/note.txt").status_code == 404
+        del client.headers[web_server._SESSION_HEADER_NAME]
+        assert client.get("/api/chat/attachment/frodo/image/photo.png").status_code in (401, 403)
+    finally:
+        _close_client(client)
+        _restore_app_state(previous_auth, previous_host)
 
 @pytest.mark.parametrize("client_fixture", ["local_files_client", "forced_files_client"])
 def test_mkdir_creates_a_folder_the_picker_can_list_and_enter(client_fixture, request):

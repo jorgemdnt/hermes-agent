@@ -197,6 +197,19 @@ class TestWsTicketEndpoint:
         assert replay.get("/m", follow_redirects=False).headers["location"].startswith("/login")
         assert replay.get("/api/auth/me").status_code == 401
 
+    def test_sign_out_then_back_in_with_stub_provider(self, gated_app):
+        _logged_in(gated_app)
+        assert gated_app.get("/m").status_code == 200
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.post("/api/mobile/logout").json() == {"ok": True}
+        assert gated_app.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        _logged_in(gated_app)
+        assert gated_app.get("/m").status_code == 200
+        assert gated_app.get("/api/auth/me").json()["display_name"] == "Stub User"
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+
     def test_google_picture_claim_is_proxied_without_browser_cookies(self, gated_app, monkeypatch):
         from dataclasses import replace
         import httpx

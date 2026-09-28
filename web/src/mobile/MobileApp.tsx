@@ -15,6 +15,7 @@ import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type AuthMeResponse, type ProfileInfo, type SessionMessage } from "@/lib/api";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { sideConversations, type Conversation } from "./conversations";
 import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
@@ -22,6 +23,7 @@ import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui"
 import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
+import { loadComposerAttachments, saveComposerAttachments } from "./composer-attachments";
 import { groupNoticeRows } from "./message-kind";
 import { uploadChatImage } from "@/lib/chatImagePaste";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type ChatRow, type MobileChat, type PendingPrompt } from "./mobile-state";
@@ -45,6 +47,9 @@ interface SessionSnapshot {
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const profileFromUrl = () => new URLSearchParams(window.location.search).get("profile") || "";
 const chatKey = (profile: string, session: string) => `${profile}/${session}`;
+type ComposerDraft = { text: string; cursor: number; photos: Array<{ file: File; preview: string }>; files: File[] };
+const emptyDraft = (): ComposerDraft => ({ text: "", cursor: 0, photos: [], files: [] });
+const draftStorageKey = (key: string) => `hermes-mobile-draft:${key}`;
 const displayRows = (messages: SessionMessage[]) => transcriptRows(messages.map(m => ({
   role: m.role, text: (m as SessionMessage & { display_content?: string }).display_content ?? m.content, timestamp: m.timestamp,
 })));
@@ -85,16 +90,54 @@ export default function MobileApp() {
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
-  const [photos, setPhotos] = useState<Array<{ file: File; preview: string }>>([]);
-  const [files, setFiles] = useState<File[]>([]);
+  const composerKey = chatKey(profile, selected);
+  const [composerDrafts, setComposerDrafts] = useState<Record<string, ComposerDraft>>({});
+  const [uploadStatus, setUploadStatus] = useState<Record<string, Record<string, string>>>({});
+  const markUpload = (key: string, file: string, status: string) => setUploadStatus(current => ({ ...current, [key]: { ...current[key], [file]: status } }));
+  const draft = composerDrafts[composerKey];
+  const text = draft?.text ?? window.localStorage.getItem(draftStorageKey(composerKey)) ?? "";
+  const photos = draft?.photos ?? [];
+  const files = draft?.files ?? [];
+  const cursor = draft?.cursor ?? 0;
+  const updateDraft = (key: string, update: (draft: ComposerDraft) => ComposerDraft) => setComposerDrafts(current => {
+    const previous = current[key] ?? { ...emptyDraft(), text: window.localStorage.getItem(draftStorageKey(key)) ?? "" };
+    const next = update(previous);
+    if (next.text) window.localStorage.setItem(draftStorageKey(key), next.text);
+    else window.localStorage.removeItem(draftStorageKey(key));
+    return { ...current, [key]: next };
+  });
+  const setText = (value: string | ((previous: string) => string)) => updateDraft(composerKey, previous => ({ ...previous, text: typeof value === "function" ? value(previous.text) : value }));
+  const setPhotos = (value: ComposerDraft["photos"] | ((previous: ComposerDraft["photos"]) => ComposerDraft["photos"])) => updateDraft(composerKey, previous => ({ ...previous, photos: typeof value === "function" ? value(previous.photos) : value }));
+  const setFiles = (value: File[] | ((previous: File[]) => File[])) => updateDraft(composerKey, previous => ({ ...previous, files: typeof value === "function" ? value(previous.files) : value }));
+  const setCursor = (value: number) => updateDraft(composerKey, previous => ({ ...previous, cursor: value }));
   const photoInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
-  const [cursor, setCursor] = useState(0);
-  const photosRef = useRef(photos);
-  useEffect(() => { photosRef.current = photos; }, [photos]);
-  useEffect(() => () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.preview); }, []);
-  const clearPhotos = () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.preview); setPhotos([]); };
+  useEffect(() => () => { for (const entry of Object.values(composerDraftsRef.current)) for (const photo of entry.photos) URL.revokeObjectURL(photo.preview); }, []);
+  const composerDraftsRef = useRef(composerDrafts);
+  composerDraftsRef.current = composerDrafts;
+  const persistedAttachments = useRef(new Map<string, { photos: ComposerDraft["photos"]; files: File[] }>());
+  useEffect(() => {
+    let alive = true;
+    void loadComposerAttachments(composerKey).then(saved => {
+      if (!alive || (!saved.photos.length && !saved.files.length)) return;
+      setComposerDrafts(current => {
+        if (persistedAttachments.current.has(composerKey) || current[composerKey]?.photos.length || current[composerKey]?.files.length) return current;
+        const photos = saved.photos.map(file => ({ file, preview: URL.createObjectURL(file) }));
+        return { ...current, [composerKey]: { ...emptyDraft(), ...current[composerKey], text: current[composerKey]?.text ?? window.localStorage.getItem(draftStorageKey(composerKey)) ?? "", photos, files: saved.files } };
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [composerKey]);
+  useEffect(() => {
+    for (const [key, current] of Object.entries(composerDrafts)) {
+      const previous = persistedAttachments.current.get(key);
+      if (previous?.photos === current.photos && previous.files === current.files) continue;
+      if (!previous && !current.photos.length && !current.files.length) continue;
+      persistedAttachments.current.set(key, current);
+      void saveComposerAttachments(key, current.photos.map(photo => photo.file), current.files).catch(() => toast.error("Could not save staged attachments"));
+    }
+  }, [composerDrafts]);
   const cache = useRef(new Map<string, MobileChat>());
   const pages = useRef(new Map<string, { offset: number; hasOlder: boolean }>());
   const [paging, setPaging] = useState({ key: "", offset: 0, hasOlder: false, loading: false, error: "" });
@@ -106,7 +149,7 @@ export default function MobileApp() {
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
-  const [messageAction, setMessageAction] = useState<{ text: string; key: string } | null>(null);
+  const [messageAction, setMessageAction] = useState<{ text: string; key: string; scope: string } | null>(null);
   const [reactions, setReactions] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(window.localStorage.getItem("hermes-mobile-reactions") || "{}"); } catch { return {}; }
   });
@@ -254,13 +297,25 @@ export default function MobileApp() {
   const checkingTurn = useRef(false);
   const runningTools = useRef(new Map<string, string>());
   const toolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [text, setText] = useState("");
+  useLayoutEffect(() => {
+    const input = composerInput.current;
+    if (!input || view !== "chat") return;
+    input.style.height = "auto";
+    const max = Math.max(46, Math.floor((window.visualViewport?.height || window.innerHeight) * 0.4));
+    input.style.height = `${Math.min(input.scrollHeight, max)}px`;
+    input.style.overflowY = input.scrollHeight > max ? "auto" : "hidden";
+  }, [text, view, profile, selected]);
+  useEffect(() => {
+    if (view === "chat" && desktop && connection === "open") composerInput.current?.focus({ preventScroll: true });
+  }, [view, desktop, profile, selected, connection]);
   const voice = useMobileDictation(profile, `${view}/${selected}`, transcript => setText(previous => `${previous.trimEnd()}${previous.trim() ? " " : ""}${transcript}`));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const idleRef = useRef({ text: "", busy: false });
-  idleRef.current = { text, busy };
-  const isIdle = useCallback(() => !idleRef.current.text.trim() && !idleRef.current.busy, []);
+  const [sending, setSending] = useState<Record<string, boolean>>({});
+  const sendingHere = !!sending[composerKey];
+  const idleRef = useRef({ text: "", busy: false, running: false, attachments: false, dictating: false });
+  idleRef.current = { text, busy: busy || Object.values(sending).some(Boolean), running: !!chat?.running, attachments: !!photos.length || !!files.length, dictating: voice.phase !== "idle" };
+  const isIdle = useCallback(() => !idleRef.current.text.trim() && !idleRef.current.busy && !idleRef.current.running && !idleRef.current.attachments && !idleRef.current.dictating, []);
   useLatestBuild(`${HERMES_BASE_PATH}/m`, isIdle);
   const [pushEnabled, setPushEnabled] = useState(false);
   const client = useRef<GatewayClient | null>(null);
@@ -410,6 +465,7 @@ export default function MobileApp() {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const gw = new GatewayClient();
+    const cachedChats = cache.current;
     const retry = () => {
       clearTimeout(timer);
       if (alive) timer = setTimeout(() => void connect(), 2000);
@@ -523,8 +579,9 @@ export default function MobileApp() {
       offState(); offEvents(); offRequest();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("online", onWake);
-      gw.close();
       if (client.current === gw) client.current = null;
+      for (const [key, value] of cachedChats) if (key.startsWith(`${profile}/`)) cachedChats.set(key, { ...value, runtimeId: "" });
+      gw.close();
       setScreenGateway(null);
     };
   }, [profile]);
@@ -641,6 +698,7 @@ export default function MobileApp() {
           cache.current.set(key, updated);
           return updated;
         });
+        if (!next.running && tail.at(-1)?.role === "user") setError("The turn stopped without a reply. Edit and retry your message.");
       } catch (e) {
         if (alive) setPaging(prev => ({ ...prev, loading: false, error: errorText(e) }));
       }
@@ -741,7 +799,6 @@ export default function MobileApp() {
       } catch (e) { setError(errorText(e)); return; }
     }
     const session = targetSession;
-    if (name !== profile || session !== selected) { clearPhotos(); setFiles([]); }
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
@@ -756,26 +813,44 @@ export default function MobileApp() {
     navigate("chat", name, session);
   };
 
-  const choosePhotos = (files: FileList | null) => {
-    const added = Array.from(files || []).slice(0, Math.max(0, 4 - photos.length));
-    const valid = added.filter(file => {
+  const choosePhotos = (incoming: FileList | File[] | null) => {
+    const available = Math.max(0, 4 - photos.length);
+    const candidates = Array.from(incoming || []);
+    if (candidates.length > available) toast.error("Up to 4 photos per message");
+    const valid = candidates.slice(0, available).filter(file => {
       if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type) || !file.size || file.size > 25 * 1024 * 1024) {
         toast.error("Choose a PNG, JPEG, GIF, WebP or BMP under 25 MB"); return false;
       }
       return true;
     });
-    setPhotos([...photos, ...valid.map(file => ({ file, preview: URL.createObjectURL(file) }))]);
+    setPhotos(current => [...current, ...valid.map(file => ({ file, preview: URL.createObjectURL(file) }))]);
+  };
+  const chooseFiles = (incoming: FileList | File[] | null) => {
+    const candidates = Array.from(incoming || []);
+    const available = Math.max(0, 4 - files.length);
+    if (candidates.length > available) toast.error("Up to 4 files per message");
+    const valid = candidates.slice(0, available).filter(file => {
+      if (!file.size || file.size > 10 * 1024 * 1024) { toast.error("Choose a file under 10 MB"); return false; }
+      return true;
+    });
+    setFiles(current => [...current, ...valid]);
+  };
+  const addAttachments = (incoming: FileList | File[]) => {
+    const candidates = Array.from(incoming);
+    choosePhotos(candidates.filter(file => file.type.startsWith("image/")));
+    chooseFiles(candidates.filter(file => !file.type.startsWith("image/")));
   };
   const send = async (event: FormEvent) => {
     event.preventDefault();
     const message = text.trim() || (photos.length ? "What do you see in this photo?" : files.length ? "Please read the attached file." : "");
     const gw = client.current;
-    if (!message || !gw || connection !== "open" || busy || chat?.running || voice.phase !== "idle") return;
-    setBusy(true); setError("");
+    if (!message || !gw || connection !== "open" || busy || sendingHere || chat?.running || voice.phase !== "idle") return;
+    setSending(current => ({ ...current, [composerKey]: true })); setError("");
     let target = chat;
     const staged: string[] = [];
     let optimistic = false;
     let optimisticText = "";
+    let uploadingFile = "";
     try {
       if (!target) {
         const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false });
@@ -783,69 +858,89 @@ export default function MobileApp() {
         skipResume.current = target.storedId;
         chatRef.current = target;
         cache.current.set(chatKey(profile, target.storedId), target);
+        if (!selected) {
+          const newKey = chatKey(profile, target.storedId);
+          setComposerDrafts(current => ({ ...current, [newKey]: current[composerKey] ?? { ...emptyDraft(), text } }));
+          if (text) window.localStorage.setItem(draftStorageKey(newKey), text);
+        }
         setSelected(target.storedId);
         setChat(target);
         routerNavigate(chatPath(profile, target.storedId), { replace: true });
       }
       const runtimeId = target.runtimeId;
-      for (const photo of photos) {
+      for (const [index, photo] of photos.entries()) {
+        uploadingFile = `photo:${index}`;
+        markUpload(composerKey, uploadingFile, `Uploading ${index + 1} of ${photos.length + files.length}…`);
         const uploaded = await uploadChatImage(photo.file, profile);
         await gw.request("image.attach", { session_id: runtimeId, profile, path: uploaded.path });
         staged.push(uploaded.path);
+        markUpload(composerKey, uploadingFile, "Ready");
       }
       const refs: string[] = [];
-      for (const file of files) {
+      for (const [index, file] of files.entries()) {
+        uploadingFile = `file:${index}`;
+        markUpload(composerKey, uploadingFile, `Uploading ${photos.length + index + 1} of ${photos.length + files.length}…`);
         const data_url = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file);
         });
         const result = await gw.request<{ attached: boolean; ref_text: string }>("file.attach", { session_id: runtimeId, profile, name: file.name, data_url });
         if (!result.attached || !result.ref_text) throw new Error(`Could not attach ${file.name}`);
         refs.push(result.ref_text);
+        markUpload(composerKey, uploadingFile, "Ready");
       }
+      uploadingFile = "";
       const submitted = [message, ...refs].join("\n");
       const shown = staged.length ? `${submitted}\n${staged.map(path => `@image:${path}`).join("\n")}` : submitted;
       optimisticText = shown;
       optimistic = true;
       lastTurnSignal.current = Date.now();
-      setChat(prev => {
-        if (prev?.runtimeId !== runtimeId) return prev;
-        const next = { ...prev, running: true, rows: [...prev.rows, { role: "user", text: shown, timestamp: Date.now() / 1000 }] };
-        cache.current.set(chatKey(profile, next.storedId), next);
-        return next;
-      });
+      const optimisticRow = { role: "user" as const, text: shown, timestamp: Date.now() / 1000 };
+      const storedId = target.storedId;
+      const targetKey = chatKey(profile, storedId);
+      const base = cache.current.get(targetKey) ?? target;
+      const submittedChat = { ...base, running: true, rows: [...base.rows, optimisticRow] };
+      cache.current.set(targetKey, submittedChat);
+      setChat(prev => prev?.runtimeId === runtimeId && prev.storedId === storedId && mobileRoute(window.location.pathname).profile === profile ? submittedChat : prev);
       try {
         await gw.request("prompt.submit", { session_id: runtimeId, profile, text: submitted });
       } catch (e) {
         // A dashboard restart or reconnect retires runtime ids; re-attach to the stored chat once.
         if (!/session not found/i.test(errorText(e))) throw e;
         const resumed = await gw.request<SessionSnapshot>("session.resume", { profile, session_id: target.storedId, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
-        const fresh: MobileChat = { ...target, runtimeId: resumed.session_id };
+        const fresh: MobileChat = { ...(cache.current.get(chatKey(profile, target.storedId)) ?? target), runtimeId: resumed.session_id };
         target = fresh;
-        chatRef.current = fresh;
+        if (mobileRoute(window.location.pathname).profile === profile && selectedRef.current === fresh.storedId) chatRef.current = fresh;
         cache.current.set(chatKey(profile, fresh.storedId), fresh);
-        setChat(prev => prev && prev.storedId === fresh.storedId ? { ...prev, runtimeId: fresh.runtimeId } : prev);
+        setChat(prev => prev && prev.storedId === fresh.storedId && mobileRoute(window.location.pathname).profile === profile ? { ...prev, runtimeId: fresh.runtimeId } : prev);
         await gw.request("prompt.submit", { session_id: fresh.runtimeId, profile, text: submitted });
       }
       staged.length = 0;
-      setText(""); clearPhotos(); setFiles([]);
+      for (const photo of photos) URL.revokeObjectURL(photo.preview);
+      const sentKey = chatKey(profile, target.storedId);
+      setComposerDrafts(current => ({ ...current, [composerKey]: emptyDraft(), [sentKey]: emptyDraft() }));
+      window.localStorage.removeItem(draftStorageKey(composerKey));
+      window.localStorage.removeItem(draftStorageKey(sentKey));
+      setUploadStatus(current => ({ ...current, [composerKey]: {}, [sentKey]: {} }));
     } catch (e) {
+      if (uploadingFile) markUpload(composerKey, uploadingFile, `Upload failed: ${errorText(e)}`);
       if (staged.length && target) {
         const runtimeId = target.runtimeId;
         await Promise.allSettled(staged.map(path => gw.request("image.detach", { session_id: runtimeId, profile, path })));
       }
       if (optimistic && target) {
         const runtimeId = target.runtimeId;
-        setChat(prev => {
-          if (prev?.runtimeId !== runtimeId) return prev;
-          const rows = prev.rows.at(-1)?.role === "user" && prev.rows.at(-1)?.text === optimisticText ? prev.rows.slice(0, -1) : prev.rows;
-          const next = { ...prev, rows, running: false };
-          cache.current.set(chatKey(profile, next.storedId), next);
-          return next;
-        });
+        const targetKey = chatKey(profile, target.storedId);
+        const revert = (current: MobileChat): MobileChat => ({ ...current,
+          rows: current.rows.at(-1)?.role === "user" && current.rows.at(-1)?.text === optimisticText ? current.rows.slice(0, -1) : current.rows,
+          running: false });
+        const cached = cache.current.get(targetKey);
+        if (cached) cache.current.set(targetKey, revert(cached));
+        setChat(prev => prev?.runtimeId === runtimeId && prev.storedId === target?.storedId && mobileRoute(window.location.pathname).profile === profile ? revert(prev) : prev);
       }
-      setError(errorText(e)); toast.error(errorText(e));
+      if (mobileRoute(window.location.pathname).profile === profile) setError(errorText(e));
+      toast.error(errorText(e));
     }
-    finally { setBusy(false); }
+    finally { setSending(current => ({ ...current, [composerKey]: false })); }
   };
 
   const answer = useCallback((id: string, result: Record<string, unknown>) => {
@@ -894,7 +989,7 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
-  const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
+  const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
   // Browser tabs own ⌘1–9; Ctrl+1–9 also works here. Electron may capture ⌘.
   useEffect(() => {
     if (!desktop) return;
@@ -928,7 +1023,7 @@ export default function MobileApp() {
   });
   const renderMessage = (row: ChatRow, previous: ChatRow | undefined, key: string) => {
     const id = reactionKey(row.role, row.timestamp, row.text);
-    return <MobileMessage key={key} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id })}
+    return <MobileMessage key={key} profile={profile} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id, scope: composerKey })}
       avatarFor={avatarForHandle} reacted={!!reactions[id]} onReact={() => toggleReaction(id)} />;
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
@@ -1013,7 +1108,8 @@ export default function MobileApp() {
         const last = [...chat.rows].reverse().find(row => row.role === "user");
         if (last) { setText(last.text); composerInput.current?.focus(); setError(""); }
       }}>Edit and retry</button>}</div>}
-      <main className="m-main">
+      <main className="m-main" onDragOver={view === "chat" ? event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); } : undefined}
+        onDrop={view === "chat" ? event => { if (event.dataTransfer.files.length) { event.preventDefault(); addAttachments(event.dataTransfer.files); } } : undefined}>
         {view === "chat" && <>
           <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
             <div className="m-message-content">
@@ -1040,20 +1136,30 @@ export default function MobileApp() {
           <form className="m-composer" onSubmit={e => void send(e)}>
             {voice.phase !== "idle" && <p className="m-voice-status" role="status" aria-live="polite">{voice.phase === "recording" ? "Recording · tap to stop" : voice.phase === "starting" ? "Starting microphone…" : "Transcribing…"}</p>}
             {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
-              <img src={photo.preview} alt={photo.file.name} /><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
+              <img src={photo.preview} alt={photo.file.name} /><span className="m-photo-label">{photo.file.name} · {Math.ceil(photo.file.size / 1024)} KB{uploadStatus[composerKey]?.[`photo:${index}`] && <small role="status">{uploadStatus[composerKey][`photo:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
             </div>)}</div>}
-            {!!files.length && <div className="m-file-previews" aria-label="Selected files">{files.map((file, index) => <span key={`${file.name}-${index}`}><FileUp size={15} aria-hidden="true" />{file.name}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={15} aria-hidden="true" /></button></span>)}</div>}
+            {!!files.length && <div className="m-file-previews" aria-label="Selected files">{files.map((file, index) => <span key={`${file.name}-${index}`}><FileUp size={15} aria-hidden="true" /><span>{file.name} · {Math.ceil(file.size / 1024)} KB{uploadStatus[composerKey]?.[`file:${index}`] && <small role="status">{uploadStatus[composerKey][`file:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={15} aria-hidden="true" /></button></span>)}</div>}
             {suggestions}
             <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
-              <input hidden ref={fileInput} type="file" multiple onChange={e => { const valid = Array.from(e.target.files || []).filter(file => { if (file.size > 10 * 1024 * 1024) { toast.error("Choose a file under 10 MB"); return false; } return true; }); setFiles(current => [...current, ...valid].slice(0, 4)); e.target.value = ""; }} />
-              <DropdownMenu.Root><DropdownMenu.Trigger className="m-add-photo" aria-label="Attach photo or file" disabled={busy || connection !== "open"}><Plus size={20} aria-hidden="true" /></DropdownMenu.Trigger>
+              <input hidden ref={fileInput} type="file" multiple onChange={e => { chooseFiles(e.target.files); e.target.value = ""; }} />
+              <DropdownMenu.Root><DropdownMenu.Trigger className="m-add-photo" aria-label="Attach photo or file" disabled={busy || sendingHere || connection !== "open"}><Plus size={20} aria-hidden="true" /></DropdownMenu.Trigger>
                 <DropdownMenu.Portal container={shellRef.current}><DropdownMenu.Content align="start" side="top" sideOffset={8} className="m-dropdown m-attach-menu">
                   <DropdownMenu.Item onSelect={() => photoInput.current?.click()}><ImagePlus size={17} aria-hidden="true" />Photo</DropdownMenu.Item>
                   <DropdownMenu.Item onSelect={() => fileInput.current?.click()}><FileUp size={17} aria-hidden="true" />File</DropdownMenu.Item>
                 </DropdownMenu.Content></DropdownMenu.Portal>
               </DropdownMenu.Root>
-              <Textarea ref={composerInput} aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => { setText(e.target.value); setCursor(e.target.selectionStart); }} onSelect={e => setCursor(e.currentTarget.selectionStart)} onKeyDown={e => {
+              <Textarea ref={composerInput} aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => { setText(e.target.value); setCursor(e.target.selectionStart); }} onSelect={e => setCursor(e.currentTarget.selectionStart)} onPaste={e => { const attachments = Array.from(e.clipboardData.files); if (attachments.length) { e.preventDefault(); addAttachments(attachments); } }} onKeyDown={e => {
                 if (onSuggestionKeyDown(e)) return;
+                if (e.key === "Escape" && chat?.running && chat.runtimeId) {
+                  e.preventDefault();
+                  void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(error => setError(errorText(error)));
+                  return;
+                }
+                if (desktop && e.key === "ArrowUp" && !text && !suggestionsOpen) {
+                  const last = [...(chat?.rows || [])].reverse().find(row => row.role === "user");
+                  if (last) { e.preventDefault(); setText(last.text.split(/\n\n--- Attached Context ---\n/)[0].replace(/^@(?:image|file):[^\n]+\n?/gm, "").trim()); }
+                  return;
+                }
                 if (desktop && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !suggestionsOpen) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
@@ -1062,8 +1168,8 @@ export default function MobileApp() {
               {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
                 : voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
-                : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
-                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || connection !== "open"}><ArrowUp size={20} /></Button>}
+                : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || sendingHere || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
+                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open"}><ArrowUp size={20} /></Button>}
             </div>
           </form>
         </>}
@@ -1095,7 +1201,7 @@ export default function MobileApp() {
     </div>
     {newChatOpen && <Sheet open={newChatOpen} onClose={() => setNewChatOpen(false)} label="Choose a bot">
       <div className="m-activity-head"><h2>New conversation</h2><button type="button" className="m-icon-button" aria-label="Close bot picker" onClick={() => setNewChatOpen(false)}><X size={20} aria-hidden="true" /></button></div>
-      <div className="m-bot-picker">{[...pinned, ...others].map(p => <button type="button" key={p.name} onClick={() => { setNewChatOpen(false); setText(""); void selectProfile(p.name, ""); }}>{avatar(p)}{botName(p)}</button>)}</div>
+      <div className="m-bot-picker">{[...pinned, ...others].map(p => <button type="button" key={p.name} onClick={() => { setNewChatOpen(false); void selectProfile(p.name, ""); }}>{avatar(p)}{botName(p)}</button>)}</div>
     </Sheet>}
     {!!pinMenu && <Sheet open={!!pinMenu} onClose={() => setPinMenu("")} label="Bot options">
       <div className="m-activity-head"><h2>{profiles.find(p => p.name === pinMenu)?.display_name || pinMenu}</h2><button type="button" className="m-icon-button" aria-label="Close bot options" onClick={() => setPinMenu("")}><X size={20} aria-hidden="true" /></button></div>
@@ -1103,9 +1209,9 @@ export default function MobileApp() {
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
         : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
     </Sheet>}
-    {!!messageAction && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
+    {messageAction?.scope === composerKey && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
       <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction(null)}><X size={20} aria-hidden="true" /></button></div>
-      <button type="button" className="m-pin-choice" onClick={() => { void navigator.clipboard.writeText(messageAction.text).then(() => { setMessageAction(null); toast.success("Copied message"); }).catch(() => toast.error("Could not copy message")); }}><Copy size={18} aria-hidden="true" />Copy text</button>
+      <button type="button" className="m-pin-choice" onClick={() => { void copyTextToClipboard(messageAction.text).then(copied => { if (copied) { setMessageAction(null); toast.success("Copied message"); } else toast.error("Could not copy message"); }); }}><Copy size={18} aria-hidden="true" />Copy text</button>
       <button type="button" className="m-pin-choice" onClick={() => { toggleReaction(messageAction.key); setMessageAction(null); }}><ThumbsUp size={18} aria-hidden="true" />{reactions[messageAction.key] ? "Remove thumbs up" : "React thumbs up"}</button>
     </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => { setConversationsOpen(false); setConversationAction(null); }} label="Conversations">

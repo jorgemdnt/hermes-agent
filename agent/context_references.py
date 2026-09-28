@@ -459,6 +459,16 @@ def _composer_paste_roots() -> list[Path]:
     return [hermes_dir / COMPOSER_PASTES_DIRNAME for hermes_dir in _hermes_dirs()]
 
 
+def _staged_attachment_root() -> Path:
+    """Gateway file.attach stages chat files under the active profile, not the cwd.
+
+    Do not admit the global Hermes root while running another profile: that
+    would expose a sibling bot's attachments through an @file: reference.
+    """
+    from hermes_constants import get_hermes_home
+    return (get_hermes_home() / "attachments").resolve()
+
+
 def _resolve_path(cwd: Path, target: str, *, allowed_root: Path | None = None) -> Path:
     from agent.file_safety import is_nt_namespace_path
     if is_nt_namespace_path(target):  # raw-string check: resolving such a path is the NTLM-leak trigger
@@ -468,6 +478,7 @@ def _resolve_path(cwd: Path, target: str, *, allowed_root: Path | None = None) -
         allowed_root is not None
         and not _is_under(resolved, allowed_root)
         and not any(_is_under(resolved, root) for root in _composer_paste_roots())
+        and not _is_under(resolved, _staged_attachment_root())
     ):
         raise ValueError("path is outside the allowed workspace")
     return resolved
