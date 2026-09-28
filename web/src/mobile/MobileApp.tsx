@@ -3,8 +3,9 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
+import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, MoreHorizontal, Pin, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -215,6 +216,7 @@ export default function MobileApp() {
   const runningTools = useRef(new Map<string, string>());
   const toolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [text, setText] = useState("");
+  const voice = useMobileDictation(profile, `${view}/${selected}`, transcript => setText(previous => `${previous.trimEnd()}${previous.trim() ? " " : ""}${transcript}`));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -653,7 +655,7 @@ export default function MobileApp() {
     event.preventDefault();
     const message = text.trim() || (photos.length ? "What do you see in this photo?" : "");
     const gw = client.current;
-    if (!message || !gw || connection !== "open" || busy || chat?.running) return;
+    if (!message || !gw || connection !== "open" || busy || chat?.running || voice.phase !== "idle") return;
     setBusy(true); setError("");
     let target = chat;
     const staged: string[] = [];
@@ -857,6 +859,7 @@ export default function MobileApp() {
           </div>
           {!atBottom && <button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button>}
           <form className="m-composer" onSubmit={e => void send(e)}>
+            {voice.phase !== "idle" && <p className="m-voice-status" role="status" aria-live="polite">{voice.phase === "recording" ? "Recording · tap to stop" : voice.phase === "starting" ? "Starting microphone…" : "Transcribing…"}</p>}
             {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
               <img src={photo.preview} alt={photo.file.name} /><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
             </div>)}</div>}
@@ -864,7 +867,10 @@ export default function MobileApp() {
               <button type="button" className="m-add-photo" aria-label="Add photo" disabled={busy || photos.length >= 4 || connection !== "open"} onClick={() => photoInput.current?.click()}><ImagePlus size={20} aria-hidden="true" /></button>
               <Textarea aria-label="Message" value={text} onChange={e => setText(e.target.value)} placeholder={`Message ${name}…`} rows={1} />
               {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
-                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={(!text.trim() && !photos.length) || busy || connection !== "open"}><ArrowUp size={20} /></Button>}
+                : voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
+                : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
+                : !text.trim() && !photos.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
+                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || connection !== "open"}><ArrowUp size={20} /></Button>}
             </div>
           </form>
         </>}

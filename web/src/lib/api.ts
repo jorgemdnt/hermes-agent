@@ -443,6 +443,15 @@ export const api = {
       window.location.assign("/login");
       return r;
     }),
+  transcribeAudio: (dataUrl: string, mimeType: string, profile: string) =>
+    fetchJSON<{ ok: boolean; transcript: string }>(
+      appendProfileParam("/api/audio/transcribe", profile),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data_url: dataUrl, mime_type: mimeType }),
+      },
+    ),
   getAllProfileSessions: (limit = 200, archived: "exclude" | "only" = "exclude") =>
     fetchJSON<PaginatedSessions>(
       `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=1&archived=${archived}&order=recent&profile=all&exclude_sources=${encodeURIComponent(MOBILE_CONVERSATION_EXCLUDED_SOURCES)}`,

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   setSessionArchived: vi.fn(async (_id: string, archived: boolean, _profile: string) => { void _profile; return { ok: true, archived }; }),
   setSessionPinned: vi.fn(async (_id: string, pinned: boolean, _profile: string) => { void _profile; return { ok: true, pinned }; }),
   uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
+  transcribeAudio: vi.fn(async (_dataUrl: string, _mimeType: string, _profile: string) => { void _dataUrl; void _mimeType; void _profile; return { ok: true, transcript: "Dictated words" }; }),
   getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }) => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
@@ -38,7 +39,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -565,6 +566,31 @@ it("pins and unpins a side conversation for its owning profile", async () => {
   await act(async () => (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Unpin conversation') as HTMLButtonElement).click());
   expect(mocks.setSessionPinned).toHaveBeenCalledWith('gandalf-found', false, 'gandalf');
   expect(host.querySelector('.m-conversation-row .lucide-pin')).toBeNull();
+});
+
+it("dictates into the draft without submitting the bot turn", async () => {
+  const stopTrack = vi.fn();
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] })) } });
+  class FakeMediaRecorder {
+    state = "inactive";
+    mimeType = "audio/webm";
+    ondataavailable?: (event: { data: Blob }) => void;
+    onstop?: () => void;
+    static isTypeSupported() { return true; }
+    start() { this.state = "recording"; }
+    stop() { this.state = "inactive"; this.ondataavailable?.({ data: new Blob(["sample"], { type: this.mimeType }) }); this.onstop?.(); }
+  }
+  vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (host.querySelector('[aria-label="Dictate message"]') as HTMLButtonElement).click());
+  expect(host.querySelector('[aria-label="Stop recording"]')).not.toBeNull();
+  await act(async () => (host.querySelector('[aria-label="Stop recording"]') as HTMLButtonElement).click());
+  await vi.waitFor(() => expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Dictated words'));
+  expect(mocks.transcribeAudio).toHaveBeenCalledWith(expect.stringMatching(/^data:audio\/webm;base64,/), 'audio/webm', 'frodo');
+  expect(stopTrack).toHaveBeenCalled();
+  expect(mocks.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
 });
 
 it("copies the exact message from its long-press action without changing the conversation", async () => {

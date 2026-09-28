@@ -142,6 +142,12 @@
 .m-photo-preview button svg { width: 26px; height: 26px; padding: 5px; border-radius: 50%; background: var(--foreground); }
 .m-shell .m-add-photo { background: var(--card); color: var(--foreground); border: 1px solid var(--border); }
 .m-shell .m-add-photo:disabled { opacity: .5; }
+.m-voice-status { margin: 0 0 8px 4px; color: var(--muted-foreground); font-size: 13px; }
+.m-shell .m-composer :is(.m-voice-start, .m-voice-loading, .m-voice-stop) { transition: none; }
+.m-shell .m-composer .m-voice-start, .m-shell .m-composer .m-voice-loading { background: var(--secondary); color: var(--foreground); }
+.m-shell .m-composer .m-voice-stop { background: var(--foreground); color: var(--background); }
+.m-voice-loading svg { animation: m-voice-spin 1s linear infinite; }
+@keyframes m-voice-spin { to { transform: rotate(360deg); } }
 .m-shell[data-keyboard="true"] .m-composer { padding-bottom: 10px; }
 .m-shell[data-keyboard="true"] .m-jump-latest { bottom: 82px; }
 .m-shell .m-composer textarea { flex: 1; width: auto; min-width: 0; height: 46px; max-height: 120px; min-height: 46px; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); font-size: 16px; }
