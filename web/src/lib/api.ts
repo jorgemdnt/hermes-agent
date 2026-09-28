@@ -443,9 +443,9 @@ export const api = {
       window.location.assign("/login");
       return r;
     }),
-  getAllProfileSessions: (limit = 200) =>
+  getAllProfileSessions: (limit = 200, archived: "exclude" | "only" = "exclude") =>
     fetchJSON<PaginatedSessions>(
-      `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=1&archived=exclude&order=recent&profile=all&exclude_sources=${encodeURIComponent(MOBILE_CONVERSATION_EXCLUDED_SOURCES)}`,
+      `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=1&archived=${archived}&order=recent&profile=all&exclude_sources=${encodeURIComponent(MOBILE_CONVERSATION_EXCLUDED_SOURCES)}`,
     ),
   getSessions: (
     limit = 20,
@@ -525,6 +525,15 @@ export const api = {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, profile: profile || undefined }),
+      },
+    ),
+  setSessionArchived: (id: string, archived: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; archived: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived, profile }),
       },
     ),
   getSessionStats: (profile = getManagementProfile()) =>

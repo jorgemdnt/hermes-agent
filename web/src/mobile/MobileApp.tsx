@@ -4,7 +4,7 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LockKeyhole, MessageSquare, Moon, MoreHorizontal, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -135,6 +135,12 @@ export default function MobileApp() {
   }, [routerNavigate, view, route.task]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [conversationsOpen, setConversationsOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedSessions, setArchivedSessions] = useState<Conversation[]>([]);
+  const [conversationAction, setConversationAction] = useState<Conversation | null>(null);
+  const [conversationTitle, setConversationTitle] = useState("");
+  const [conversationBusy, setConversationBusy] = useState(false);
+  const [conversationError, setConversationError] = useState("");
   const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
   useEffect(() => {
     let edge: { x: number; y: number } | null = null;
@@ -253,6 +259,31 @@ export default function MobileApp() {
   const refreshConversations = async () => {
     const data = await api.getAllProfileSessions();
     setSessions(sideConversations(data.sessions, 200));
+  };
+  const refreshArchived = async () => {
+    const data = await api.getAllProfileSessions(200, "only");
+    setArchivedSessions(sideConversations(data.sessions, 200));
+  };
+  useEffect(() => {
+    if (conversationsOpen && archivedOpen) void refreshArchived().catch(e => setConversationError(errorText(e)));
+  }, [conversationsOpen, archivedOpen]);
+  const changeConversation = async (action: "rename" | "archive") => {
+    if (!conversationAction || conversationBusy) return;
+    const target = conversationAction;
+    const title = conversationTitle.trim();
+    if (action === "rename" && (!title || title === target.title)) return;
+    setConversationBusy(true); setConversationError("");
+    try {
+      if (action === "rename") await api.renameSession(target.id, title, target.profile);
+      else await api.setSessionArchived(target.id, !archivedOpen, target.profile);
+      await Promise.all([refreshConversations(), refreshArchived()]);
+      setConversationAction(null);
+      if (action === "archive" && !archivedOpen && profile === target.profile && selected === target.id) {
+        setConversationsOpen(false); navigate("bots");
+      }
+      toast.success(action === "rename" ? "Conversation renamed" : archivedOpen ? "Conversation restored" : "Conversation archived");
+    } catch (e) { setConversationError(errorText(e)); }
+    finally { setConversationBusy(false); }
   };
   const refreshRoster = async (gw: GatewayClient) => {
     const roster = await gw.request<Roster>("profiles.list", { include_sessions: true });
@@ -878,11 +909,23 @@ export default function MobileApp() {
       <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction("")}><X size={20} aria-hidden="true" /></button></div>
       <button type="button" className="m-pin-choice" onClick={() => { void navigator.clipboard.writeText(messageAction).then(() => { setMessageAction(""); toast.success("Copied message"); }).catch(() => toast.error("Could not copy message")); }}><Copy size={18} aria-hidden="true" />Copy text</button>
     </Sheet>}
-    {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => setConversationsOpen(false)} label="Conversations">
-      <div className="m-activity-head"><h2>Conversations</h2><Button type="button" variant="ghost" size="icon" aria-label="Close conversations" onClick={() => setConversationsOpen(false)}><X size={21} aria-hidden="true" /></Button></div>
-      <div className="m-conversation-list">{sessions.length ? sessions.map(session => <MobileListRow key={`${session.profile}/${session.id}`} leading={<MessageSquare size={20} aria-hidden="true" />}
-        title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
-        onClick={() => { setConversationsOpen(false); void selectProfile(session.profile, session.id); }} />) : <p className="m-muted">No conversations yet.</p>}</div>
+    {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => { setConversationsOpen(false); setConversationAction(null); }} label="Conversations">
+      <div className="m-activity-head"><h2>{conversationAction ? "Manage conversation" : "Conversations"}</h2><Button type="button" variant="ghost" size="icon" aria-label={conversationAction ? "Back to conversations" : "Close conversations"} onClick={() => { if (conversationAction) setConversationAction(null); else setConversationsOpen(false); }}><X size={21} aria-hidden="true" /></Button></div>
+      {conversationError && <p role="alert" className="m-error">{conversationError}</p>}
+      {conversationAction ? <div className="m-conversation-manage">
+        <p>{profiles.find(p => p.name === conversationAction.profile)?.display_name || conversationAction.profile}</p>
+        <form onSubmit={e => { e.preventDefault(); void changeConversation("rename"); }}>
+          <label htmlFor="m-conversation-title">Conversation name</label>
+          <input id="m-conversation-title" value={conversationTitle} maxLength={200} onChange={e => setConversationTitle(e.target.value)} />
+          <Button type="submit" disabled={conversationBusy || !conversationTitle.trim() || conversationTitle.trim() === conversationAction.title}>Save name</Button>
+        </form>
+        <button className="m-pin-choice" type="button" disabled={conversationBusy} onClick={() => void changeConversation("archive")}>{archivedOpen ? "Restore conversation" : "Archive conversation"}</button>
+      </div> : <>
+        <div className="m-conversation-tabs" role="group" aria-label="Conversation view"><button type="button" aria-pressed={!archivedOpen} onClick={() => { setArchivedOpen(false); setConversationError(""); }}>Recent</button><button type="button" aria-pressed={archivedOpen} onClick={() => { setArchivedOpen(true); setConversationError(""); }}>Archived</button></div>
+        <div className="m-conversation-list">{(archivedOpen ? archivedSessions : sessions).length ? (archivedOpen ? archivedSessions : sessions).map(session => <div className="m-conversation-row" key={`${session.profile}/${session.id}`}><MobileListRow leading={<MessageSquare size={20} aria-hidden="true" />}
+          title={session.title} preview={`${profiles.find(p => p.name === session.profile)?.display_name || session.profile} · ${previewText(session.preview)}`}
+          onClick={() => { setConversationsOpen(false); void selectProfile(session.profile, session.id); }} /><button type="button" className="m-conversation-more" aria-label={`Options for ${session.title}`} onClick={() => { setConversationAction(session); setConversationTitle(session.title); setConversationError(""); }}><MoreHorizontal size={21} aria-hidden="true" /></button></div>) : <p className="m-muted">{archivedOpen ? "No archived conversations." : "No conversations yet."}</p>}</div>
+      </>}
     </Sheet>}
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>

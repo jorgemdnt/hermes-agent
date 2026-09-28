@@ -264,6 +264,19 @@
 .m-shell .m-list-row { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
 .m-shell .m-icon-button:active, .m-shell .m-avatar-button:active { background: var(--secondary); border-radius: 50%; }
 .m-conversation-list { margin-top: 16px; }
+.m-conversation-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 16px; padding: 4px; border-radius: 12px; background: var(--secondary); }
+.m-conversation-tabs button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--muted-foreground); font-size: 14px; }
+.m-conversation-tabs button[aria-pressed="true"] { background: var(--card); color: var(--foreground); font-weight: 600; }
+.m-conversation-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.m-conversation-row .m-list-row { flex: 1; min-width: 0; }
+.m-conversation-row .m-list-row::after { display: none; }
+.m-conversation-more { display: grid; place-items: center; flex: 0 0 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); }
+.m-conversation-manage { display: grid; gap: 18px; margin-top: 18px; }
+.m-conversation-manage > p { color: var(--muted-foreground); }
+.m-conversation-manage form { display: grid; gap: 12px; }
+.m-conversation-manage label { font-size: 14px; font-weight: 600; }
+.m-conversation-manage input { min-height: 44px; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--foreground); font-size: 16px; }
+.m-conversation-manage .m-pin-choice { border-top: 1px solid var(--border); }
 .m-modal { overscroll-behavior: contain; }
 @media (min-width: 600px) { .m-shell { width: min(100%, 540px); margin-inline: auto; border-inline: 1px solid var(--border); } }
 @media (prefers-reduced-motion: reduce) { .m-shell *, .m-shell *::before, .m-shell *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
