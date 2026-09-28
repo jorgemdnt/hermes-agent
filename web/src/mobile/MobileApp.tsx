@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
@@ -11,7 +11,7 @@ import { ProfileDropdown } from "./ProfileDropdown";
 import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
-import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
+import { api, HERMES_BASE_PATH, type AuthMeResponse, type ProfileInfo, type SessionMessage } from "@/lib/api";
 import { sideConversations, type Conversation } from "./conversations";
 import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
@@ -237,6 +237,13 @@ export default function MobileApp() {
     return saved === "light" || saved === "dark" ? saved : "system";
   });
   const [avatars, setAvatars] = useState<Record<string, string>>({});
+  const [account, setAccount] = useState<AuthMeResponse | null>(null);
+  useEffect(() => {
+    if (!window.__HERMES_AUTH_REQUIRED__) return;
+    let active = true;
+    void api.getAuthMe().then(me => { if (active) setAccount(me); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [activity, setActivity] = useState<string[]>([]);
   const [working, setWorking] = useState("");
   const runningTools = useRef(new Map<string, string>());
@@ -843,7 +850,8 @@ export default function MobileApp() {
   const renderHome = () => <>
     <header className="m-list-header">
       <h1 className="sr-only">Bots</h1>
-      <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current} />
+      <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
+        name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} />
       <div className="m-top-actions">
         <button type="button" className="m-icon-button" aria-label="Search" onClick={() => setSearchOpen(open => !open)}><Search size={21} aria-hidden="true" /></button>
         <button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => setNewChatOpen(true)}><Plus size={23} aria-hidden="true" /></button>
@@ -893,7 +901,8 @@ export default function MobileApp() {
   }, [view, route.task, offsets, finishSwipe]);
   useEffect(() => { skipBackAnimation.current = false; }, [location.pathname]);
 
-  return <div className="m-shell" data-theme={theme} ref={shellRef}>
+  return <div className={`m-shell${window.hermetic ? " m-native" : ""}`} data-theme={theme} ref={shellRef}
+    style={window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px` } as CSSProperties : undefined}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
       <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
@@ -987,7 +996,7 @@ export default function MobileApp() {
         {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
           <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>
-          <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out on this phone<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
+          <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
         </section>}
       </main>
     </>

@@ -1491,6 +1491,7 @@ export interface AuthMeResponse {
   org_id: string;
   provider: string;
   expires_at: number;
+  picture: string;
 }
 
 /** Preflight for `hermes gateway migrate --multiplex` (mirrors the CLI plan JSON). */

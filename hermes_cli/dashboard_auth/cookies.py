@@ -210,9 +210,10 @@ def parse_pkce_payload(raw: str) -> dict[str, str]:
     return dict(seg.split("=", 1) for seg in flat.split(";") if "=" in seg)
 
 
-def set_sso_attempt_cookie(response: Response, *, use_https: bool, prefix: str = "") -> None:
-    """Set the auto-SSO loop-guard marker; only its presence matters."""
-    _set(response, SSO_ATTEMPT_COOKIE, "1", max_age=_SSO_ATTEMPT_MAX_AGE,
+def set_sso_attempt_cookie(response: Response, *, use_https: bool, prefix: str = "", signed_out: bool = False) -> None:
+    """Set the auto-SSO guard; explicit sign-out persists until the next login."""
+    _set(response, SSO_ATTEMPT_COOKIE, "signed-out" if signed_out else "1",
+         max_age=_RT_MAX_AGE if signed_out else _SSO_ATTEMPT_MAX_AGE,
          use_https=use_https, prefix=prefix)
 
 

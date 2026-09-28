@@ -88,11 +88,13 @@ def _auto_sso_response(request: Request) -> Response | None:
     absent — a present marker means the portal had no session last time: clear it and fall back
     to ``/login`` rather than ping-pong. Convenience, not a security check.
     """
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/") or request.url.path == "/m" or request.url.path.startswith("/m/"):
         return None
-    if read_sso_attempt_cookie(request):
+    marker = read_sso_attempt_cookie(request)
+    if marker:
         resp = _unauth_response(request, reason="no_cookie")
-        clear_sso_attempt_cookie(resp, prefix=prefix_from_request(request))
+        if marker != "signed-out":
+            clear_sso_attempt_cookie(resp, prefix=prefix_from_request(request))
         return resp
     providers = list_session_providers()
     if len(providers) != 1 or getattr(providers[0], "supports_password", False):

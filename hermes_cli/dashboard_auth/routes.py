@@ -27,7 +27,7 @@ from typing import Any, Deque, Dict
 from urllib.parse import quote, unquote, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -40,7 +40,7 @@ from hermes_cli.dashboard_auth.base import (
 from hermes_cli.dashboard_auth.cookies import (
     clear_pkce_cookie, clear_session_cookies, clear_sso_attempt_cookie, detect_https,
     parse_pkce_payload, read_pkce_cookie, read_session_browser_id, read_session_cookies,
-    set_pkce_cookie,
+    set_pkce_cookie, set_sso_attempt_cookie,
     set_session_cookies)
 from hermes_cli.dashboard_auth.login_page import (
     render_login_html, render_native_provider_choice_html)
@@ -108,6 +108,7 @@ def _set_session(resp, request: Request, session: Session) -> None:
         resp, access_token=session.access_token, refresh_token=session.refresh_token,
         access_token_expires_in=access_token_max_age(session), use_https=detect_https(request),
         prefix=_prefix(request), provider=session.provider)
+    clear_sso_attempt_cookie(resp, prefix=_prefix(request))
 
 
 def _bearer_payload(session: Session) -> dict[str, Any]:
@@ -453,6 +454,7 @@ async def auth_logout(request: Request):
     resp = RedirectResponse(url=f"{prefix}/login", status_code=302)
     clear_session_cookies(resp, prefix=prefix)
     clear_pkce_cookie(resp, use_https=detect_https(request), prefix=prefix)
+    set_sso_attempt_cookie(resp, use_https=detect_https(request), prefix=prefix, signed_out=True)
     return resp
 
 
@@ -469,9 +471,18 @@ def _require_session(request: Request):
 async def api_auth_me(request: Request):
     """Return the verified session as JSON. Auth-required (gate enforces)."""
     sess = _require_session(request)
+    from hermes_cli.dashboard_auth.avatar import google_picture_url
     return {
         "user_id": sess.user_id, "email": sess.email, "display_name": sess.display_name,
-        "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at}
+        "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at,
+        "picture": f"{_prefix(request)}/api/auth/avatar" if google_picture_url(sess.picture) else ""}
+
+@router.get("/api/auth/avatar", name="auth_avatar")
+async def api_auth_avatar(request: Request):
+    from hermes_cli.dashboard_auth.avatar import fetch_avatar
+    sess = _require_session(request)
+    image, media_type = await fetch_avatar(sess.picture)
+    return Response(image, media_type=media_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/api/mobile/logout", name="mobile_logout")
@@ -490,6 +501,7 @@ async def mobile_logout(request: Request):
     response = JSONResponse({"ok": True})
     clear_session_cookies(response, prefix=_prefix(request))
     clear_pkce_cookie(response, use_https=detect_https(request), prefix=_prefix(request))
+    set_sso_attempt_cookie(response, use_https=detect_https(request), prefix=_prefix(request), signed_out=True)
     return response
 
 

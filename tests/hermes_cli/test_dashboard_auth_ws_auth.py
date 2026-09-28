@@ -184,6 +184,62 @@ class TestWsTicketEndpoint:
         assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
         assert other.get("/api/auth/me").status_code == 200
 
+    def test_sign_out_redirects_m_and_rejects_replayed_cookie(self, gated_app):
+        _logged_in(gated_app)
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.get("/m").status_code == 200
+        assert gated_app.post("/api/mobile/logout").json() == {"ok": True}
+        assert gated_app.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        assert gated_app.get("/api/auth/me").status_code == 401
+        assert gated_app.get("/api/auth/avatar").status_code == 401
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        assert replay.get("/api/auth/me").status_code == 401
+
+    def test_google_picture_claim_is_proxied_without_browser_cookies(self, gated_app, monkeypatch):
+        from dataclasses import replace
+        import httpx
+        from plugins.dashboard_auth._shared import session_from_claims
+
+        picture = "https://lh3.googleusercontent.com/a/test-avatar"
+        mapped = session_from_claims("self-hosted", {"sub": "u", "exp": int(time.time()) + 60,
+                                                     "picture": picture}, access_token="t", refresh_token="")
+        assert mapped.picture == picture
+        _logged_in(gated_app)
+        provider = get_provider("stub")
+        assert provider is not None
+        verify = provider.verify_session
+        def with_picture(url):
+            def inner(**kw):
+                session = verify(**kw)
+                assert session is not None
+                return replace(session, picture=url)
+            return inner
+        monkeypatch.setattr(provider, "verify_session", with_picture(picture))
+        outgoing = []
+        original_client = httpx.AsyncClient
+
+        def fetch(request):
+            outgoing.append(request)
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nimage", headers={"Content-Type": "image/png"})
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original_client(
+            transport=httpx.MockTransport(fetch), **kw))
+        me = gated_app.get("/api/auth/me").json()
+        assert me["picture"] == "/api/auth/avatar"
+        avatar = gated_app.get(me["picture"])
+        assert avatar.status_code == 200
+        assert avatar.headers["content-type"] == "image/png"
+        assert avatar.content == b"\x89PNG\r\n\x1a\nimage"
+        assert len(outgoing) == 1
+        assert str(outgoing[0].url) == picture
+        assert "cookie" not in outgoing[0].headers
+        monkeypatch.setattr(provider, "verify_session", with_picture("http://127.0.0.1/private"))
+        assert gated_app.get("/api/auth/me").json()["picture"] == ""
+        assert gated_app.get("/api/auth/avatar").status_code == 404
+        assert len(outgoing) == 1
+
     def test_mobile_logout_prunes_only_its_own_push_subscription(self, gated_app):
         from hermes_constants import get_process_hermes_home
         from plugins.mobile import push

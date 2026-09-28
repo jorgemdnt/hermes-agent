@@ -1,5 +1,9 @@
 import { authedFetch, fetchJSON, HERMES_BASE_PATH } from "@/lib/api";
 
+declare global {
+  interface Window { hermetic?: { titlebarInset: number; signIn(provider: string): Promise<boolean>; clearSession(): Promise<void> } }
+}
+
 interface PushKey { public_key: string }
 
 export function decodeVapidKey(value: string): Uint8Array<ArrayBuffer> {
@@ -55,7 +59,11 @@ export async function localSignOut(): Promise<void> {
   if (!response.ok) {
     throw new Error("Sign out failed; your session is still active.");
   }
-  window.location.assign(`${HERMES_BASE_PATH}/m`);
+  try {
+    await window.hermetic?.clearSession();
+  } finally {
+    window.location.assign(`${HERMES_BASE_PATH}/login`);
+  }
 }
 
 export async function signOutMobile(): Promise<void> {

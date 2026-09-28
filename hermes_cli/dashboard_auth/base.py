@@ -18,6 +18,7 @@ class Session:
     expires_at: int  # unix seconds; the access_token's exp claim
     access_token: str
     refresh_token: str
+    picture: str = ""  # verified OIDC profile claim; never a browser-facing URL
 
 
 @dataclass(frozen=True)

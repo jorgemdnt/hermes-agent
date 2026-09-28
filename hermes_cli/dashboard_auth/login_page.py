@@ -23,7 +23,9 @@ _LOGIN_HTML_TEMPLATE = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in — Hermes Agent</title>
+<title>Sign in — Hermes Bots</title>
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
 <style>
   :root {{
     color-scheme: light dark;
@@ -60,60 +62,39 @@ _LOGIN_HTML_TEMPLATE = """\
     -moz-osx-font-smoothing: grayscale;
   }}
 
-  body {{ display: grid; place-items: center; min-height: 100dvh; padding: clamp(1.5rem, 6vh, 6rem) 1.25rem; }}
-
+  body {{ display: grid; place-items: center; min-height: 100dvh; padding: 6rem 1.5rem; }}
+  body.native {{ padding-top: 8rem; }}
+  .native .window-drag {{ position: fixed; inset: 0 0 auto; height: 52px; -webkit-app-region: drag; }}
   main {{
     width: 100%;
-    max-width: 26rem;
+    max-width: 23rem;
     position: relative;
-    animation: slide-up 0.6s ease-out both;
-  }}
-
-  @keyframes slide-up {{
-    from {{ opacity: 0; transform: translateY(6px); }}
-    to   {{ opacity: 1; transform: translateY(0); }}
-  }}
-
-  @media (prefers-reduced-motion: reduce) {{
-    main {{ animation: none; }}
   }}
 
   .brand {{
     text-align: center;
-    margin-bottom: 1.75rem;
+    margin-bottom: 3.5rem;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
+    gap: 0.9rem;
     font-weight: 600;
-    font-size: 1.05rem;
+    font-size: 0.95rem;
     color: var(--foreground);
   }}
-  .brand svg {{ width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }}
-
-  .card {{
-    position: relative;
-    padding: 2.25rem 2rem 2rem;
-    background: var(--background-base);
-    border: 1px solid var(--hairline);
-    border-radius: 12px;
-    box-shadow: 0 12px 40px -24px #0008;
-  }}
-
+  .brand-mark {{ display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--hairline); border-radius: 14px; }}
+  .brand svg {{ width: 23px; height: 23px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }}
+  .card {{ text-align: center; }}
   h1 {{
-    margin: 0 0 0.4rem;
+    margin: 0 0 2rem;
     font-family: inherit;
     font-weight: 600;
-    font-size: 1.85rem;
-    letter-spacing: -.025em;
+    font-size: 1.65rem;
+    letter-spacing: -.03em;
+    text-wrap: balance;
     color: var(--foreground);
   }}
 
-  .subtitle {{
-    margin: 0 0 1.75rem;
-    color: color-mix(in srgb, var(--foreground) 65%, transparent);
-    font-size: 0.95rem;
-  }}
 
   .provider-list {{
     display: grid;
@@ -121,24 +102,26 @@ _LOGIN_HTML_TEMPLATE = """\
   }}
 
   .provider-btn {{
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
     width: 100%;
-    box-sizing: border-box;
-    padding: 0.85rem 1rem;
-    text-align: center;
-    background: var(--midground);
-    color: var(--background-base);
+    min-height: 48px;
+    padding: 0.75rem 1rem;
+    background: var(--background-base);
+    color: var(--foreground);
     font-family: inherit;
-    font-weight: 600;
+    font-weight: 500;
     font-size: 0.9rem;
-    letter-spacing: 0;
     text-decoration: none;
     border: 1px solid var(--hairline);
     border-radius: 8px;
     cursor: pointer;
-    transition: opacity 0.12s ease-out;
+    transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
   }}
-  .provider-btn:hover {{ opacity: 0.85; }}
+  .provider-btn svg {{ width: 18px; height: 18px; flex: none; }}
+  .provider-btn:hover {{ background: color-mix(in srgb, var(--foreground) 5%, var(--background-base)); border-color: var(--hairline-strong); }}
   .provider-btn:focus-visible {{ outline: 2px solid var(--midground); outline-offset: 3px; }}
 
   /* Password provider form shares the same card and button tokens. */
@@ -191,22 +174,13 @@ _LOGIN_HTML_TEMPLATE = """\
   }}
 
   footer {{
-    margin-top: 1.75rem;
+    margin-top: 3.5rem;
     text-align: center;
-    color: color-mix(in srgb, var(--foreground) 45%, transparent);
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    line-height: 1.7;
+    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    font-size: 0.78rem;
+    line-height: 1.5;
   }}
-  footer .sep {{
-    display: inline-block;
-    width: 1.5rem;
-    height: 1px;
-    background: var(--hairline-strong);
-    vertical-align: middle;
-    margin: 0 0.6em 0.2em;
-  }}
+  #native-status {{ min-height: 1.5em; margin: 1rem 0 0; color: var(--foreground); font-size: 0.85rem; }}
 
   /* Selection — DS uses midground bg + background text. */
   ::selection {{
@@ -216,20 +190,21 @@ _LOGIN_HTML_TEMPLATE = """\
 </style>
 </head>
 <body>
+<div class="window-drag" aria-hidden="true"></div>
 <main>
-  <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4H8M9 14h.01M15 14h.01M9 17h6"/></svg>Hermes Bots</div>
+  <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M12 8V4H8M9 14h.01M15 14h.01M9 17h6"/></svg></span>Hermes Bots</div>
   <div class="card">
-    <h1>Welcome back</h1>
-    <p class="subtitle">Sign in to continue to your bots.</p>
+    <h1>Sign in to Hermes</h1>
     <div class="provider-list">
 {provider_buttons}
     </div>
-    <p id="native-status" role="status"></p>
+    <p id="native-status" role="status" aria-live="polite"></p>
   </div>
-  <footer>Secure sign-in to Hermes</footer>
+  <footer>Private access to your bots</footer>
 </main>
 {password_script}
 <script>
+  if (window.hermetic) document.body.classList.add('native');
   document.addEventListener('click', function (event) {{
     var link = event.target.closest('a[data-native-provider]');
     if (!link || !window.hermetic || typeof window.hermetic.signIn !== 'function') return;
@@ -386,6 +361,17 @@ _PASSWORD_FORM_SCRIPT = """\
 """
 
 
+_GOOGLE_LOGO = '''<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.6l6.9-6.9C35.9 2.2 30.5 0 24 0 14.6 0 6.5 5.4 2.6 13.2l8 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.9 24.6c0-1.6-.2-3.1-.5-4.6H24v9.1h12.8c-.6 3-2.2 5.5-4.7 7.2l7.7 6c4.5-4.1 7.1-10.2 7.1-17.7z"/><path fill="#FBBC05" d="M10.6 28.6A14.4 14.4 0 0 1 9.8 24c0-1.6.3-3.1.8-4.6l-8-6.2A23.8 23.8 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l8-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 12-2.1 16-5.7l-7.7-6C30.1 37.8 27.3 38.5 24 38.5c-6.2 0-11.5-4.1-13.4-9.9l-8 6.2C6.5 42.6 14.6 48 24 48z"/></svg>'''
+
+
+def _provider_label(provider) -> str:
+    return "Continue with Google" if getattr(provider, "_issuer", "") == "https://accounts.google.com" else f"Continue with {provider.display_name}"
+
+
+def _provider_logo(provider) -> str:
+    return _GOOGLE_LOGO if getattr(provider, "_issuer", "") == "https://accounts.google.com" else ""
+
+
 def render_login_html(*, next_path: str = "") -> str:
     """Return the full HTML for ``GET /login``.
 
@@ -404,7 +390,7 @@ def render_login_html(*, next_path: str = "") -> str:
         f'      <a class="provider-btn" '
         f'href="/auth/login?provider={html.escape(p.name, quote=True)}{next_qs}" '
         f'data-native-provider="{html.escape(p.name, quote=True)}">'
-        f'Sign in with {html.escape(p.display_name)}</a>'
+        f'{_provider_logo(p)}{html.escape(_provider_label(p))}</a>'
         for p in providers
     ]
     needs_password_script = any(getattr(p, "supports_password", False) for p in providers)
@@ -429,7 +415,7 @@ def render_native_provider_choice_html(
         href = html.escape(f"{authorize_path}?{urlencode({**common, 'provider': p.name})}",
                            quote=True)
         buttons.append(f'      <a class="provider-btn" href="{href}">'
-                       f'Sign in with {html.escape(p.display_name)}</a>')
+                       f'{_provider_logo(p)}{html.escape(_provider_label(p))}</a>')
     if not buttons:
         return _EMPTY_HTML
     return _LOGIN_HTML_TEMPLATE.format(provider_buttons="\n".join(buttons), password_script="")

@@ -41,6 +41,19 @@ describe("mobile push and local logout", () => {
     expect(mocked.authedFetch).toHaveBeenCalledWith("/api/mobile/logout", { method: "POST" });
   });
 
+  it("clears hermetic storage after server revocation and lands on login", async () => {
+    const clearSession = vi.fn(async () => {});
+    const assign = vi.fn();
+    vi.stubGlobal("window", { hermetic: { clearSession }, location: { assign } });
+    mocked.authedFetch.mockResolvedValue({ ok: true });
+    try {
+      await localSignOut();
+      expect(mocked.authedFetch).toHaveBeenCalledWith("/api/mobile/logout", { method: "POST" });
+      expect(clearSession).toHaveBeenCalledOnce();
+      expect(assign).toHaveBeenCalledWith("/login");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("attempts local sign-out even if browser push unsubscription fails", async () => {
     vi.mocked(navigator.serviceWorker.getRegistration).mockRejectedValue(new Error("push unavailable"));
     mocked.authedFetch.mockResolvedValue({ ok: false });

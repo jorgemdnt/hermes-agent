@@ -37,7 +37,7 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
 
 export function Avatar({ src, name, className }: { src?: string; name: string; className?: string }) {
   return <AvatarPrimitive.Root className={cn("m-avatar", className)}>
-    {src && <AvatarPrimitive.Image src={src} alt="" className="m-avatar" />}
+    {src && <AvatarPrimitive.Image src={src} alt="" width={42} height={42} className="m-avatar" />}
     <AvatarPrimitive.Fallback className="m-avatar-fallback" aria-hidden="true">{name.slice(0, 1)}</AvatarPrimitive.Fallback>
   </AvatarPrimitive.Root>;
 }

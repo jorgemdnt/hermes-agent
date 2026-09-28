@@ -75,7 +75,11 @@
 .m-inbox { border-top: 0; padding-top: 12px; }
 .m-header { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 16px; min-height: 60px; border: 0; }
 .m-shell .m-icon-button { display: grid; place-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 50%; padding: 0; flex: none; width: 46px; height: 46px; box-shadow: 0 3px 14px var(--shadow); }
-.m-profile-button span { display: grid; place-items: center; width: 34px; height: 34px; background: var(--secondary); border-radius: 50%; font-weight: 600; }
+.m-profile-button .m-avatar, .m-profile-button .m-avatar-fallback { width: 34px; height: 34px; font-size: 16px; }
+.m-profile-button .m-avatar { background: var(--secondary); }
+.m-profile-button .m-avatar-fallback { font-weight: 600; }
+.m-native :is(.m-list-header, .m-header) :is(button, a, input) { -webkit-app-region: no-drag; }
+
 .m-shell .m-chat-identity { display: flex; align-items: center; gap: 8px; margin-right: auto; min-width: 0; height: 46px; background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 4px 12px 4px 5px; color: var(--foreground); font-size: 14px; font-weight: 600; box-shadow: 0 3px 14px var(--shadow); }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .m-shell .m-icon-button, .m-shell .m-chat-identity, .m-shell .m-composer textarea { background: color-mix(in srgb, var(--card) 70%, transparent); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
@@ -311,6 +315,11 @@
     .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
   }
+}
+.m-shell.m-native :is(.m-list-header, .m-header) {
+  min-height: calc(52px + var(--m-native-titlebar-inset));
+  padding-block: var(--m-native-titlebar-inset) 0;
+  -webkit-app-region: drag;
 }
 @media (prefers-reduced-motion: reduce) { .m-shell *, .m-shell *::before, .m-shell *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 @media (prefers-reduced-motion: no-preference) {
