@@ -1,5 +1,5 @@
 import { useEffect, useRef, type TouchEvent } from "react";
-import { Bot, Copy, ExternalLink, Image as ImageIcon, Info, ThumbsUp } from "lucide-react";
+import { ExternalLink, Image as ImageIcon, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { classifyUserText } from "./message-kind";
 import { Markdown } from "@/components/Markdown";
 import type { ChatRow } from "./mobile-state";
@@ -40,16 +40,10 @@ export default function MobileMessage({ row, previous, onAction, onReact, reacte
     const title = kind.kind === "agent" ? `Message from ${kind.sender}` : kind.label;
     const body = kind.body;
     return <article className="m-message m-notice">
-      <div className="m-notice-head">
-        {kind.kind === "agent"
-          ? (avatar ? <img src={avatar} alt="" aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />)
-          : <Info size={14} aria-hidden="true" />}
-        <span>{title}</span>
-      </div>
-      {body && <details className="m-notice-body">
-        <summary>Show message</summary>
+      {body ? <details className="m-notice-body">
+        <summary><span className="m-notice-head">{kind.kind === "agent" && avatar && <img src={avatar} alt="" aria-hidden="true" />}<span>{title}</span></span><span className="m-notice-more">Show message</span></summary>
         <div className="m-notice-card"><Markdown content={body} /></div>
-      </details>}
+      </details> : <span className="m-notice-head">{kind.kind === "agent" && avatar && <img src={avatar} alt="" aria-hidden="true" />}<span>{title}</span></span>}
     </article>;
   }
   return <article className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}
@@ -60,8 +54,11 @@ export default function MobileMessage({ row, previous, onAction, onReact, reacte
       <span className="m-link-domain">{preview.hostname}<ExternalLink size={14} aria-hidden="true" /></span>
       <strong>{linkedTitle?.[2] === preview.href ? linkedTitle[1] : preview.pathname.split("/").filter(Boolean).at(-1) || preview.hostname}</strong>
     </a>}
-    {onReact && <button type="button" className="m-reaction" aria-label={reacted ? "Remove thumbs up" : "React thumbs up"} aria-pressed={!!reacted} onClick={onReact}><ThumbsUp size={14} aria-hidden="true" />{reacted ? "1" : ""}</button>}
-    {row.timestamp && (!grouped || !previous?.timestamp || row.timestamp - previous.timestamp > 300) && <time dateTime={new Date(row.timestamp * 1000).toISOString()} className="m-message-time">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(row.timestamp * 1000)}</time>}
-    <button type="button" className="m-copy-trigger" aria-label="Copy message" onClick={() => onAction(displayText || "Photo")}><Copy size={15} aria-hidden="true" /></button>
+    <div className="m-message-footer">
+      {reacted && onReact && <button type="button" className="m-reaction" aria-label="Remove thumbs up" aria-pressed="true" onClick={onReact}><ThumbsUp size={14} aria-hidden="true" />1</button>}
+      <span className="m-message-footer-spacer" />
+      {row.timestamp && (!grouped || !previous?.timestamp || row.timestamp - previous.timestamp > 300) && <time dateTime={new Date(row.timestamp * 1000).toISOString()} className="m-message-time">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(row.timestamp * 1000)}</time>}
+      <button type="button" className="m-message-actions" aria-label="Message actions" onClick={() => onAction(displayText || "Photo")}><MoreHorizontal size={16} aria-hidden="true" /></button>
+    </div>
   </article>;
 }

@@ -5,7 +5,7 @@ import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { useComposerSuggestions } from "./ComposerSuggestions";
@@ -19,8 +19,9 @@ import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui"
 import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
+import { groupNoticeRows } from "./message-kind";
 import { uploadChatImage } from "@/lib/chatImagePaste";
-import { applyChatEvent, PROMPT_METHODS, transcriptRows, type MobileChat, type PendingPrompt } from "./mobile-state";
+import { applyChatEvent, PROMPT_METHODS, transcriptRows, type ChatRow, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
@@ -102,7 +103,7 @@ export default function MobileApp() {
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
-  const [messageAction, setMessageAction] = useState("");
+  const [messageAction, setMessageAction] = useState<{ text: string; key: string } | null>(null);
   const [reactions, setReactions] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(window.localStorage.getItem("hermes-mobile-reactions") || "{}"); } catch { return {}; }
   });
@@ -833,6 +834,11 @@ export default function MobileApp() {
     onMouseEnter: () => { void warmProfile(name).catch(() => undefined); },
     onClick: () => pinClick(name),
   });
+  const renderMessage = (row: ChatRow, previous: ChatRow | undefined, key: string) => {
+    const id = reactionKey(row.role, row.timestamp, row.text);
+    return <MobileMessage key={key} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id })}
+      avatarFor={avatarForHandle} reacted={!!reactions[id]} onReact={() => toggleReaction(id)} />;
+  };
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
@@ -916,7 +922,14 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
               {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
-              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} avatarFor={avatarForHandle} reacted={!!reactions[reactionKey(row.role, row.timestamp, row.text)]} onReact={() => toggleReaction(reactionKey(row.role, row.timestamp, row.text))} />)}
+              {chat && groupNoticeRows(chat.rows).map((group, index, groups) => {
+                const previous = groups[index - 1]?.at(-1);
+                if (group.length > 1) return <details className="m-notice-group" key={index}>
+                  <summary>{group.length} updates</summary>
+                  <div>{group.map((row, item) => renderMessage(row, item ? group[item - 1] : previous, `${index}-${item}`))}</div>
+                </details>;
+                return renderMessage(group[0], previous, String(index));
+              })}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
@@ -924,7 +937,7 @@ export default function MobileApp() {
               {chat?.running && !chatPrompts.length && <p role="status" aria-live="polite" className="m-thinking"><i className="m-status-dot" aria-hidden="true" />{status}</p>}
             </div>
           </div>
-          {!atBottom && <button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button>}
+          {!atBottom && <div className="m-jump-row"><button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button></div>}
           <form className="m-composer" onSubmit={e => void send(e)}>
             {voice.phase !== "idle" && <p className="m-voice-status" role="status" aria-live="polite">{voice.phase === "recording" ? "Recording · tap to stop" : voice.phase === "starting" ? "Starting microphone…" : "Transcribing…"}</p>}
             {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
@@ -991,9 +1004,10 @@ export default function MobileApp() {
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
         : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
     </Sheet>}
-    {!!messageAction && <Sheet open onClose={() => setMessageAction("")} label="Message actions">
-      <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction("")}><X size={20} aria-hidden="true" /></button></div>
-      <button type="button" className="m-pin-choice" onClick={() => { void navigator.clipboard.writeText(messageAction).then(() => { setMessageAction(""); toast.success("Copied message"); }).catch(() => toast.error("Could not copy message")); }}><Copy size={18} aria-hidden="true" />Copy text</button>
+    {!!messageAction && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
+      <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction(null)}><X size={20} aria-hidden="true" /></button></div>
+      <button type="button" className="m-pin-choice" onClick={() => { void navigator.clipboard.writeText(messageAction.text).then(() => { setMessageAction(null); toast.success("Copied message"); }).catch(() => toast.error("Could not copy message")); }}><Copy size={18} aria-hidden="true" />Copy text</button>
+      <button type="button" className="m-pin-choice" onClick={() => { toggleReaction(messageAction.key); setMessageAction(null); }}><ThumbsUp size={18} aria-hidden="true" />{reactions[messageAction.key] ? "Remove thumbs up" : "React thumbs up"}</button>
     </Sheet>}
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => { setConversationsOpen(false); setConversationAction(null); }} label="Conversations">
       <div className="m-activity-head"><h2>{conversationAction ? "Manage conversation" : "Conversations"}</h2><Button type="button" variant="ghost" size="icon" aria-label={conversationAction ? "Back to conversations" : "Close conversations"} onClick={() => { if (conversationAction) setConversationAction(null); else setConversationsOpen(false); }}><X size={21} aria-hidden="true" /></Button></div>

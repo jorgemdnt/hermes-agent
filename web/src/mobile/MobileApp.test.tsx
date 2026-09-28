@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   setSessionPinned: vi.fn(async (_id: string, pinned: boolean, _profile: string) => { void _profile; return { ok: true, pinned }; }),
   uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
   transcribeAudio: vi.fn(async (_dataUrl: string, _mimeType: string, _profile: string) => { void _dataUrl; void _mimeType; void _profile; return { ok: true, transcript: "Dictated words" }; }),
-  getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }) => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
+  getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }): Promise<{ messages: Array<{ role: string; content: string; timestamp?: number }> }> => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "profiles.list") return { profiles: ["frodo", "gandalf", "samwise", "author", "default", "gimli"].map(name => ({ name, canonical_session: name === mocks.rosterAbsent ? null : {
@@ -107,6 +107,34 @@ it.each(["another chat", "new conversation"])("keeps a foreign-session approval 
   expect(host.querySelector('.m-messages')?.textContent).toContain("test foreign");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Allow once") as HTMLButtonElement).click());
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
+});
+
+it("keeps notices quiet and reactions behind the message action menu", async () => {
+  mocks.getSessionMessages.mockResolvedValue({ messages: [
+    { role: 'user', content: 'Message from Gimli (@gimli): details', timestamp: 100 },
+    { role: 'user', content: '[IMPORTANT: Background process proc_a completed normally (exit code 0).]', timestamp: 101 },
+    { role: 'assistant', content: 'I checked it', timestamp: 102 },
+  ] });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  expect(host.querySelector('.m-notice-group > summary')?.textContent).toBe('2 updates');
+  expect(host.querySelector('.m-notice-group > summary')?.textContent).not.toContain('proc_a');
+  await act(async () => (host.querySelector('.m-notice-group > summary') as HTMLElement).click());
+  expect(host.querySelectorAll('.m-notice-group .m-notice')).toHaveLength(2);
+  expect(host.querySelector('.m-notice-group')?.textContent).toContain('Background task finished');
+  expect(host.querySelector('.m-notice-group')?.textContent).toContain('proc_a');
+  expect(host.querySelector('.m-notice-group .m-notice-head svg')).toBeNull();
+  const reply = host.querySelector('.m-assistant') as HTMLElement;
+  expect(reply.querySelector('.m-reaction')).toBeNull();
+  expect(reply.querySelector('.m-message-footer time')).not.toBeNull();
+  await act(async () => reply.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  const react = Array.from(host.querySelectorAll('.m-pin-choice')).find(button => button.textContent?.includes('React thumbs up')) as HTMLButtonElement;
+  expect(react).not.toBeNull();
+  await act(async () => react.click());
+  expect(reply.querySelector('.m-reaction')?.textContent).toContain('1');
+  await act(async () => (reply.querySelector('.m-reaction') as HTMLButtonElement).click());
+  expect(reply.querySelector('.m-reaction')).toBeNull();
 });
 
 it("shows pinned bots above one recency list with real message previews", async () => {
@@ -840,7 +868,9 @@ it("persists a thumbs-up reaction and renders a URL preview from a bot reply", a
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
   expect(host.querySelector('.m-link-preview')?.textContent).toContain('Board deck');
-  await act(async () => (host.querySelector('.m-reaction') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-reaction')).toBeNull();
+  await act(async () => (host.querySelector('.m-assistant') as HTMLElement).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await act(async () => (Array.from(host.querySelectorAll('.m-pin-choice')).find(button => button.textContent?.includes('React thumbs up')) as HTMLButtonElement).click());
   expect(host.querySelector('.m-reaction')?.getAttribute('aria-pressed')).toBe('true');
   expect(storage.get('hermes-mobile-reactions')).toContain('true');
 });
