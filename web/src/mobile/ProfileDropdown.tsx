@@ -3,14 +3,14 @@ import { LayoutGrid, LogOut, Monitor, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 import { Avatar } from "./ui";
 
-export function ProfileDropdown({ open, onOpenChange, showScreen, container, name, picture, onSignOut, signingOut }: {
+export function ProfileDropdown({ open, onOpenChange, showScreen, container, name, picture, onSignOut, signingOut, desktop = false }: {
   open: boolean; onOpenChange: (open: boolean) => void; showScreen: boolean; container?: HTMLElement | null;
-  name: string; picture: string; onSignOut: () => void; signingOut: boolean;
+  name: string; picture: string; onSignOut: () => void; signingOut: boolean; desktop?: boolean;
 }) {
   return <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
-    <DropdownMenu.Trigger className="m-icon-button m-profile-button" aria-label="Profile menu"><Avatar src={picture} name={name} /></DropdownMenu.Trigger>
+    <DropdownMenu.Trigger className="m-icon-button m-profile-button" aria-label="Profile menu"><Avatar src={picture} name={name} />{desktop && <span className="m-profile-name">{name}</span>}</DropdownMenu.Trigger>
     <DropdownMenu.Portal container={container}>
-      <DropdownMenu.Content className="m-dropdown" align="start" sideOffset={8} collisionPadding={12}>
+      <DropdownMenu.Content className="m-dropdown" align="start" side={desktop ? "top" : "bottom"} sideOffset={8} collisionPadding={12}>
         <DropdownMenu.Label className="m-dropdown-label">{name}</DropdownMenu.Label>
         <DropdownMenu.Separator className="m-dropdown-separator" />
         <DropdownMenu.Item asChild><Link to="/m/board"><LayoutGrid size={17} aria-hidden="true" />Board</Link></DropdownMenu.Item>

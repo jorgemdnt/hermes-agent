@@ -299,13 +299,18 @@
   .m-desktop-empty h2 { margin: 0; font-size: 17px; font-weight: 500; }
   .m-list-header { padding-inline: 16px; }
   .m-bot-list { padding: 4px 12px 24px; }
+  .m-sidebar-footer { flex: none; padding: 10px 12px 14px; border-top: 1px solid var(--border); }
+  .m-shell .m-sidebar-footer .m-profile-button { display: flex; justify-content: flex-start; gap: 10px; width: 100%; height: 52px; padding: 6px 10px; border: 0; border-radius: 10px; background: transparent; box-shadow: none; text-align: left; }
+  .m-profile-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
   .m-pinned { gap: 8px; padding: 12px 0 20px; }
   .m-shell .m-pinned-bot { border-radius: 12px; padding: 8px 0; }
   .m-pinned-bot .m-avatar, .m-pinned-bot .m-avatar-fallback { width: 54px; height: 54px; font-size: 22px; }
   .m-bot-row { height: 64px; }
   .m-shell .m-bot-main { padding: 0 8px; border-radius: 10px; }
-  .m-shell .m-header { padding: 12px 24px; min-height: 72px; border-bottom: 1px solid var(--border); }
-  .m-shell .m-header > button:first-child, .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
+  .m-shell .m-header { position: relative; padding: 12px 24px; min-height: 72px; border-bottom: 1px solid var(--border); }
+  .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
+  .m-shell .m-header .m-chat-identity { position: absolute; left: 50%; transform: translateX(-50%); max-width: calc(100% - 112px); margin: 0; }
+  .m-shell .m-header > button[aria-label$="computer"] { margin-left: auto; }
   .m-messages { padding: 28px 24px 20px; }
   .m-message-content { width: min(100%, 720px); margin-inline: auto; }
   .m-composer { width: min(100%, 768px); margin-inline: auto; padding: 12px 24px 20px; }

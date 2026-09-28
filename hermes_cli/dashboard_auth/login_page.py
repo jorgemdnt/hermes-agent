@@ -69,11 +69,12 @@ _LOGIN_HTML_TEMPLATE = """\
     width: 100%;
     max-width: 23rem;
     position: relative;
+    transform: translateY(-3vh);
   }}
 
   .brand {{
     text-align: center;
-    margin-bottom: 3.5rem;
+    margin-bottom: 1.5rem;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -86,7 +87,7 @@ _LOGIN_HTML_TEMPLATE = """\
   .brand svg {{ width: 23px; height: 23px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }}
   .card {{ text-align: center; }}
   h1 {{
-    margin: 0 0 2rem;
+    margin: 0 0 1.25rem;
     font-family: inherit;
     font-weight: 600;
     font-size: 1.65rem;
@@ -109,19 +110,19 @@ _LOGIN_HTML_TEMPLATE = """\
     width: 100%;
     min-height: 48px;
     padding: 0.75rem 1rem;
-    background: var(--background-base);
-    color: var(--foreground);
+    background: var(--foreground);
+    color: var(--background);
     font-family: inherit;
     font-weight: 500;
     font-size: 0.9rem;
     text-decoration: none;
-    border: 1px solid var(--hairline);
+    border: 1px solid var(--foreground);
     border-radius: 8px;
     cursor: pointer;
     transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
   }}
   .provider-btn svg {{ width: 18px; height: 18px; flex: none; }}
-  .provider-btn:hover {{ background: color-mix(in srgb, var(--foreground) 5%, var(--background-base)); border-color: var(--hairline-strong); }}
+  .provider-btn:hover {{ background: color-mix(in srgb, var(--foreground) 85%, var(--background)); }}
   .provider-btn:focus-visible {{ outline: 2px solid var(--midground); outline-offset: 3px; }}
 
   /* Password provider form shares the same card and button tokens. */
@@ -174,9 +175,9 @@ _LOGIN_HTML_TEMPLATE = """\
   }}
 
   footer {{
-    margin-top: 3.5rem;
+    margin-top: 2.5rem;
     text-align: center;
-    color: color-mix(in srgb, var(--foreground) 52%, transparent);
+    color: color-mix(in srgb, var(--foreground) 72%, transparent);
     font-size: 0.78rem;
     line-height: 1.5;
   }}

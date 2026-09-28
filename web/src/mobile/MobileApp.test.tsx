@@ -155,8 +155,13 @@ it("lists only bots beside the desktop chat", async () => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   expect(host.querySelector('.m-desktop-empty')?.textContent).toContain('Choose a bot');
+  expect(host.querySelector('.m-list-header .m-profile-button')).toBeNull();
+  expect(host.querySelector('.m-sidebar-footer .m-profile-button .m-profile-name')?.textContent).toBe('Jorge');
+  expect(host.querySelector('.m-list-header .m-top-actions')?.children).toHaveLength(2);
   expect(host.querySelector('.m-home')?.textContent).not.toContain('Prior chat');
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-header .m-chat-identity')?.textContent).toContain('Frodo');
+  expect(host.querySelector('.m-header [aria-label="Back to bots"]')).toBeNull();
   expect(host.querySelector('.m-home')?.getAttribute('aria-hidden')).toBe('false');
   expect((host.querySelector('.m-home') as HTMLElement).hasAttribute('inert')).toBe(false);
   expect(host.querySelector('.m-messages')?.textContent).toContain('Earlier from frodo');
