@@ -67,7 +67,7 @@ function stranded(shown: readonly StripPane[]): boolean {
 
   const [only] = shown
 
-  return only.collapsePane || Boolean(only.mintable) || (!only.uncloseable && only.placement === 'main')
+  return only.collapsePane || Boolean(only.mintable) || only.placement === 'main'
 }
 
 export function resolveTabStripVisible(zone: StripZone): boolean {

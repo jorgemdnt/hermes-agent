@@ -162,6 +162,14 @@ class TestSnapshotRealProfile:
 class TestRealProfileCdpLaunch:
     """The agent-browser-based launcher in browser_tool_real_profile._real_profile_cdp."""
 
+    @pytest.fixture(autouse=True)
+    def browser_toolchain(self, monkeypatch):
+        # These tests cover Chrome/agent-browser routing, not the PM store.
+        # A checkout inside ~/.hermes must not probe its real manifest.json.
+        monkeypatch.setattr(bt_install, "_find_agent_browser", lambda: "/usr/bin/agent-browser")
+        monkeypatch.setattr("pm.env_for", lambda package, base_env: base_env)
+        monkeypatch.setattr("hermes_cli.browser_runtime.chromium_executable", lambda: None)
+
     def _reset(self):
         import tools.browser_tool as bt
         bt._real_profile_cdp_cache.clear()

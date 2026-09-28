@@ -732,7 +732,7 @@ export default {
               const generation = getBotOpenGeneration()
 
               void Promise.resolve(
-                openBotCanonicalChat(bot, () => generation === getBotOpenGeneration() && $botsPaneVisible.get())
+                openBotCanonicalChat(bot, { openingStillCurrent: () => generation === getBotOpenGeneration() && $botsPaneVisible.get() })
               ).then(chat => {
                 if (!$botsPaneVisible.get() || generation !== getBotOpenGeneration()) {
                   return

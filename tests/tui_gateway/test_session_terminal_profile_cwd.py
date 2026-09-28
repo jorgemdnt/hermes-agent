@@ -29,14 +29,15 @@ def test_remote_session_cwd_follows_profile_a_b_a(tmp_path, monkeypatch):
         ):
             session["profile_home"] = str(home)
             server._register_session_cwd(session)  # session.create registers outside the turn's profile scope
-            assert tt._task_env_overrides[session["session_key"]]["cwd"] == cwd
             with server._session_profile_runtime_scope(session, hydrate_secrets=False):
+                key = tt._qualify_task_key(session["session_key"])
+                assert tt._task_env_overrides[key]["cwd"] == cwd
                 assert server._effective_terminal_backend() == backend
                 assert tt._get_env_config()["cwd"] == cwd
                 if backend == "ssh":
                     assert not Path(remote_cwd).exists()  # never validate an SSH cwd on the Mac
                     assert server._display_session_cwd(session) == str(launch_cwd)
-            assert tt._task_env_overrides[session["session_key"]]["cwd"] == cwd
+                assert tt._task_env_overrides[key]["cwd"] == cwd
             if backend == "ssh":
                 remote_session = {"profile_home": str(remote_home), "cwd": remote_cwd}
                 assert server._display_session_cwd(remote_session) == remote_cwd
