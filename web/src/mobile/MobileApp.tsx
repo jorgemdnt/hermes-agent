@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
+import { useLatestBuild } from "./useLatestBuild";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
 import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
@@ -252,6 +253,10 @@ export default function MobileApp() {
   const voice = useMobileDictation(profile, `${view}/${selected}`, transcript => setText(previous => `${previous.trimEnd()}${previous.trim() ? " " : ""}${transcript}`));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const idleRef = useRef({ text: "", busy: false });
+  idleRef.current = { text, busy };
+  const isIdle = useCallback(() => !idleRef.current.text.trim() && !idleRef.current.busy, []);
+  useLatestBuild(`${HERMES_BASE_PATH}/m`, isIdle);
   const [pushEnabled, setPushEnabled] = useState(false);
   const client = useRef<GatewayClient | null>(null);
   const [screenGateway, setScreenGateway] = useState<GatewayClient | null>(null);
@@ -740,7 +745,19 @@ export default function MobileApp() {
         cache.current.set(chatKey(profile, next.storedId), next);
         return next;
       });
-      await gw.request("prompt.submit", { session_id: runtimeId, profile, text: submitted });
+      try {
+        await gw.request("prompt.submit", { session_id: runtimeId, profile, text: submitted });
+      } catch (e) {
+        // A dashboard restart or reconnect retires runtime ids; re-attach to the stored chat once.
+        if (!/session not found/i.test(errorText(e))) throw e;
+        const resumed = await gw.request<SessionSnapshot>("session.resume", { profile, session_id: target.storedId, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
+        const fresh: MobileChat = { ...target, runtimeId: resumed.session_id };
+        target = fresh;
+        chatRef.current = fresh;
+        cache.current.set(chatKey(profile, fresh.storedId), fresh);
+        setChat(prev => prev && prev.storedId === fresh.storedId ? { ...prev, runtimeId: fresh.runtimeId } : prev);
+        await gw.request("prompt.submit", { session_id: fresh.runtimeId, profile, text: submitted });
+      }
       staged.length = 0;
       setText(""); clearPhotos(); setFiles([]);
     } catch (e) {
