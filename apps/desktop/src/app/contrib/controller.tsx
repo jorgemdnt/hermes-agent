@@ -84,6 +84,7 @@ import {
 } from '@/store/layout'
 import { $profiles } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
+import { bindProfileRenameReconcile } from '@/store/profile-rename-reconcile'
 import { runExportProfileFlow, runImportProfileFlow } from '@/store/profile-share'
 import {
   $reviewOpen,
@@ -601,6 +602,7 @@ bindToolPaneCollapse(
 )
 // Without the statusbar, the rail is the only way to switch profiles or gateways.
 $profiles.subscribe(profiles => setModeContext({ profileCount: profiles.length }))
+bindProfileRenameReconcile()
 $connectionsRegistry.subscribe(registry => setModeContext({ connectionCount: registry?.connections.length ?? 0 }))
 // ⌘K door onto the same pane the keybind and statusbar pill flip.
 registry.register(terminalPaletteToggle)

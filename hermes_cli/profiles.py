@@ -2366,6 +2366,10 @@ def rename_profile(old_name: str, new_name: str) -> Path:
     # resurrect it, and a future profile reusing the old name must not read as deleted.
     if live_mux:
         clear_named_profile_deleted(old_dir)
+    # A tombstone left on the NEW name by an earlier delete is stale now that the directory
+    # exists (create_profile clears it the same way). Left behind, the renamed profile reads as
+    # deleted: the previous_names write, the identity migration and multiplexer serving all refuse it.
+    clear_named_profile_deleted(new_dir)
 
     # 2b. Record the rename so Bot Mode group chats can re-link persisted
     # member descriptors to the new slug (#110200). Best-effort: a metadata

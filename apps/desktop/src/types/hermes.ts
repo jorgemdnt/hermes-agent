@@ -1071,6 +1071,8 @@ export interface ProfileInfo {
   model: null | string
   name: string
   path: string
+  /** Canonical ids this profile had before `hermes profile rename` (profile.yaml). */
+  previous_names?: string[]
   provider: null | string
   /** Backend-assigned role from profile.yaml; `setup` marks the onboarding guide's profile. */
   role?: 'setup' | null
