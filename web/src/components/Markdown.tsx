@@ -352,7 +352,7 @@ function InlineContent({
           case "bold":
             return (
               <strong key={i} className="font-semibold">
-                <HighlightedText text={node.content} terms={highlightTerms} />
+                <InlineContent text={node.content} highlightTerms={highlightTerms} />
               </strong>
             );
           case "italic":

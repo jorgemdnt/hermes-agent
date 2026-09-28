@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/react";
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, ImagePlus, LayoutGrid, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Settings2, Square, Sun, Monitor, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, X } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ProfileDropdown } from "./ProfileDropdown";
+import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
 import { api, HERMES_BASE_PATH, type ProfileInfo, type SessionMessage } from "@/lib/api";
@@ -79,7 +82,11 @@ export default function MobileApp() {
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const [photos, setPhotos] = useState<Array<{ file: File; preview: string }>>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const photoInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const [cursor, setCursor] = useState(0);
   const photosRef = useRef(photos);
   useEffect(() => { photosRef.current = photos; }, [photos]);
   useEffect(() => () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.preview); }, []);
@@ -96,6 +103,15 @@ export default function MobileApp() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [messageAction, setMessageAction] = useState("");
+  const [reactions, setReactions] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(window.localStorage.getItem("hermes-mobile-reactions") || "{}"); } catch { return {}; }
+  });
+  const reactionKey = (role: string, timestamp: number | undefined, text: string) => JSON.stringify([profile, selected, role, timestamp, text.slice(0, 120)]);
+  const toggleReaction = (key: string) => setReactions(current => {
+    const next = { ...current }; if (next[key]) delete next[key]; else next[key] = true;
+    window.localStorage.setItem("hermes-mobile-reactions", JSON.stringify(next));
+    return next;
+  });
   const [pinMenu, setPinMenu] = useState("");
   const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinTriggered = useRef(false);
@@ -206,14 +222,15 @@ export default function MobileApp() {
   }, [location.pathname]);
   useEffect(() => {
     if (view !== "screen") return;
-    if (profile !== "samwise" && profiles.some(p => p.name === "samwise")) {
-      setProfile("samwise"); setSelected(latest.current.get("samwise")?.session || "");
+    const target = route.profile || "samwise";
+    if (profile !== target && profiles.some(p => p.name === target)) {
+      setProfile(target); setSelected(latest.current.get(target)?.session || "");
       setConnection("connecting");
     } else if (!selected) {
       const id = canonical.current.get(profile)?.resolved_id || canonical.current.get(profile)?.id;
       if (id) setSelected(id);
     }
-  }, [view, profile, profiles, selected, activityByBot]);
+  }, [view, route.profile, profile, profiles, selected]);
   const [theme, setTheme] = useState<"system" | "light" | "dark">(() => {
     const saved = window.localStorage?.getItem("hermes-mobile-theme");
     return saved === "light" || saved === "dark" ? saved : "system";
@@ -644,7 +661,7 @@ export default function MobileApp() {
       } catch (e) { setError(errorText(e)); return; }
     }
     const session = targetSession;
-    if (name !== profile || session !== selected) clearPhotos();
+    if (name !== profile || session !== selected) { clearPhotos(); setFiles([]); }
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
@@ -671,13 +688,14 @@ export default function MobileApp() {
   };
   const send = async (event: FormEvent) => {
     event.preventDefault();
-    const message = text.trim() || (photos.length ? "What do you see in this photo?" : "");
+    const message = text.trim() || (photos.length ? "What do you see in this photo?" : files.length ? "Please read the attached file." : "");
     const gw = client.current;
     if (!message || !gw || connection !== "open" || busy || chat?.running || voice.phase !== "idle") return;
     setBusy(true); setError("");
     let target = chat;
     const staged: string[] = [];
     let optimistic = false;
+    let optimisticText = "";
     try {
       if (!target) {
         const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false });
@@ -695,7 +713,18 @@ export default function MobileApp() {
         await gw.request("image.attach", { session_id: runtimeId, profile, path: uploaded.path });
         staged.push(uploaded.path);
       }
-      const shown = staged.length ? `${message}\n${staged.map(path => `@image:${path}`).join("\n")}` : message;
+      const refs: string[] = [];
+      for (const file of files) {
+        const data_url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file);
+        });
+        const result = await gw.request<{ attached: boolean; ref_text: string }>("file.attach", { session_id: runtimeId, profile, name: file.name, data_url });
+        if (!result.attached || !result.ref_text) throw new Error(`Could not attach ${file.name}`);
+        refs.push(result.ref_text);
+      }
+      const submitted = [message, ...refs].join("\n");
+      const shown = staged.length ? `${submitted}\n${staged.map(path => `@image:${path}`).join("\n")}` : submitted;
+      optimisticText = shown;
       optimistic = true;
       setChat(prev => {
         if (prev?.runtimeId !== runtimeId) return prev;
@@ -703,9 +732,9 @@ export default function MobileApp() {
         cache.current.set(chatKey(profile, next.storedId), next);
         return next;
       });
-      await gw.request("prompt.submit", { session_id: runtimeId, profile, text: message });
+      await gw.request("prompt.submit", { session_id: runtimeId, profile, text: submitted });
       staged.length = 0;
-      setText(""); clearPhotos();
+      setText(""); clearPhotos(); setFiles([]);
     } catch (e) {
       if (staged.length && target) {
         const runtimeId = target.runtimeId;
@@ -715,7 +744,7 @@ export default function MobileApp() {
         const runtimeId = target.runtimeId;
         setChat(prev => {
           if (prev?.runtimeId !== runtimeId) return prev;
-          const rows = prev.rows.at(-1)?.role === "user" && (prev.rows.at(-1)?.text === message || prev.rows.at(-1)?.text.startsWith(`${message}\n@image:`)) ? prev.rows.slice(0, -1) : prev.rows;
+          const rows = prev.rows.at(-1)?.role === "user" && prev.rows.at(-1)?.text === optimisticText ? prev.rows.slice(0, -1) : prev.rows;
           const next = { ...prev, rows, running: false };
           cache.current.set(chatKey(profile, next.storedId), next);
           return next;
@@ -772,6 +801,20 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
+  const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
+  // Browser tabs own ⌘1–9; Ctrl+1–9 also works here. Electron may capture ⌘.
+  useEffect(() => {
+    if (!desktop) return;
+    const onShortcut = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || !/^[1-9]$/.test(event.key)) return;
+      const target = [...pinned, ...others][Number(event.key) - 1];
+      if (!target) return;
+      event.preventDefault();
+      void selectProfile(target.name);
+    };
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [desktop, pinned, others]);
   const matching = (p: ProfileInfo) => !searchOpen || !searchQuery.trim() || `${botName(p)} ${botPreview(p)}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
   const botPreview = (p: ProfileInfo) => {
     const pending = p.name === profile ? activePrompts[0] : undefined;
@@ -794,7 +837,7 @@ export default function MobileApp() {
   const renderHome = () => <>
     <header className="m-list-header">
       <h1 className="sr-only">Bots</h1>
-      <button type="button" className="m-icon-button m-profile-button" aria-label="Profile menu" onClick={() => setProfileMenuOpen(true)}><span aria-hidden="true">J</span></button>
+      <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current} />
       <div className="m-top-actions">
         <button type="button" className="m-icon-button" aria-label="Search" onClick={() => setSearchOpen(open => !open)}><Search size={21} aria-hidden="true" /></button>
         <button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => setNewChatOpen(true)}><Plus size={23} aria-hidden="true" /></button>
@@ -861,8 +904,8 @@ export default function MobileApp() {
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header"><button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>
-        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: "Screen", settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && <><button type="button" className="m-icon-button" aria-label="Conversations" onClick={() => setConversationsOpen(true)}><MessageSquare size={20} aria-hidden="true" /></button><button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => { setText(""); navigate("chat", profile, ""); }}><Plus size={22} aria-hidden="true" /></button></>}
+        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: profile === "samwise" ? "Screen" : `${name} computer`, settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
       </header>
       {error && <p role="alert" className="m-error">{error}</p>}
       <main className="m-main">
@@ -873,7 +916,7 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
               {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
-              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} avatarFor={avatarForHandle} />)}
+              {chat?.rows.map((row, index) => <MobileMessage key={index} row={row} previous={chat.rows[index - 1]} onAction={setMessageAction} avatarFor={avatarForHandle} reacted={!!reactions[reactionKey(row.role, row.timestamp, row.text)]} onReact={() => toggleReaction(reactionKey(row.role, row.timestamp, row.text))} />)}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
@@ -887,10 +930,19 @@ export default function MobileApp() {
             {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
               <img src={photo.preview} alt={photo.file.name} /><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
             </div>)}</div>}
+            {!!files.length && <div className="m-file-previews" aria-label="Selected files">{files.map((file, index) => <span key={`${file.name}-${index}`}><FileUp size={15} aria-hidden="true" />{file.name}<button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={15} aria-hidden="true" /></button></span>)}</div>}
+            {suggestions}
             <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
-              <button type="button" className="m-add-photo" aria-label="Add photo" disabled={busy || photos.length >= 4 || connection !== "open"} onClick={() => photoInput.current?.click()}><ImagePlus size={20} aria-hidden="true" /></button>
-              <Textarea aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => {
-                if (desktop && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              <input hidden ref={fileInput} type="file" multiple onChange={e => { const valid = Array.from(e.target.files || []).filter(file => { if (file.size > 10 * 1024 * 1024) { toast.error("Choose a file under 10 MB"); return false; } return true; }); setFiles(current => [...current, ...valid].slice(0, 4)); e.target.value = ""; }} />
+              <DropdownMenu.Root><DropdownMenu.Trigger className="m-add-photo" aria-label="Attach photo or file" disabled={busy || connection !== "open"}><Plus size={20} aria-hidden="true" /></DropdownMenu.Trigger>
+                <DropdownMenu.Portal container={shellRef.current}><DropdownMenu.Content align="start" side="top" sideOffset={8} className="m-dropdown m-attach-menu">
+                  <DropdownMenu.Item onSelect={() => photoInput.current?.click()}><ImagePlus size={17} aria-hidden="true" />Photo</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => fileInput.current?.click()}><FileUp size={17} aria-hidden="true" />File</DropdownMenu.Item>
+                </DropdownMenu.Content></DropdownMenu.Portal>
+              </DropdownMenu.Root>
+              <Textarea ref={composerInput} aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => { setText(e.target.value); setCursor(e.target.selectionStart); }} onSelect={e => setCursor(e.currentTarget.selectionStart)} onKeyDown={e => {
+                if (onSuggestionKeyDown(e)) return;
+                if (desktop && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !suggestionsOpen) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
                 }
@@ -898,22 +950,27 @@ export default function MobileApp() {
               {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
                 : voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
-                : !text.trim() && !photos.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
+                : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
                 : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || connection !== "open"}><ArrowUp size={20} /></Button>}
             </div>
           </form>
         </>}
-        {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} />}
-        {view === "screen" && <MobileScreen gateway={screenGateway} onContinue={async () => {
+        {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
+        {view === "screen" && (profile === "samwise" ? <MobileScreen gateway={screenGateway} onContinue={async () => {
           const gw = client.current;
-          if (!gw || !chat?.runtimeId || profile !== "samwise") throw new Error("Open Samwise's chat before continuing");
+          if (!gw || !chat?.runtimeId) throw new Error("Open Samwise's chat before continuing");
           const text = "I handed back the screen; continue from the current state.";
           if (chat.running) {
             const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
             if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
           navigate("chat");
-        }} />}
+        }} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
+          <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
+          {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
+          <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul>
+          {!activity.length && <p className="m-muted">{activityByBot[profile]?.preview || "Waiting for the next activity."}</p>}
+        </section>)}
         {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
           <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>
@@ -924,14 +981,6 @@ export default function MobileApp() {
       </motion.div>}
     </AnimatePresence>
     </div>
-    {profileMenuOpen && <Sheet open={profileMenuOpen} onClose={() => setProfileMenuOpen(false)} label="Profile menu">
-      <div className="m-activity-head"><h2>Jorge</h2><button type="button" className="m-icon-button" aria-label="Close profile menu" onClick={() => setProfileMenuOpen(false)}><X size={20} aria-hidden="true" /></button></div>
-      <nav className="m-home-menu" aria-label="Profile destinations">
-        <Link to="/m/board" onClick={() => setProfileMenuOpen(false)}><LayoutGrid size={20} aria-hidden="true" />Board<ChevronRight size={18} aria-hidden="true" /></Link>
-        {profiles.some(p => p.name === "samwise") && <Link to="/m/screen" onClick={() => setProfileMenuOpen(false)}><Monitor size={20} aria-hidden="true" />Screen<ChevronRight size={18} aria-hidden="true" /></Link>}
-        <Link to="/m/settings" onClick={() => setProfileMenuOpen(false)}><Settings2 size={20} aria-hidden="true" />Settings<ChevronRight size={18} aria-hidden="true" /></Link>
-      </nav>
-    </Sheet>}
     {newChatOpen && <Sheet open={newChatOpen} onClose={() => setNewChatOpen(false)} label="Choose a bot">
       <div className="m-activity-head"><h2>New conversation</h2><button type="button" className="m-icon-button" aria-label="Close bot picker" onClick={() => setNewChatOpen(false)}><X size={20} aria-hidden="true" /></button></div>
       <div className="m-bot-picker">{[...pinned, ...others].map(p => <button type="button" key={p.name} onClick={() => { setNewChatOpen(false); setText(""); void selectProfile(p.name, ""); }}>{avatar(p)}{botName(p)}</button>)}</div>
@@ -968,6 +1017,7 @@ export default function MobileApp() {
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>
+      <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); setConversationsOpen(true); }}><MessageSquare size={18} aria-hidden="true" />Conversations</button>
       {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">No activity yet.</p>}
     </Sheet>}
   </div>;

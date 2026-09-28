@@ -35,6 +35,10 @@ npm run build
 
 This outputs to `../hermes_cli/web_dist/`, which the FastAPI server serves as a static SPA. The built assets are included in the Python package via `pyproject.toml` package-data.
 
+## Bots view shortcuts
+
+In `/m` at desktop width, Ctrl+1–9 opens bots 1–9 in sidebar order. Browsers reserve ⌘+1–9 for tab switching, so use Ctrl there. The separate Electron shell can forward ⌘+1–9 to this same bot-switching handler; the shell is a follow-up, not part of this web build.
+
 ## Structure
 
 ```

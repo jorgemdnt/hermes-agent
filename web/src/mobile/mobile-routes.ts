@@ -19,7 +19,8 @@ export function mobileRoute(pathname: string): MobileRoute {
     catch { return { view: "bots" }; }
   }
   if (parts[1] === "board" && parts.length === 2) return { view: "board" };
-  if (parts[1] === "screen" && parts.length === 2) return { view: "screen" };
+  if (parts[1] === "screen" && parts[2] && parts.length === 3) return { view: "screen", profile: decodeURIComponent(parts[2]) };
+  if (parts[1] === "screen" && parts.length === 2) return { view: "screen", profile: "samwise" };
   if (parts[1] === "settings" && parts.length === 2) return { view: "settings" };
   return { view: "bots" };
 }

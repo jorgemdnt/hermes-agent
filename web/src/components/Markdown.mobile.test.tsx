@@ -42,6 +42,12 @@ it("renders a complete mobile answer with nested structure, safe links, and copy
   expect(host.textContent).toContain("Copied");
 });
 
+it("renders inline code inside bold without raw backticks", async () => {
+  await act(async () => root.render(<Markdown content="Use **`pnpm test` before shipping**." />));
+  expect(host.querySelector('strong code')?.textContent).toBe('pnpm test');
+  expect(host.querySelector('strong')?.textContent).not.toContain('`');
+});
+
 it("keeps a long link's full destination and accessible text while streaming", async () => {
   const url = `https://example.com/${"a".repeat(320)}`;
   await act(async () => root.render(<Markdown content={url} streaming />));
