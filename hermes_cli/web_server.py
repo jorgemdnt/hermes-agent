@@ -1563,6 +1563,9 @@ def start_server(
         if not config.loaded:
             config.load()
         server.lifespan = config.lifespan_class(config)
+        from tui_gateway.exit_telemetry import install_uvicorn_exit_telemetry, record_host_exit
+
+        install_uvicorn_exit_telemetry(server)
         with server.capture_signals():
             await server.startup()
             if server.should_exit:
@@ -1580,6 +1583,8 @@ def start_server(
             )
 
             await server.main_loop()
+            # A caught signal already recorded itself; this covers a stop with none.
+            record_host_exit("shutdown")
             if server.started:
                 await server.shutdown()
 

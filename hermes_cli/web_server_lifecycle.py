@@ -340,6 +340,10 @@ def _start_parent_death_watchdog() -> None:
             )
         except Exception:
             pass
+        from tui_gateway.exit_telemetry import drain_before_hard_exit, record_host_exit
+
+        record_host_exit("parent_disconnect", detail="parent_pid_gone")
+        drain_before_hard_exit()
         # os._exit skips every cleanup: a foreground command in its own process group would outlive us.
         try:
             from tools.environments.base import kill_live_foreground_processes

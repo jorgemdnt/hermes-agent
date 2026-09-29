@@ -252,6 +252,42 @@ result reads or writes. Recovery does not rerun commands or replay completion
 notifications. This preserves work that finished while the parent was alive;
 it does not keep unfinished children alive after a timeout or crash.
 
+### Exit lines in the logs
+
+Every background exit also writes one line to `agent.log` in the profile that
+owns the process:
+
+```text
+process.exit id=proc_5a95d1a5eff4 pid=62704 pid_scope=host owner_session=20260928_170919_30584f owner_task=t_0f4aa091 exit_code=-15 signal=SIGTERM reason=killed source=process.kill observer_pid=… runtime_s=… revision=1
+```
+
+The receipt is still the canonical record. If a kill races the reader thread,
+the line is written again with `revision=2`; the last line for an id matches
+the receipt. The line holds ids and exit metadata only. It never includes the
+command, its environment, the working directory or any output.
+
+A Hermes host (a dashboard or `hermes serve` backend, or the stdio TUI gateway)
+also writes one `host.exit` line when it stops:
+
+```text
+host.exit cause=signal signal=SIGTERM detail= pid=62704 ppid=… active_turns=1 compressing=20260828_210147_af9806 running_processes=
+```
+
+`cause` is `signal`, `parent_disconnect` (the Desktop parent PID is gone, or
+the stdio peer closed stdin), `stdin_recovery_exhausted` or `shutdown`. Only
+the first cause is recorded. To find what killed a host, search the other
+profiles' logs for a `process.exit` line with the same `pid`.
+
+:::warning Preview servers that share a real Hermes home are live state
+A dashboard or `hermes serve` preview started with your real `HERMES_HOME`
+can pick up other agents' chats, turns and compressions. Killing it ends that
+work mid-flight: the client sees its WebSocket close, and the compression lock
+waits for reclaim. Start previews against a scratch `HERMES_HOME` when you
+can. Before you `process(action="kill")` a preview that shares a real home,
+check its sessions for active turns (`/api/sessions`, or the Desktop activity
+list) and tell the owners first.
+:::
+
 ## Sudo Support
 
 On an interactive parent session, supported sudo commands use the masked password prompt (cached for the session). This includes literal absolute or quoted executable paths and `env` prefixes with ordinary options and assignments, such as `env -u UNUSED /usr/bin/sudo id`. Passwordless sudo does not need a prompt. You can also configure `SUDO_PASSWORD` in your profile's `.env` file on the agent machine.
