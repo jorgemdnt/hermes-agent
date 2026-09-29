@@ -57,6 +57,17 @@ def test_worktree_is_real_and_invalid_branch_does_not_create_it(setup):
     assert result["branch"] == "feat/qa-flow"
 
 
+def test_branch_check_uses_git_ref_format(setup):
+    app = FastAPI()
+    app.include_router(workspace.router)
+    client = TestClient(app)
+    assert client.post("/api/mobile/branch-check", json={"branch": "feat/good-name"}).json() == {"valid": True}
+    for invalid in ("../../bad", "feat//bad", "feat/bad/", "feat/heads.lock", "bad name"):
+        response = client.post("/api/mobile/branch-check", json={"branch": invalid})
+        assert response.status_code == 400, invalid
+    assert client.post("/api/mobile/branch-check", json={"branch": "feat/good-name", "path": "/etc"}).status_code == 422
+
+
 def test_client_paths_are_not_accepted_and_foreign_project_is_rejected(setup):
     _, _, project_id = setup
     app = FastAPI()

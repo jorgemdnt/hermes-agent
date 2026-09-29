@@ -26,13 +26,13 @@ export function filterChats(chats: Conversation[], query: string, botName: (prof
 }
 
 /** Groups and the flat order of what is on screen (collapsed groups contribute no rows). */
-export function chatLayout(chats: Conversation[], { sort, grouped, collapsed }: { sort: ChatSort; grouped: boolean; collapsed: ReadonlySet<string> }): ChatLayout {
+export function chatLayout(chats: Conversation[], { sort, grouped, collapsed, projectNames = {} }: { sort: ChatSort; grouped: boolean; collapsed: ReadonlySet<string>; projectNames?: Readonly<Record<string, string>> }): ChatLayout {
   const sorted = sortChats(chats, sort);
   const groups: ChatGroup[] = grouped ? [] : [{ key: "*", label: "", chats: sorted }];
   if (grouped) {
     const byProject = new Map<string, Conversation[]>();
     for (const chat of sorted) byProject.set(chat.project, [...(byProject.get(chat.project) ?? []), chat]);
-    for (const [key, rows] of byProject) groups.push({ key, label: projectLabel(key), chats: rows });
+    for (const [key, rows] of byProject) groups.push({ key, label: projectNames[key] || projectLabel(key), chats: rows });
     // Groups follow their newest row; "No project" always last.
     groups.sort((a, b) => Number(a.key === NO_PROJECT) - Number(b.key === NO_PROJECT));
   }

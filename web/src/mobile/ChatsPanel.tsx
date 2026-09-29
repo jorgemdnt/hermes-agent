@@ -11,7 +11,7 @@ interface Bots { label: (profile: string) => string; avatar: (profile: string) =
 export function ChatsToolbar({ sort, onSort, grouped, onGrouped }: { sort: ChatSort; onSort: (sort: ChatSort) => void; grouped: boolean; onGrouped: (grouped: boolean) => void }) {
   return <div className="m-chats-toolbar">
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="m-chats-tool" aria-label="Sort conversations"><ArrowDownUp size={16} aria-hidden="true" />{CHAT_SORTS.find(option => option.value === sort)?.label}</DropdownMenu.Trigger>
+      <DropdownMenu.Trigger className="m-chats-tool" aria-label="Sort conversations" aria-pressed={sort !== "recent"}><ArrowDownUp size={16} aria-hidden="true" />{CHAT_SORTS.find(option => option.value === sort)?.label}</DropdownMenu.Trigger>
       <DropdownMenu.Portal container={document.querySelector<HTMLElement>(".m-shell")}>
         <DropdownMenu.Content className="m-dropdown" align="start" sideOffset={6} collisionPadding={12}>
           <DropdownMenu.RadioGroup value={sort} onValueChange={value => onSort(value as ChatSort)}>
@@ -28,10 +28,9 @@ function ChatRow({ chat, bots, current, onOpen }: { chat: Conversation; bots: Bo
   const label = bots.label(chat.profile);
   return <button type="button" className="m-chat-row" data-unread={chat.unread || undefined} aria-current={current ? "page" : undefined} onClick={() => onOpen(chat)}>
     <span className="m-bot-copy">
-      <span className="m-bot-heading"><strong title={chat.title}>{chat.title}</strong><span className="m-chat-row-trailing"><Avatar src={bots.avatar(chat.profile)} name={label} /><time>{activityTime(chat.lastActive)}</time></span></span>
+      <span className="m-bot-heading">{chat.unread ? <i className="m-unread-dot" role="img" aria-label="Unread" /> : null}<strong title={chat.title}>{chat.title}</strong><span className="m-chat-row-trailing"><Avatar src={bots.avatar(chat.profile)} name={label} /><time>{activityTime(chat.lastActive)}</time></span></span>
       <span className="m-chat-row-meta"><small>{label}{chat.preview ? ` · ${chat.preview}` : ""}</small></span>
     </span>
-    {chat.unread ? <i className="m-unread-dot" role="img" aria-label="Unread" /> : <i className="m-unread-dot m-unread-none" aria-hidden="true" />}
   </button>;
 }
 

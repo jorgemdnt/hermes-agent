@@ -21,6 +21,18 @@ router = APIRouter()
 _BRANCH = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9/_-]{0,63}$")
 
 
+class BranchCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    branch: str
+
+
+def validate_branch(branch: str) -> None:
+    if not _BRANCH.fullmatch(branch):
+        raise ValueError("Use a branch name of up to 64 letters, numbers, /, _ or -; start with a letter or number.")
+    if subprocess.run(["git", "check-ref-format", "--branch", branch], capture_output=True, check=False).returncode != 0:
+        raise ValueError("Invalid Git branch name. Choose another name.")
+
+
 class WorkspaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile: str
@@ -70,8 +82,7 @@ def prepare_workspace(request: WorkspaceRequest) -> dict:
     if request.mode == "local":
         return {"cwd": str(path), "branch": None}
     branch = request.branch or ""
-    if not _BRANCH.fullmatch(branch) or "//" in branch or branch.endswith("/"):
-        raise ValueError("Use a branch name with letters, numbers, /, _ or - (up to 64 characters).")
+    validate_branch(branch)
     if subprocess.run(["git", "-C", str(path), "rev-parse", "--verify", "HEAD"], capture_output=True, check=False).returncode != 0:
         raise ValueError("New worktree needs an existing Git repository with a commit.")
     # web_git.worktree_add resolves the main repository and creates under its
@@ -86,6 +97,15 @@ async def mobile_projects(profile: str):
         return await run_in_threadpool(list_workspaces, profile)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/mobile/branch-check")
+async def mobile_branch_check(request: BranchCheckRequest):
+    try:
+        await run_in_threadpool(validate_branch, request.branch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"valid": True}
 
 
 @router.post("/api/mobile/workspace")
