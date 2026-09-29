@@ -96,9 +96,9 @@ export default function MobileApp() {
   const routerNavigate = useNavigate();
   const route = mobileRoute(location.pathname);
   const view = route.view;
-  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 900px)").matches);
+  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 768px)").matches);
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 900px)");
+    const media = window.matchMedia("(min-width: 768px)");
     const update = () => setDesktop(media.matches);
     media.addEventListener("change", update);
     update();

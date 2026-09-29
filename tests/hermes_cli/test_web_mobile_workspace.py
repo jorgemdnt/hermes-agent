@@ -68,6 +68,17 @@ def test_branch_check_uses_git_ref_format(setup):
     assert client.post("/api/mobile/branch-check", json={"branch": "feat/good-name", "path": "/etc"}).status_code == 422
 
 
+def test_branch_check_rejects_invalid_git_refs(setup):
+    app = FastAPI()
+    app.include_router(workspace.router)
+    client = TestClient(app)
+    assert client.post("/api/mobile/branch-check", json={"branch": "feat/qa-flow"}).json() == {"valid": True}
+    for branch in ("../../escape", "feat//escape", "feat/escape/", "feat/.hidden"):
+        response = client.post("/api/mobile/branch-check", json={"branch": branch})
+        assert response.status_code == 400, branch
+    assert client.post("/api/mobile/branch-check", json={"branch": "feat/qa-flow", "path": "/tmp"}).status_code == 422
+
+
 def test_client_paths_are_not_accepted_and_foreign_project_is_rejected(setup):
     _, _, project_id = setup
     app = FastAPI()

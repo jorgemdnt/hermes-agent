@@ -19,7 +19,7 @@
 .m-terminal-surface { height: 100%; padding: 5px 10px; }
 .m-terminal-status { position: absolute; bottom: 8px; right: 12px; color: #ced2da; background: #292c32; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
 .m-terminal-full { inset: 0; height: auto; padding-bottom: env(safe-area-inset-bottom); }
-@media (min-width: 900px) { .m-terminal-dock:not(.m-terminal-full) { left: 320px; } }
+@media (min-width: 768px) { .m-terminal-dock:not(.m-terminal-full) { left: var(--m-sidebar-width); } }
 
 .m-shell {
   background: var(--background);
@@ -356,12 +356,11 @@
 .m-conversation-manage input { min-height: 44px; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--foreground); font-size: 16px; }
 .m-conversation-manage .m-pin-choice { border-top: 1px solid var(--border); }
 .m-modal { overscroll-behavior: contain; }
-@media (min-width: 600px) and (max-width: 899px) { .m-shell { width: min(100%, 540px); margin-inline: auto; border-inline: 1px solid var(--border); } }
-@media (min-width: 900px) {
-  .m-shell { width: 100%; padding: 0; height: 100dvh; }
-  .m-home { width: 320px; border-right: 1px solid var(--border); z-index: 2; }
-  .m-detail { left: 320px; width: calc(100% - 320px); box-shadow: none; transform: none !important; }
-  .m-desktop-empty { position: absolute; inset: 0 0 0 320px; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--muted-foreground); }
+@media (min-width: 768px) {
+  .m-shell { --m-sidebar-width: clamp(260px, 25vw, 320px); width: 100%; padding: 0; height: 100dvh; }
+  .m-home { width: var(--m-sidebar-width); border-right: 1px solid var(--border); z-index: 2; }
+  .m-detail { left: var(--m-sidebar-width); width: calc(100% - var(--m-sidebar-width)); box-shadow: none; transform: none !important; }
+  .m-desktop-empty { position: absolute; inset: 0 0 0 var(--m-sidebar-width); display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--muted-foreground); }
   .m-desktop-empty h2 { margin: 0; font-size: 17px; font-weight: 500; }
   .m-list-header { padding-inline: 16px; }
   .m-bot-list { padding: 4px 12px 24px; }
@@ -386,7 +385,9 @@
   .m-jump-row { margin-right: max(24px, calc((100% - 720px) / 2)); }
   .m-settings, .m-board { width: min(100%, 768px); margin-inline: auto; }
   .m-screen { width: min(100%, 1240px); margin-inline: auto; padding-top: 84px; }
-  .m-shell:has(.m-right-split) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
+  @media (min-width: 1360px) {
+    .m-shell:has(.m-right-split) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
+  }
   @media (hover: hover) {
     .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
@@ -519,7 +520,7 @@
 .m-shortcuts > div { display: flex; align-items: center; gap: 16px; min-height: 40px; }
 .m-shortcuts dt { flex: none; min-width: 84px; } .m-shortcuts dd { margin: 0; }
 .m-shortcuts kbd { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--secondary); }
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .m-sidebar-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .m-shell .m-sidebar-footer .m-profile-button { width: auto; flex: none; padding: 6px; }
   .m-sidebar-footer .m-profile-name { display: none; }
@@ -607,10 +608,10 @@
   .m-new-context-row { flex-wrap: wrap; }
   .m-shell .m-new-branch { flex: 1 0 100%; max-width: 100%; margin-left: 0; }
 }
-@media (min-width: 900px) {
- .m-shell .m-pinned-bot .m-avatar, .m-shell .m-pinned-bot .m-avatar-fallback { width: 36px; height: 36px; font-size: 15px; }
- .m-pinned-item { width: 58px; }
- .m-shell .m-bot-main .m-avatar, .m-shell .m-bot-main .m-avatar-fallback { width: 28px; height: 28px; }
- .m-sidebar-footer .m-profile-button .m-avatar, .m-sidebar-footer .m-profile-button .m-avatar-fallback { width: 24px; height: 24px; }
+@media (min-width: 768px) {
+  .m-shell .m-pinned-bot .m-avatar, .m-shell .m-pinned-bot .m-avatar-fallback { width: 36px; height: 36px; font-size: 15px; }
+  .m-pinned-item { width: 58px; }
+  .m-shell .m-bot-main .m-avatar, .m-shell .m-bot-main .m-avatar-fallback { width: 28px; height: 28px; }
+  .m-sidebar-footer .m-profile-button .m-avatar, .m-sidebar-footer .m-profile-button .m-avatar-fallback { width: 24px; height: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .m-creation-progress li svg { animation: none !important; } }

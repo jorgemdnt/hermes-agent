@@ -86,13 +86,14 @@ def start():
     HOME.mkdir(mode=0o700)
     RUNTIME.mkdir(mode=0o700)
     PROFILE.mkdir(mode=0o700)
-    (HOME / "profiles/atlas").mkdir(parents=True)
+    for name in ("atlas", "samwise"):
+        (HOME / "profiles" / name).mkdir(parents=True)
+        (HOME / "profiles" / name / "config.yaml").write_text("{}\n")
+        (HOME / "profiles" / name / ".env").write_text("")
+        (HOME / "profiles" / name / "SOUL.md").write_text(f"# {name.title()} fixture bot\n")
     (HOME / "config.yaml").write_text("gateway:\n  multiplex_profiles: true\ndashboard:\n  public_url: https://hermetic-qa.invalid\n")
     (HOME / ".env").write_text("")
-    (HOME / "profiles/atlas/config.yaml").write_text("{}\n")
-    (HOME / "profiles/atlas/.env").write_text("")
     (HOME / "SOUL.md").write_text("# Fixture bot\n")
-    (HOME / "profiles/atlas/SOUL.md").write_text("# Atlas fixture bot\n")
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -101,6 +102,7 @@ def start():
         ("qa-default-long", "default", "The very long conversation title about reviewing the distributed release workflow", str(QA / "projects/orion"), "QA assistant reply: the release is ready. This text should scroll under the floating bot pill."),
         ("qa-default-short", "default", "Second conversation", str(QA / "projects/orion"), "A second reply for switching."),
         ("qa-atlas", "atlas", "Atlas fixture conversation", str(QA / "projects/nebula"), "Atlas replies from its own profile."),
+        ("qa-samwise", "samwise", "Samwise fixture conversation", str(QA / "projects/shire"), "Samwise replies from its own profile."),
     ]:
         Path(cwd).mkdir(parents=True, exist_ok=True)
         (Path(cwd) / "fixture.md").write_text("# QA project\n\nRead-only file preview from the isolated QA folder.\n")
