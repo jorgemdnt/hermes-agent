@@ -1,7 +1,26 @@
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from agent.subscription_activity import latest, mark
+
+
+def test_claude_dispatch_passes_private_context_to_native_client(_isolate_hermes_home, monkeypatch):
+    from agent.turn_api_call import perform_api_call
+    captured = {}
+    agent = SimpleNamespace(provider="claude-subscription-directsdk-experimental", api_mode="chat_completions",
+                            base_url="process://claude", session_id="chat-1", model="opus", platform="cli",
+                            _disable_streaming=True, _model_request_active=None, _pending_redirect_lock=None,
+                            _has_pending_redirect=lambda: False, _credential_pool=None, is_subagent=False,
+                            _interruptible_api_call=lambda kwargs: captured.update(kwargs) or "response")
+    monkeypatch.setattr("hermes_cli.middleware.run_llm_execution_middleware", lambda request, callback, **_: callback(request))
+    monkeypatch.setattr("agent.relay_llm.execute", lambda request, callback, **_: callback(request))
+    verdict = perform_api_call(agent, api_kwargs={"model": "opus"}, _original_api_kwargs={},
+                               _llm_middleware_trace=[], _moa_prepared_request=None, _retry=None,
+                               thinking_spinner=None, retry_count=0, api_call_count=1, api_request_id="req-1",
+                               effective_task_id=None, turn_id="turn-1", interrupted=False)
+    assert verdict.action == "fallthrough" and verdict.response == "response"
+    assert captured["_hermes_subscription_activity"] == ("chat-1", "req-1")
+    assert latest("anthropic", "chat-1") is None  # Only the plugin knows which account native selected.
+
 
 
 def test_activity_uses_dispatched_account_not_pool_cursor(_isolate_hermes_home):
