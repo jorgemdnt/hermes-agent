@@ -109,6 +109,32 @@ def test_bot_terminal_rejects_anonymous_and_loopback_token(monkeypatch):
     assert not spawned
 
 
+def test_bot_terminal_loopback_requires_explicit_owner_opt_in(monkeypatch, tmp_path):
+    from hermes_cli.web_server import _SESSION_TOKEN
+    import hermes_cli.web_bot_terminal as bot_terminal
+    import hermes_cli.web_server_profiles as profiles
+
+    class FakeBridge:
+        def read(self, _timeout):
+            return b""
+        def close(self):
+            pass
+
+    launched = []
+    monkeypatch.setenv("HERMES_BOT_TERMINAL_LOOPBACK", "1")
+    monkeypatch.setattr(profiles, "_resolve_profile_dir", lambda _profile: tmp_path)
+    monkeypatch.setattr(bot_terminal, "terminal_config", lambda _profile: {"backend": "local", "cwd": str(tmp_path)})
+    monkeypatch.setattr(chat_bridge.PtyBridge, "spawn", lambda argv, **kw: (launched.append(kw["cwd"]) or FakeBridge()))
+    client = TestClient(web_server.app)
+    with client.websocket_connect(f"/api/bot-terminal?profile=default&token={_SESSION_TOKEN}"):
+        pass
+    assert launched == [str(tmp_path)]
+    with pytest.raises(WebSocketDisconnect) as anonymous:
+        with client.websocket_connect("/api/bot-terminal?profile=default") as ws:
+            ws.receive_text()
+    assert anonymous.value.code == 4401
+
+
 def test_bot_terminal_accepts_signed_in_identity_and_streams(monkeypatch, tmp_path):
     class FakeBridge:
         def read(self, _timeout):

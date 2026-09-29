@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -532,11 +533,15 @@ async def bot_terminal_ws(ws: WebSocket) -> None:
     gate = await _ws_gate(ws, "bot-terminal")
     if gate is None:
         return
-    # A shell is more powerful than a chat TUI: only interactive OAuth sessions
-    # on the gated dashboard, not loopback bearer tokens or internal WS clients.
+    # An explicitly opted-in loopback dashboard can use its per-process SPA
+    # token: the WS gate has already checked token, Host, Origin and peer IP.
+    # Keep the normal dashboard's raw shell behind a signed-in identity.
+    local_owner = (_ws_auth_mode() == "loopback" and gate[2] == "token" and
+                   os.environ.get("HERMES_BOT_TERMINAL_LOOPBACK") == "1")
     identity = getattr(ws, "_hermes_auth_identity", {}) or {}
-    if (_ws_auth_mode() != "gated" or gate[2] == "internal" or
-            not identity.get("user_id") or identity.get("provider") in {"bot-desktop", "internal"}):
+    signed_in = (_ws_auth_mode() == "gated" and gate[2] != "internal" and
+                 identity.get("user_id") and identity.get("provider") not in {"bot-desktop", "internal"})
+    if not (local_owner or signed_in):
         await ws.close(code=4403, reason="Signed-in dashboard session required")
         return
     profile = ws.query_params.get("profile", "")
