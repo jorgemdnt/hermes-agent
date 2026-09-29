@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 
 /**
@@ -10,19 +10,24 @@ import { Check, Copy } from "lucide-react";
  * appears to hug the final character instead of wrapping onto a new line
  * after a block element (paragraph/list/code/…).
  */
+const FileLinkContext = createContext<((path: string) => void) | null>(null);
+
 export function Markdown({
   content,
   highlightTerms,
   streaming,
+  onFileLink,
 }: {
   content: string;
   highlightTerms?: string[];
   streaming?: boolean;
+  onFileLink?: (path: string) => void;
 }) {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const caret = streaming ? <StreamingCaret /> : null;
 
   return (
+    <FileLinkContext.Provider value={onFileLink || null}>
     <div className="m-markdown text-sm text-foreground leading-relaxed space-y-2">
       {blocks.map((block, i) => (
         <Block
@@ -34,6 +39,7 @@ export function Markdown({
       ))}
       {blocks.length === 0 && caret}
     </div>
+    </FileLinkContext.Provider>
   );
 }
 
@@ -327,6 +333,7 @@ function InlineContent({
   highlightTerms?: string[];
 }) {
   const nodes = useMemo(() => parseInline(text), [text]);
+  const onFileLink = useContext(FileLinkContext);
 
   return (
     <>
@@ -366,6 +373,9 @@ function InlineContent({
             // (javascript:, data:, vbscript:) are dropped to plain text so a
             // crafted link in agent/message content can't execute on click.
             const href = node.href.trim();
+            if (onFileLink && (/^file:\/\//i.test(href) || /^\.?\.?\//.test(href) || /^[\w.-]+\/[\w./%-]+$/.test(href))) {
+              return <button key={i} type="button" className="m-file-link" onClick={() => onFileLink(href)}>{node.text}</button>;
+            }
             if (!/^(https?:|mailto:)/i.test(href)) {
               return (
                 <HighlightedText

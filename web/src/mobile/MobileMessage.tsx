@@ -11,10 +11,11 @@ interface MobileMessageProps {
   onAction: (text: string) => void;
   reacted?: boolean;
   onReact?: () => void;
+  onFileLink?: (path: string) => void;
   avatarFor?: (handle: string) => string | undefined;
 }
 
-export default function MobileMessage({ profile, row, previous, onAction, onReact, reacted, avatarFor }: MobileMessageProps) {
+export default function MobileMessage({ profile, row, previous, onAction, onReact, onFileLink, reacted, avatarFor }: MobileMessageProps) {
   const link = row.role === "assistant" ? /https?:\/\/[^\s<>)\]]+/i.exec(row.text)?.[0] : undefined;
   const linkedTitle = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(row.text);
   let preview: URL | null = null;
@@ -46,7 +47,7 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
     return <article className="m-message m-notice">
       {body ? <details className="m-notice-body">
         <summary><span className="m-notice-head">{kind.kind === "agent" && avatar && <img src={avatar} alt="" aria-hidden="true" />}<span>{title}</span></span><span className="m-notice-more">Show message</span></summary>
-        <div className="m-notice-card"><Markdown content={body} /></div>
+        <div className="m-notice-card"><Markdown content={body} onFileLink={onFileLink} /></div>
       </details> : <span className="m-notice-head">{kind.kind === "agent" && avatar && <img src={avatar} alt="" aria-hidden="true" />}<span>{title}</span></span>}
     </article>;
   }
@@ -54,7 +55,7 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
     onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
     onContextMenu={event => { if (!(event.target as Element).closest("a, button")) { event.preventDefault(); onAction(displayText || "Photo"); } }}>
     <div className="m-bubble">
-      {row.role === "assistant" ? <Markdown content={row.text} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <a className="m-image-ref m-image-attachment" key={`${index}-${image}`} href={attachmentUrl("image", image)} target="_blank" rel="noreferrer" aria-label={`Open photo ${image}`}><img src={attachmentUrl("image", image)} alt={image} onError={event => { event.currentTarget.style.display = "none"; }} /><ImageIcon size={16} aria-hidden="true" /><span>Photo</span></a>)}{fileNames.map((file, index) => <a className="m-image-ref" href={attachmentUrl("file", file)} download={file} key={`${index}-${file}`}><FileUp size={16} aria-hidden="true" />{file}</a>)}</>}
+      {row.role === "assistant" ? <Markdown content={row.text} onFileLink={onFileLink} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <a className="m-image-ref m-image-attachment" key={`${index}-${image}`} href={attachmentUrl("image", image)} target="_blank" rel="noreferrer" aria-label={`Open photo ${image}`}><img src={attachmentUrl("image", image)} alt={image} onError={event => { event.currentTarget.style.display = "none"; }} /><ImageIcon size={16} aria-hidden="true" /><span>Photo</span></a>)}{fileNames.map((file, index) => <a className="m-image-ref" href={attachmentUrl("file", file)} download={file} key={`${index}-${file}`}><FileUp size={16} aria-hidden="true" />{file}</a>)}</>}
       {preview && <a className="m-link-preview" href={preview.href} target="_blank" rel="noreferrer" aria-label={`Open ${preview.hostname}`}>
         <span className="m-link-domain">{preview.hostname}<ExternalLink size={14} aria-hidden="true" /></span>
         <strong>{linkedTitle?.[2] === preview.href ? linkedTitle[1] : preview.pathname.split("/").filter(Boolean).at(-1) || preview.hostname}</strong>

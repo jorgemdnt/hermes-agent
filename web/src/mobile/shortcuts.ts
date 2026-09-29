@@ -24,5 +24,6 @@ export const SHORTCUT_HELP: ReadonlyArray<{ keys: string; label: string }> = [
   { keys: "⌘⇧A", label: "Archive conversation (undo in the toast)" },
   { keys: "⌘⇧U", label: "Mark conversation unread" },
   { keys: "⌘J", label: "Toggle terminal" },
+  { keys: "⌘\\", label: "Toggle right split" },
   { keys: "⌘/", label: "This help" },
 ];

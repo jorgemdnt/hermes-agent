@@ -470,7 +470,7 @@ it("switches stored conversations from the activity sheet without creating anoth
   await act(async () => (host.querySelector('.m-conversation-list button') as HTMLButtonElement).click());
   expect(window.location.pathname).toBe('/m/chat/frodo/side-frodo');
   expect(host.querySelector('.m-detail [aria-label="New conversation"]')).toBeNull();
-  expect(host.querySelector('[aria-label="Open Frodo computer"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Open right split"]')).not.toBeNull();
   expect(mocks.request.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(before);
 });
 
@@ -898,14 +898,16 @@ it("long-presses an unpinned bot to pin it without opening its chat", async () =
   expect(storage.get(PIN_STORAGE_KEY)).toContain('author');
 });
 
-it("opens a bot's computer from the chat header and shows its current tool", async () => {
+it("opens the phone's full-screen split from the chat header with a Screen tab", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.start', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
-  await act(async () => (host.querySelector('[aria-label="Open Frodo computer"]') as HTMLButtonElement).click());
-  expect(window.location.pathname).toBe('/m/screen/frodo');
-  expect(host.querySelector('.m-computer-activity')?.textContent).toContain('Using terminal');
+  await act(async () => (host.querySelector('[aria-label="Open right split"]') as HTMLButtonElement).click());
+  expect(window.location.pathname).toContain('/m/chat/');
+  expect(host.querySelector('.m-right-split')).not.toBeNull();
+  await act(async () => (host.querySelector('[role="tab"]:last-child') as HTMLButtonElement).click());
+  expect(host.querySelector('[role="tabpanel"]')?.getAttribute('aria-label')).toBe('screen');
+  expect(host.querySelector('[aria-label="Close right split"]')).not.toBeNull();
 });
 
 it.each([{ modifier: 'ctrlKey', label: 'Ctrl' }, { modifier: 'metaKey', label: 'Cmd' }] as const)("switches bots with $label+number in desktop sidebar order", async ({ modifier }) => {

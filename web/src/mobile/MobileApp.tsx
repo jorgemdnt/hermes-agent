@@ -8,7 +8,7 @@ import { useLatestBuild } from "./useLatestBuild";
 const LAST_BOT_KEY = "hermes-mobile-last-bot";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { useComposerSuggestions } from "./ComposerSuggestions";
@@ -38,6 +38,8 @@ import { ChatsPanel, ChatsToolbar } from "./ChatsPanel";
 import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
+import { RightSplit, type SplitTab } from "./RightSplit";
+import { fileLinkPath, localPreviewLink } from "./preview-links";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
 import "./mobile.css";
@@ -101,7 +103,33 @@ export default function MobileApp() {
   const [terminalCapabilities, setTerminalCapabilities] = useState<BotTerminalCapabilities | null>(null);
   const [terminalOpenByChat, setTerminalOpenByChat] = useState<Record<string, boolean>>({});
   const [terminalHeight, setTerminalHeight] = useState(() => Number(localStorage.getItem("hermes:bot-terminal-height")) || 310);
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitWidth, setSplitWidth] = useState(() => Number(localStorage.getItem("hermes:right-split-width")) || 520);
+  const [splitTab, setSplitTab] = useState<SplitTab>("browser");
+  const [browserUrl, setBrowserUrl] = useState("");
+  const [filePath, setFilePath] = useState("");
+  const resizeSplit = (value: number) => { setSplitWidth(value); localStorage.setItem("hermes:right-split-width", String(value)); };
+  useEffect(() => {
+    if (view !== "chat") return;
+    const toggle = (event: KeyboardEvent) => {
+      if (event.key !== "\\" || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      setSplitOpen(previous => !previous);
+    };
+    window.addEventListener("keydown", toggle);
+    return () => window.removeEventListener("keydown", toggle);
+  }, [view]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
+  const [conversationFolder, setConversationFolder] = useState("");
+  useEffect(() => {
+    if (view !== "chat" || !profile) return;
+    let active = true;
+    setConversationFolder("");
+    void fetchJSON<{ folder: string }>(`/api/bot-terminal/folder?${new URLSearchParams({ profile, session: selected })}`)
+      .then(result => { if (active) setConversationFolder(result.folder); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [view, profile, selected]);
   useEffect(() => {
     let active = true;
     void fetchJSON<BotTerminalCapabilities>("/api/bot-terminal/capabilities")
@@ -1140,7 +1168,13 @@ export default function MobileApp() {
   const renderMessage = (row: ChatRow, previous: ChatRow | undefined, key: string) => {
     const id = reactionKey(row.role, row.timestamp, row.text);
     return <MobileMessage key={key} profile={profile} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id, scope: composerKey })}
-      avatarFor={avatarForHandle} reacted={!!reactions[id]} onReact={() => toggleReaction(id)} />;
+      onFileLink={href => {
+        const path = fileLinkPath(href, conversationFolder);
+        if (!path) return;
+        setFilePath(path);
+        setSplitTab("files");
+        setSplitOpen(true);
+      }} avatarFor={avatarForHandle} reacted={!!reactions[id]} onReact={() => toggleReaction(id)} />;
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
     name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} desktop={desktop} />;
@@ -1204,9 +1238,19 @@ export default function MobileApp() {
     }
   }, [view, route.task, offsets, finishSwipe]);
   useEffect(() => { skipBackAnimation.current = false; }, [location.pathname]);
+  const continueAfterScreen = async () => {
+    const gw = client.current;
+    if (!gw || !chat?.runtimeId) throw new Error("Open Samwise's chat before continuing");
+    const text = "I handed back the screen; continue from the current state.";
+    if (chat.running) {
+      const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
+      if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
+    } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
+    navigate("chat");
+  };
 
   return <div className={`m-shell${window.hermetic ? " m-native" : ""}`} data-theme={theme} ref={shellRef}
-    style={window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px` } as CSSProperties : undefined}>
+    style={window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px`, "--m-split-width": `${splitWidth}px` } as CSSProperties : { "--m-split-width": `${splitWidth}px` } as CSSProperties}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
       <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
@@ -1218,13 +1262,13 @@ export default function MobileApp() {
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
       </div>}
       <AnimatePresence initial={false} custom={skipExit}>
-        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit} style={{ x: panX, bottom: view === "chat" && terminalVisible ? terminalHeight : undefined }}
+        {view !== "bots" && <motion.div key={view} className={`m-view m-detail${view === "chat" && splitOpen && desktop ? " m-with-split" : ""}`} custom={skipExit} style={{ x: panX, bottom: view === "chat" && terminalVisible ? terminalHeight : undefined }}
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header">{!desktop && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && screenVisible && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
+        {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
         const last = [...chat.rows].reverse().find(row => row.role === "user");
@@ -1233,7 +1277,15 @@ export default function MobileApp() {
       <main className="m-main" onDragOver={view === "chat" ? event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); } : undefined}
         onDrop={view === "chat" ? event => { if (event.dataTransfer.files.length) { event.preventDefault(); addAttachments(event.dataTransfer.files); } } : undefined}>
         {view === "chat" && <>
-          <div className="m-messages" ref={messagesRef} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
+          <div className="m-messages" ref={messagesRef} onClickCapture={event => {
+            const link = (event.target as HTMLElement).closest("a[href]");
+            const url = link && localPreviewLink(link.getAttribute("href") || "");
+            if (!url) return;
+            event.preventDefault();
+            setBrowserUrl(url);
+            setSplitTab("browser");
+            setSplitOpen(true);
+          }} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
             <div className="m-message-content">
               {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
@@ -1297,16 +1349,7 @@ export default function MobileApp() {
           </form>
         </>}
         {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
-        {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? async () => {
-          const gw = client.current;
-          if (!gw || !chat?.runtimeId) throw new Error("Open Samwise's chat before continuing");
-          const text = "I handed back the screen; continue from the current state.";
-          if (chat.running) {
-            const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text });
-            if (result.status === "rejected") await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
-          } else await gw.request("prompt.submit", { session_id: chat.runtimeId, profile, text });
-          navigate("chat");
-        } : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
+        {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
           <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
           {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
           <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul>
@@ -1321,8 +1364,12 @@ export default function MobileApp() {
       </main>
     </>
       </motion.div>}
-    </AnimatePresence>
-    <BotTerminalDock profile={terminalProfile} session={terminalSession} open={terminalVisible} fullScreen={view === "terminal"}
+      </AnimatePresence>
+      {view === "chat" && <RightSplit open={splitOpen} width={splitWidth} onWidth={resizeSplit} onClose={() => setSplitOpen(false)}
+        tab={splitTab === "screen" && !screenVisible ? "browser" : splitTab} onTab={setSplitTab}
+        browserUrl={browserUrl} onBrowserUrl={setBrowserUrl} filePath={filePath} profile={profile} session={selected}
+        screen={screenVisible ? <MobileScreen gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : undefined} />}
+      <BotTerminalDock profile={terminalProfile} session={terminalSession} open={terminalVisible} fullScreen={view === "terminal"}
       height={terminalHeight} onHeightChange={setTerminalHeight}
       onClose={() => { if (view === "terminal") goBack(); else setTerminalOpenByChat(previous => ({ ...previous, [chatKey(profile, selected)]: false })); }} />
     </div>

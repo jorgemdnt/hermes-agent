@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 from agent.interrupt_scope import InterruptScope, bind_interrupt_scope
 from hermes_cli.pty_session import RegistryFull
@@ -450,6 +451,46 @@ async def bot_terminal_capabilities(request: Request) -> dict:
     return {"server_host": socket.gethostname(),
             "client_on_server_host": client_on_server_host(request.client.host if request.client else None),
             "profiles": await run_in_threadpool(read)}
+
+
+@router.get("/api/bot-preview")
+async def bot_file_preview(request: Request, profile: str, session: str = "", path: str = "", view: str = "list"):
+    """Read-only file browser rooted at the server-owned conversation folder."""
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, stored_session_folder, terminal_config
+    from hermes_cli.web_file_preview import IMAGE_TYPES, list_preview, read_preview, remote_preview
+    from hermes_cli.web_server_profiles import _resolve_profile_dir
+
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or view not in {"list", "content"} or
+            any(key in request.query_params for key in ("cwd", "root", "workdir"))):
+        raise HTTPException(status_code=400, detail="Invalid preview request")
+    _resolve_profile_dir(profile)
+    try:
+        def read():
+            config = terminal_config(profile)
+            root = resolve_terminal_folder(config, stored_session_folder(profile, session))
+            if config["backend"] == "ssh":
+                result = remote_preview(config, root, path, view)
+                if view == "list":
+                    return result
+                kind, data = result
+            elif config["backend"] == "local":
+                if view == "list":
+                    return {"folder": root, "path": path, "entries": list_preview(root, path)}
+                kind, data = read_preview(root, path)
+            else:
+                raise ValueError("Unsupported preview backend")
+            if kind in {"image", "pdf"}:
+                from pathlib import Path
+                media_type = IMAGE_TYPES.get(Path(path).suffix.lower(), "application/pdf")
+                return Response(data, media_type=media_type, headers={
+                    "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
+                })
+            return {"kind": kind, "content": data.decode("utf-8")}
+        return await run_in_threadpool(read)
+    except (ValueError, OSError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/bot-terminal/folder")

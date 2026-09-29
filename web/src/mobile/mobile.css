@@ -201,6 +201,7 @@
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .m-shell .m-composer textarea { background: color-mix(in srgb, var(--card) 70%, transparent); }
 }
+.m-shell .m-file-link { padding: 0; border: 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
 @media (prefers-reduced-transparency: reduce) { .m-shell .m-composer textarea { background: var(--card); } }
 .m-shell .m-composer button { flex: none; border-radius: 50%; width: 44px; height: 44px; display: grid; place-items: center; border: 0; }
 .m-shell .m-composer :is(.m-add-photo, .m-voice-start, .m-voice-loading) { border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); box-shadow: 0 2px 8px var(--shadow); }
@@ -376,13 +377,14 @@
   .m-shell .m-detail .m-messages { padding-top: 84px; }
   .m-shell .m-header > button[aria-label="Conversations"] { display: none; }
   .m-shell .m-header .m-chat-identity { position: absolute; left: 50%; transform: translateX(-50%); max-width: calc(100% - 112px); margin: 0; }
-  .m-shell .m-header > button[aria-label$="computer"] { margin-left: auto; }
+  .m-shell .m-header > button[aria-label$="right split"] { margin-left: auto; }
   .m-messages { padding: 28px 24px 20px; }
   .m-message-content { width: min(100%, 720px); margin-inline: auto; }
   .m-composer { width: min(100%, 768px); margin-inline: auto; padding: 12px 24px 20px; }
   .m-jump-row { right: max(24px, calc((100% - 720px) / 2)); }
   .m-settings, .m-board { width: min(100%, 768px); margin-inline: auto; }
   .m-screen { width: min(100%, 1240px); margin-inline: auto; padding-top: 84px; }
+  .m-shell:has(.m-right-split) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
   @media (hover: hover) {
     .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
