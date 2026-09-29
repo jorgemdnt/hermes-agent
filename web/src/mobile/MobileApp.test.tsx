@@ -161,7 +161,8 @@ it("shows pinned bots above one recency list with real message previews", async 
 it("lists only bots beside the desktop chat", async () => {
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
-  expect(host.querySelector('.m-desktop-empty')?.textContent).toContain('Choose a bot');
+  expect(host.querySelector('.m-header .m-chat-identity')?.textContent).toContain('Frodo');
+  expect(host.querySelector('.m-desktop-empty')).toBeNull();
   expect(host.querySelector('.m-list-header .m-profile-button')).toBeNull();
   expect(host.querySelector('.m-sidebar-footer .m-profile-button .m-profile-name')?.textContent).toBe('Jorge');
   expect(host.querySelector('.m-list-header .m-top-actions')?.children).toHaveLength(2);
@@ -373,6 +374,23 @@ it("hydrates fifty recent messages and prepends older pages without moving the v
   expect(log.querySelectorAll('.m-message')).toHaveLength(100);
   expect(log.querySelector('.m-message')?.textContent).toContain('Message 0');
   expect(log.scrollTop).toBe(5040);
+});
+
+it("re-pins a manually scrolled thread when sending and follows streamed output", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click()); await settle();
+  const log = host.querySelector('.m-messages') as HTMLElement;
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => log.querySelector('.m-streaming') ? 1200 : 1000 });
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 200 });
+  await act(async () => { log.dispatchEvent(new Event('wheel')); log.scrollTop = 100; log.dispatchEvent(new Event('scroll', { bubbles: true })); });
+  expect(host.querySelector('.m-jump-row')).not.toBeNull();
+  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Check scroll'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
+  expect(log.scrollTop).toBe(1000);
+  expect(host.querySelector('.m-jump-row')).toBeNull();
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.delta', session_id: 'runtime', payload: { text: 'Streaming answer' } }); });
+  expect(log.scrollTop).toBe(1200);
 });
 
 it("prefetches both bots, pushes real URLs, and restores cached chat on browser back without resuming again", async () => {
@@ -602,7 +620,7 @@ it("keeps one live status through thinking, tools, streamed writing, and complet
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
   expect(host.querySelector('.m-typing[aria-label="Bot is typing"]')).not.toBeNull();
-  expect(host.querySelector('.m-messages')?.textContent).not.toContain('Thinking…');
+  expect(host.querySelector('.m-turn-status .m-thinking')?.textContent).toBe('Thinking…');
   expect(host.querySelector('.m-jump-row')).toBeNull();
   await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.start', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
   expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
@@ -610,7 +628,7 @@ it("keeps one live status through thinking, tools, streamed writing, and complet
   expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
   await act(async () => { for (const handler of mocks.events) handler({ type: 'message.delta', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 470)); });
-  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('.m-thinking')?.textContent).toBe('Writing…');
   expect(host.querySelector('.m-streaming .m-bubble')?.textContent).toContain('Here is the result');
   await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
   expect(host.querySelector('.m-thinking')).toBeNull();
@@ -983,18 +1001,17 @@ it("opens the composer menu with separate Photo and File actions", async () => {
   expect(host.querySelector('.m-attach-menu')?.textContent).toContain('File');
 });
 
-it("focuses the desktop composer on bot switch and grows and shrinks with text", async () => {
+it("focuses the desktop composer on bot switch without forcing synchronous height reads", async () => {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
   const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
   expect(document.activeElement).toBe(input);
-  Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => input.value.length > 10 ? 500 : 46 });
+  Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => { throw new Error('layout read on input'); } });
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Long message that should grow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
-  expect(parseInt(input.style.height)).toBeGreaterThan(46);
-  expect(input.style.overflowY).toBe('auto');
+  expect(input.style.height).toBe('');
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'short'); input.dispatchEvent(new Event('input', { bubbles: true })); });
-  expect(input.style.height).toBe('46px');
+  expect(input.style.height).toBe('');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
   expect(document.activeElement).toBe(host.querySelector('.m-composer textarea'));
 });
@@ -1152,7 +1169,37 @@ it("submits Continue to the same chat when a running turn finishes before steer"
   expect(host.textContent).toContain("Earlier");
 });
 
-it("switches to Chats, shows unread, opens with Ctrl+1 and marks the row read", async () => {
+it("restores the focused chat and bot across mode switches and reload", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  const switchTo = async (label: string) => {
+    await act(async () => (Array.from(host.querySelectorAll('.m-home-switch button')).find(button => button.textContent?.startsWith(label)) as HTMLButtonElement).click());
+    await settle();
+  };
+  await switchTo('Chats');
+  const found = Array.from(host.querySelectorAll('.m-chat-row')).find(row => row.textContent?.includes('Found chat')) as HTMLButtonElement;
+  await act(async () => found.click()); await settle();
+  expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+  await switchTo('Bots');
+  expect(window.location.pathname).toContain('/m/chat/frodo/stored');
+  await switchTo('Chats');
+  expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+  window.history.back();
+  await vi.waitFor(() => expect(host.querySelector('.m-home-switch')?.getAttribute('data-value')).toBe('bots'));
+  expect(window.location.pathname).toContain('/m/chat/frodo/stored');
+  window.history.forward();
+  await vi.waitFor(() => expect(host.querySelector('.m-home-switch')?.getAttribute('data-value')).toBe('chats'));
+  expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderApp(); await settle(); await settle();
+  await switchTo('Bots');
+  expect(window.location.pathname).toContain('/m/chat/frodo/stored');
+  await switchTo('Chats');
+  expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+});
+
+it("switches to Chats, opens the recent item and marks it read, then honors Ctrl+1", async () => {
   mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier", last_active: 20, message_count: 2, unread: true },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match", last_active: 10, message_count: 2 },
@@ -1164,8 +1211,10 @@ it("switches to Chats, shows unread, opens with Ctrl+1 and marks the row read", 
   await act(async () => chats.click());
   expect(Array.from(host.querySelectorAll('.m-chat-row strong')).map(n => n.textContent)).toEqual(["Prior chat", "Found chat"]);
   expect(host.querySelectorAll('.m-chat-row .m-bot-heading .m-chat-row-trailing .m-avatar-fallback').length).toBe(2);
-  expect(host.querySelector('.m-chat-row[data-unread]')).not.toBeNull();
   expect(localStorage.getItem("hermes-mobile-home-tab")).toBe("chats");
+  await settle();
+  expect(host.querySelector('.m-header .m-chat-identity')?.textContent).toContain('Frodo');
+  expect(mocks.setSessionUnread).toHaveBeenCalledWith("side-frodo", false, "frodo");
   await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", ctrlKey: true })); });
   expect(document.body.textContent).toContain("Keyboard shortcuts");
   await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true })); });

@@ -6,6 +6,7 @@ import { useChatScroll } from "./useChatScroll";
 import { useLatestBuild } from "./useLatestBuild";
 
 const LAST_BOT_KEY = "hermes-mobile-last-bot";
+const LAST_CHAT_KEY = "hermes-mobile-last-chat";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
 import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
@@ -216,6 +217,8 @@ export default function MobileApp() {
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [homeTab, setHomeTab] = useState<HomeTab>(() => localStorage.getItem(HOME_TAB_KEY) === "chats" ? "chats" : "bots");
+  const homeTabRef = useRef(homeTab);
+  homeTabRef.current = homeTab;
   const [chatSort, setChatSort] = useState<ChatSort>(() => localStorage.getItem(CHAT_SORT_KEY) === "created" ? "created" : "recent");
   const [chatsGrouped, setChatsGrouped] = useState(() => localStorage.getItem(CHAT_GROUP_KEY) === "1");
   const [collapsedGroups, setCollapsedGroups] = useState(() => loadStringSet(localStorage, CHAT_COLLAPSED_KEY));
@@ -293,7 +296,7 @@ export default function MobileApp() {
   const panX = view === "bots" ? offsets.chat : offsets[view];
   const reducedMotion = useReducedMotion();
   const navigate = (next: MobileView, targetProfile = profile, targetSession = selected) => {
-    const path = next === "chat" ? chatPath(targetProfile, targetSession) : next === "bots" ? "/m" : `/m/${next}`;
+    const path = next === "chat" ? `${chatPath(targetProfile, targetSession)}?mode=${homeTabRef.current}` : next === "bots" ? "/m" : `/m/${next}`;
     routerNavigate(path);
   };
   const shellRef = useRef<HTMLDivElement>(null);
@@ -364,6 +367,18 @@ export default function MobileApp() {
     setPaging({ key: chatKey(route.profile, sid), offset: page?.offset ?? 0, hasOlder: page?.hasOlder ?? false, loading: false, error: "" });
   }, [location.pathname]);
   useEffect(() => {
+    const mode = new URLSearchParams(location.search).get("mode");
+    const selectedMode = mode === "chats" || mode === "bots" ? mode : homeTabRef.current;
+    if (mode === "chats" || mode === "bots") {
+      homeTabRef.current = mode;
+      setHomeTab(mode);
+      localStorage.setItem(HOME_TAB_KEY, mode);
+    }
+    if (route.view !== "chat" || !route.profile) return;
+    if (selectedMode === "bots") localStorage.setItem(LAST_BOT_KEY, route.profile);
+    else if (route.session && route.session !== "new") localStorage.setItem(LAST_CHAT_KEY, chatKey(route.profile, route.session));
+  }, [location.pathname, location.search]);
+  useEffect(() => {
     if (view !== "screen") return;
     const target = route.profile || "samwise";
     if (profile !== target && profiles.some(p => p.name === target)) {
@@ -392,14 +407,6 @@ export default function MobileApp() {
   const checkingTurn = useRef(false);
   const runningTools = useRef(new Map<string, string>());
   const toolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useLayoutEffect(() => {
-    const input = composerInput.current;
-    if (!input || view !== "chat") return;
-    input.style.height = "auto";
-    const max = Math.max(46, Math.floor((window.visualViewport?.height || window.innerHeight) * 0.4));
-    input.style.height = `${Math.min(input.scrollHeight, max)}px`;
-    input.style.overflowY = input.scrollHeight > max ? "auto" : "hidden";
-  }, [text, view, profile, selected]);
   useEffect(() => {
     if (view === "chat" && desktop && connection === "open") composerInput.current?.focus({ preventScroll: true });
   }, [view, desktop, profile, selected, connection]);
@@ -582,7 +589,7 @@ export default function MobileApp() {
         }
         if (profileFromUrl() && !route.profile) {
           const id = canonical.current.get(profile)?.resolved_id || canonical.current.get(profile)?.id || "new";
-          if (alive) routerNavigate(chatPath(profile, id), { replace: true });
+          if (alive) routerNavigate(`${chatPath(profile, id)}?mode=${homeTabRef.current}`, { replace: true });
         }
         const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
         if (alive) setLiveSessions(active.sessions);
@@ -856,20 +863,30 @@ export default function MobileApp() {
     };
   }, []);
 
-  // Desktop/hermetic reopen the last bot instead of the empty "Choose a bot" pane.
-  useEffect(() => {
-    if (view === "chat" && profile) localStorage.setItem(LAST_BOT_KEY, profile);
-  }, [view, profile]);
+  // Desktop/hermetic reopen the last focused item in the selected sidebar mode.
   const reopened = useRef(false);
   useEffect(() => {
     if (reopened.current || !desktop || view !== "bots" || connection !== "open" || !profiles.length) return;
+    if (homeTab === "chats" && !sessions.length) return;
     reopened.current = true;
-    const last = localStorage.getItem(LAST_BOT_KEY);
-    if (last && profiles.some(p => p.name === last)) void selectProfile(last);
+    if (homeTab === "chats") {
+      const last = localStorage.getItem(LAST_CHAT_KEY);
+      const target = sessions.find(row => chatKey(row.profile, row.id) === last) ?? sessions[0];
+      if (target) void selectProfile(target.profile, target.id);
+    } else {
+      const last = localStorage.getItem(LAST_BOT_KEY);
+      const target = profiles.find(p => p.name === last) ?? profiles[0];
+      if (target) void selectProfile(target.name);
+    }
   });
 
   const selectProfile = async (name: string, targetSession?: string) => {
     if (!profiles.some(p => p.name === name)) return;
+    const botSelection = targetSession === undefined;
+    if (botSelection) {
+      const known = canonical.current.get(name);
+      if (known) targetSession = known.resolved_id || known.id;
+    }
     if (targetSession === undefined) {
       const gw = client.current;
       if (!gw || connection !== "open") { setError("Still connecting. Try again."); return; }
@@ -895,6 +912,7 @@ export default function MobileApp() {
       } catch (e) { setError(errorText(e)); return; }
     }
     const session = targetSession;
+    if (botSelection) localStorage.setItem(LAST_BOT_KEY, name);
     setCreation(null);
     preparedWorkspace.current = "";
     if (!session) { setWorkspaceMode("local"); setBranchName(""); }
@@ -944,6 +962,7 @@ export default function MobileApp() {
     const message = text.trim() || (photos.length ? "What do you see in this photo?" : files.length ? "Please read the attached file." : "");
     const gw = client.current;
     if (!message || !gw || connection !== "open" || busy || sendingHere || chat?.running || voice.phase !== "idle") return;
+    scrollToLatest();
     setSending(current => ({ ...current, [composerKey]: true })); setError("");
     let target = chat;
     const staged: string[] = [];
@@ -978,7 +997,7 @@ export default function MobileApp() {
         }
         setSelected(target.storedId);
         setChat(target);
-        routerNavigate(chatPath(profile, target.storedId), { replace: true });
+        routerNavigate(`${chatPath(profile, target.storedId)}?mode=${homeTabRef.current}`, { replace: true });
       }
       const runtimeId = target.runtimeId;
       for (const [index, photo] of photos.entries()) {
@@ -1105,7 +1124,25 @@ export default function MobileApp() {
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
   const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
-  const chooseHomeTab = (tab: HomeTab) => { setHomeTab(tab); localStorage.setItem(HOME_TAB_KEY, tab); };
+  const chooseHomeTab = (tab: HomeTab) => {
+    if (tab === homeTab) return;
+    homeTabRef.current = tab;
+    setHomeTab(tab);
+    localStorage.setItem(HOME_TAB_KEY, tab);
+    if (tab === "chats") {
+      const last = localStorage.getItem(LAST_CHAT_KEY);
+      const target = sessions.find(row => chatKey(row.profile, row.id) === last) ?? sessions[0];
+      if (target) {
+        localStorage.setItem(LAST_CHAT_KEY, chatKey(target.profile, target.id));
+        void selectProfile(target.profile, target.id);
+      } else navigate("bots");
+    } else {
+      const last = localStorage.getItem(LAST_BOT_KEY);
+      const target = profiles.find(bot => bot.name === last) ?? profiles[0];
+      if (target) void selectProfile(target.name);
+      else navigate("bots");
+    }
+  };
   const chooseSort = (sort: ChatSort) => { setChatSort(sort); localStorage.setItem(CHAT_SORT_KEY, sort); };
   const chooseGrouped = (grouped: boolean) => { setChatsGrouped(grouped); localStorage.setItem(CHAT_GROUP_KEY, grouped ? "1" : "0"); };
   const toggleGroup = (key: string) => setCollapsedGroups(current => {
@@ -1134,7 +1171,10 @@ export default function MobileApp() {
     const row = sessions.find(item => item.profile === profile && item.id === selected);
     if (row?.unread) void writeUnread(row, false);
   }, [view, profile, selected, sessions]);
-  const openChat = (chat: Conversation) => { void selectProfile(chat.profile, chat.id); };
+  const openChat = (chat: Conversation) => {
+    localStorage.setItem(LAST_CHAT_KEY, chatKey(chat.profile, chat.id));
+    void selectProfile(chat.profile, chat.id);
+  };
   const archiveOpenChat = async () => {
     const row = sessions.find(item => item.profile === profile && item.id === selected);
     if (view !== "chat" || !row) { toast.message("Only side conversations can be archived"); return; }
@@ -1362,11 +1402,10 @@ export default function MobileApp() {
                 return renderMessage(group[0], previous, String(index));
               })}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><div className="m-bubble"><Markdown content={chat.draft} streaming /></div></article>}
-              {chat?.running && !chat?.draft && !chatPrompts.length && <div className="m-typing" role="status" aria-label="Bot is typing"><span /><span /><span /></div>}
+              {chat?.running && !chatPrompts.length && <div className="m-turn-status" role="status" aria-live="polite"><div className="m-typing" aria-label="Bot is typing"><span /><span /><span /></div><p className="m-thinking">{working || (chat.draft ? "Writing…" : "Thinking…")}</p></div>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
               {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
-              {chat?.running && !chatPrompts.length && working && <p role="status" aria-live="polite" className="m-thinking">{working}</p>}
             </div>
           </div>
           {!atBottom && <div className="m-jump-row"><button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button></div>}

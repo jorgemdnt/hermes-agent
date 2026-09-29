@@ -6,6 +6,7 @@ import BotTerminalDock from "./BotTerminalDock";
 
 const mocks = vi.hoisted(() => ({
   sockets: [] as string[],
+  instances: [] as Array<{ onclose?: (event: CloseEvent) => void; onopen?: () => void }>,
   fetchFolder: vi.fn(async (url: string) => ({ folder: url.includes("session=chat-a") ? "/workspace/a" : "/workspace/b" })),
 }));
 vi.mock("@xterm/xterm", () => ({ Terminal: class {
@@ -28,13 +29,16 @@ const render = async (session: string, open = true) => {
 };
 beforeEach(() => {
   mocks.sockets.length = 0;
+  mocks.instances.length = 0;
   mocks.fetchFolder.mockClear();
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.stubGlobal("WebSocket", class {
     static OPEN = 1;
     readyState = 1;
     binaryType = "";
-    constructor(url: string) { mocks.sockets.push(url); }
+    onclose?: (event: CloseEvent) => void;
+    onopen?: () => void;
+    constructor(url: string) { mocks.sockets.push(url); mocks.instances.push(this); }
     send() {} close() {}
   });
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { cb(0); return 1; });
@@ -45,6 +49,33 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
+
+it("shows disconnected state on the tab and reconnects in place with a fresh shell", async () => {
+  await render("chat-a");
+  await act(async () => mocks.instances[0].onclose?.({ code: 4403 } as CloseEvent));
+  expect(host.querySelector('.m-terminal-tab button')?.textContent).toContain('Disconnected');
+  expect(host.querySelector('.m-terminal-status')?.textContent).toContain('Reconnect');
+  await act(async () => (host.querySelector('.m-terminal-status button') as HTMLButtonElement).click());
+  await act(async () => { await Promise.resolve(); });
+  expect(mocks.sockets).toHaveLength(2);
+  await act(async () => mocks.instances[1].onopen?.());
+  expect(host.querySelector('.m-terminal-status')).toBeNull();
+  expect(host.querySelector('.m-terminal-tab button')?.getAttribute('aria-label')).toContain('Connected');
+  expect(host.querySelectorAll('.m-terminal-tab')).toHaveLength(1);
+});
+
+it("reconnects automatically after an abnormal 1006 close", async () => {
+  await render("chat-a");
+  vi.useFakeTimers();
+  try {
+    await act(async () => mocks.instances[0].onclose?.({ code: 1006 } as CloseEvent));
+    expect(host.querySelector('.m-terminal-status')?.textContent).toContain('Reconnecting');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(mocks.sockets).toHaveLength(2);
+    await act(async () => mocks.instances[1].onopen?.());
+    expect(host.querySelector('.m-terminal-status')).toBeNull();
+  } finally { vi.useRealTimers(); }
+});
 
 it("retains independent terminal tabs across conversation switches and shows their server folders", async () => {
   await render("chat-a");

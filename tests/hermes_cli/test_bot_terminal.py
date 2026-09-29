@@ -143,7 +143,7 @@ def test_bot_terminal_accepts_signed_in_identity_and_streams(monkeypatch, tmp_pa
     assert dimensions == [(100, 32)]
 
 
-def test_terminal_endpoint_uses_stored_remote_folder_not_client_cwd(monkeypatch, tmp_path):
+def test_terminal_endpoint_uses_profile_folder_not_chat_or_client_cwd(monkeypatch, tmp_path):
     import hermes_cli.web_bot_terminal as bot_terminal
     import hermes_cli.web_server_profiles as profiles
 
@@ -158,6 +158,8 @@ def test_terminal_endpoint_uses_stored_remote_folder_not_client_cwd(monkeypatch,
     response = client.get("/api/bot-terminal/folder?profile=samwise&session=chat-1")
     assert response.status_code == 200
     assert response.json() == {"folder": remote}
+    terminal_response = client.get("/api/bot-terminal/folder?profile=samwise&session=chat-1&scope=terminal")
+    assert terminal_response.json() == {"folder": "/home/hermes"}
     assert client.get("/api/bot-terminal/folder?profile=samwise&session=chat-1&cwd=/tmp/attacker").status_code == 400
 
     launched = []
@@ -175,7 +177,7 @@ def test_terminal_endpoint_uses_stored_remote_folder_not_client_cwd(monkeypatch,
     with client.websocket_connect("/api/bot-terminal?profile=samwise&session=chat-1"):
         pass
     assert launched[0][1] is None
-    assert launched[0][0][-1] == "cd -- '/home/hermes/work/project with spaces' && exec ${SHELL:-/bin/bash} -l"
+    assert launched[0][0][-1] == "cd -- /home/hermes && exec ${SHELL:-/bin/bash} -l"
     with pytest.raises(WebSocketDisconnect) as refused:
         with client.websocket_connect("/api/bot-terminal?profile=samwise&session=chat-1&cwd=/tmp/attacker") as ws:
             ws.receive_text()

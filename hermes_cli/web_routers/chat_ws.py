@@ -498,19 +498,20 @@ async def bot_file_preview(request: Request, profile: str, session: str = "", pa
 
 
 @router.get("/api/bot-terminal/folder")
-async def bot_terminal_folder(request: Request, profile: str, session: str = "") -> dict:
-    """Display only the server-resolved folder, matching the shell launch rules."""
+async def bot_terminal_folder(request: Request, profile: str, session: str = "", scope: str = "conversation") -> dict:
+    """Resolve the conversation folder for previews, or the profile's shell folder."""
     from starlette.concurrency import run_in_threadpool
     from hermes_cli.web_bot_terminal import resolve_terminal_folder, stored_session_folder, terminal_config
     from hermes_cli.web_server_profiles import _resolve_profile_dir
 
-    if (not _VALID_CHANNEL_RE.fullmatch(profile) or
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or scope not in {"conversation", "terminal"} or
             any(key in request.query_params for key in ("cwd", "path", "workdir"))):
         raise HTTPException(status_code=400, detail="Invalid terminal request")
     _resolve_profile_dir(profile)
     try:
         def read() -> str:
-            return resolve_terminal_folder(terminal_config(profile), stored_session_folder(profile, session))
+            stored = stored_session_folder(profile, session)
+            return resolve_terminal_folder(terminal_config(profile), stored if scope == "conversation" else None)
         return {"folder": await run_in_threadpool(read)}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Conversation unavailable") from exc
@@ -548,8 +549,10 @@ async def bot_terminal_ws(ws: WebSocket) -> None:
         from hermes_cli.web_server_profiles import _resolve_profile_dir
         _resolve_profile_dir(profile)
         config = await asyncio.to_thread(terminal_config, profile)
-        stored = await asyncio.to_thread(stored_session_folder, profile, session_id)
-        folder = resolve_terminal_folder(config, stored)
+        await asyncio.to_thread(stored_session_folder, profile, session_id)
+        # Chat cwd may be a one-off Kanban workspace; a bot shell belongs to
+        # its profile, not the last conversation that happened to be selected.
+        folder = resolve_terminal_folder(config, None)
         argv, cwd = shell_argv({**config, "cwd": folder})
     except (HTTPException, ValueError, OSError) as exc:
         _log.warning("bot terminal configuration refused profile=%s reason=%s", profile, type(exc).__name__)
