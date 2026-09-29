@@ -1,8 +1,15 @@
 import { expect, it } from "vitest";
 import { parseShortcut } from "./shortcuts";
 
-const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = { metaKey: true }) =>
-  parseShortcut({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods });
+const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = { metaKey: true }, isMac = false) =>
+  parseShortcut({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods }, isMac);
+
+it("on a Mac, Ctrl+1 and Ctrl+2 switch Bots and Chats while Cmd+digits still open list items", () => {
+  expect(key("1", { ctrlKey: true }, true)).toEqual({ kind: "tab", tab: "bots" });
+  expect(key("2", { ctrlKey: true }, true)).toEqual({ kind: "tab", tab: "chats" });
+  expect(key("2", { metaKey: true }, true)).toEqual({ kind: "nth", index: 1 });
+  expect(key("3", { ctrlKey: true }, true)).toEqual({ kind: "nth", index: 2 });
+});
 
 it("maps Cmd or Ctrl chords to actions", () => {
   expect(key("3")).toEqual({ kind: "nth", index: 2 });

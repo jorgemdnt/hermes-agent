@@ -1154,6 +1154,7 @@ export default function MobileApp() {
   };
   const runShortcut = (action: ShortcutAction) => {
     switch (action.kind) {
+      case "tab": chooseHomeTab(action.tab); return;
       case "nth": {
         if (homeTab === "chats") { const target = chatView.visible[action.index]; if (target) openChat(target); }
         else { const target = [...pinned, ...others][action.index]; if (target) void selectProfile(target.name); }
