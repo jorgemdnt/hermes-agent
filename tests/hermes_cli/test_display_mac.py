@@ -14,7 +14,15 @@ def test_mac_input_scales_frame_coordinates_and_rejects_outside(monkeypatch):
     sent = []
     monkeypatch.setattr(mac, "_call", lambda method, data: sent.append((method, data)))
     mac.input_event({"type": "click", "x": 750, "y": 490}, frame_size=(1512, 982, 3024, 1964))
-    assert sent == [("click", {"scope": "desktop", "x": 1500, "y": 980})]
+    mac.input_event({"type": "move", "x": 750, "y": 490}, frame_size=(1512, 982, 3024, 1964))
+    mac.input_event({"type": "click", "button": "right", "x": 750, "y": 490}, frame_size=(1512, 982, 3024, 1964))
+    mac.input_event({"type": "scroll", "direction": "down", "amount": 2, "x": 750, "y": 490}, frame_size=(1512, 982, 3024, 1964))
+    mac.input_event({"type": "text", "text": "hello world"}, frame_size=(1512, 982, 3024, 1964))
+    assert sent == [("click", {"scope": "desktop", "x": 1500, "y": 980}),
+                    ("move_cursor", {"scope": "desktop", "x": 1500, "y": 980}),
+                    ("click", {"scope": "desktop", "button": "right", "x": 1500, "y": 980}),
+                    ("scroll", {"scope": "desktop", "direction": "down", "amount": 2, "x": 1500, "y": 980}),
+                    ("type_text", {"scope": "desktop", "text": "hello world"})]
     with pytest.raises(ValueError, match="outside"):
         mac.input_event({"type": "click", "x": -1, "y": 0}, frame_size=(1512, 982, 3024, 1964))
     with pytest.raises(ValueError, match="unsupported key"):

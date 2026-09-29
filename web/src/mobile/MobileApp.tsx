@@ -1152,11 +1152,12 @@ export default function MobileApp() {
                 </details>;
                 return renderMessage(group[0], previous, String(index));
               })}
-              {chat?.draft && <article className="m-message m-assistant m-streaming"><Markdown content={chat.draft} streaming /></article>}
+              {chat?.draft && <article className="m-message m-assistant m-streaming"><div className="m-bubble"><Markdown content={chat.draft} streaming /></div></article>}
+              {chat?.running && !chat?.draft && !chatPrompts.length && <div className="m-typing" role="status" aria-label="Bot is typing"><span /><span /><span /></div>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
               {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
-              {chat?.running && !chatPrompts.length && <p role="status" aria-live="polite" className="m-thinking"><i className="m-status-dot" aria-hidden="true" />{status}</p>}
+              {chat?.running && !chatPrompts.length && working && <p role="status" aria-live="polite" className="m-thinking">{working}</p>}
             </div>
           </div>
           {!atBottom && <div className="m-jump-row"><button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button></div>}

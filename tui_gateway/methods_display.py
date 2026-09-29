@@ -180,7 +180,7 @@ def _(rid, params: dict) -> dict:
         mac_screen = not cfg and _bd_mac.enabled()
         observed_runtime = None
         if cfg:
-            observed_runtime = _bd_remote.status(cfg)
+            observed_runtime = _bd_remote.observe_status(cfg)
             if not observed_runtime["running"]:
                 return _err(rid, _DISPLAY_ERR, "this profile's Bot Desktop is not running; call display.start first")
         elif not mac_screen and _bd_runtime.rfb_socket_path() is None:

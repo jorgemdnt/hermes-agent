@@ -33,6 +33,48 @@ def test_live_forward_avoids_second_remote_status_probe(monkeypatch, tmp_path: P
         reset_hermes_home_override(token)
 
 
+def test_observe_status_uses_existing_rfb_forward_without_remote_probe(monkeypatch, tmp_path: Path):
+    import socket
+    import threading
+    import psutil
+    import os
+    import tempfile
+    import shutil
+
+    home = tmp_path / "samwise"
+    home.mkdir()
+    token = set_hermes_home_override(home)
+    short = Path(tempfile.mkdtemp(prefix="rfb-", dir=os.environ["TMPDIR"]))
+    monkeypatch.setattr(remote, "_state", lambda: short)
+    try:
+        state = remote._state()
+        sock_path = state / "rfb.sock"
+        (state / "forward.pid").write_text("123")
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(str(sock_path))
+        listener.listen(1)
+        monkeypatch.setattr(psutil, "Process", lambda pid: type("Forward", (), {"cmdline": lambda self: ["127.0.0.1:19222:127.0.0.1:5901"]})())
+        monkeypatch.setattr(remote, "_forward_alive", lambda pid, cfg, port: port == 5901)
+        monkeypatch.setattr(remote, "status", lambda cfg: (_ for _ in ()).throw(AssertionError("slow SSH probe")))
+        def serve_banner():
+            connection, _ = listener.accept()
+            with connection:
+                connection.sendall(b"RFB 003.008\n")
+        worker = threading.Thread(target=serve_banner)
+        worker.start()
+        try:
+            observed = remote.observe_status({"cdp_local_port": 19222})
+            assert observed["running"] is True
+            assert observed["transport"] == "rfb"
+            assert observed["socket"] == str(sock_path)
+        finally:
+            worker.join(timeout=2)
+            listener.close()
+    finally:
+        shutil.rmtree(short)
+        reset_hermes_home_override(token)
+
+
 def test_remote_cdp_fence_is_profile_scoped(tmp_path: Path):
     homes = [tmp_path / "a", tmp_path / "b"]
     for home in homes:

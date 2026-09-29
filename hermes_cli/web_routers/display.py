@@ -269,11 +269,11 @@ async def _bridge_mac(ws: WebSocket, info: dict) -> None:
                     viewer_closed.set()
                 return
             text = message.get("text")
-            if text is None or len(text) > 256 or not all(size):
+            if text is None or len(text) > 4096 or not all(size):
                 continue
             try:
                 event = json.loads(text)
-                if not isinstance(event, dict) or event.get("type") not in {"click", "key"}:
+                if not isinstance(event, dict) or event.get("type") not in {"click", "move", "scroll", "text", "key"}:
                     continue
                 # Read immediately before each action. Never trust the client's viewOnly flag.
                 if not _lease.viewer_may_send_input(viewer_id, profile_key=home):

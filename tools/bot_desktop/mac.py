@@ -69,13 +69,30 @@ def capture() -> tuple[bytes, int, int, int, int]:
 
 
 def input_event(event: dict, *, frame_size: tuple[int, int, int, int]) -> None:
-    """Whitelist only a desktop click or a single key. Untrusted WebSocket JSON never becomes argv."""
+    """Whitelist desktop pointer, keyboard and text input. Untrusted JSON never becomes argv."""
     width, height, input_width, input_height = frame_size
-    if event.get("type") == "click":
+    if event.get("type") in {"click", "move", "scroll"}:
         x, y = event.get("x"), event.get("y")
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not 0 <= x < width or not 0 <= y < height:
-            raise ValueError("click outside the screen")
-        _call("click", {"scope": "desktop", "x": x * input_width / width, "y": y * input_height / height})
+            raise ValueError("pointer outside the screen")
+        point = {"scope": "desktop", "x": x * input_width / width, "y": y * input_height / height}
+        if event["type"] == "move":
+            _call("move_cursor", point)
+        elif event["type"] == "scroll":
+            amount, direction = event.get("amount"), event.get("direction")
+            if not isinstance(amount, int) or not 1 <= amount <= 50 or direction not in {"up", "down", "left", "right"}:
+                raise ValueError("invalid scroll")
+            _call("scroll", {**point, "amount": amount, "direction": direction})
+        else:
+            button = event.get("button", "left")
+            if button not in {"left", "right"}:
+                raise ValueError("invalid mouse button")
+            _call("click", {**point, **({"button": "right"} if button == "right" else {})})
+    elif event.get("type") == "text":
+        text = event.get("text")
+        if not isinstance(text, str) or not text or len(text) > 512 or any(ord(c) < 32 and c not in "\n\t" for c in text):
+            raise ValueError("invalid text")
+        _call("type_text", {"scope": "desktop", "text": text})
     elif event.get("type") == "key":
         key = event.get("key")
         keys = {"return", "tab", "escape", "up", "down", "left", "right", "space", "delete", "home", "end"}

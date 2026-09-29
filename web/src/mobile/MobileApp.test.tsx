@@ -130,7 +130,9 @@ it("keeps notices quiet and reactions behind the message action menu", async () 
   expect(host.querySelector('.m-notice-group .m-notice-head svg')).toBeNull();
   const reply = host.querySelector('.m-assistant') as HTMLElement;
   expect(reply.querySelector('.m-reaction')).toBeNull();
-  expect(reply.querySelector('.m-message-footer time')).not.toBeNull();
+  expect(reply.querySelector('.m-bubble .m-message-footer time')).not.toBeNull();
+  expect(reply.querySelector('.m-bubble .m-markdown')).not.toBeNull();
+  expect(host.querySelector('.m-notice-group .m-bubble')).toBeNull();
   await act(async () => reply.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
   const react = Array.from(host.querySelectorAll('.m-pin-choice')).find(button => button.textContent?.includes('React thumbs up')) as HTMLButtonElement;
   expect(react).not.toBeNull();
@@ -581,7 +583,7 @@ it("re-checks the server after a silent turn and stops a ghost spinner", async (
   vi.useFakeTimers();
   try {
     await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
-    expect(host.querySelector('.m-thinking')).not.toBeNull();
+    expect(host.querySelector('.m-typing')).not.toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
     await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
     await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
@@ -597,15 +599,17 @@ it("keeps one live status through thinking, tools, streamed writing, and complet
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  expect(host.querySelector('.m-thinking')?.textContent).toContain('Thinking…');
+  expect(host.querySelector('.m-typing[aria-label="Bot is typing"]')).not.toBeNull();
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain('Thinking…');
+  expect(host.querySelector('.m-jump-row')).toBeNull();
   await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.start', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
   expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
   await act(async () => { for (const handler of mocks.events) handler({ type: 'tool.complete', session_id: 'runtime', payload: { tool_id: 't1', name: 'terminal' } }); });
   expect(host.querySelector('.m-thinking')?.textContent).toBe('Using terminal');
   await act(async () => { for (const handler of mocks.events) handler({ type: 'message.delta', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 470)); });
-  expect(host.querySelector('.m-thinking')?.textContent).toBe('Writing…');
-  expect(host.querySelector('.m-streaming')?.textContent).toContain('Here is the result');
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('.m-streaming .m-bubble')?.textContent).toContain('Here is the result');
   await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { text: 'Here is the result' } }); });
   expect(host.querySelector('.m-thinking')).toBeNull();
 });

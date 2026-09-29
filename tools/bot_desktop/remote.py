@@ -60,6 +60,35 @@ def _run(cfg: dict, code: str) -> object:
     return json.loads(result.stdout.strip())
 
 
+def observe_status(cfg: dict) -> dict:
+    """Use the already-running RFB forward for watch, without booting Python over SSH.
+
+    A screen open must not wait for a fresh remote status query. The RFB banner proves
+    the *remote* server is answering through the forward (a local socket alone does not).
+    """
+    import psutil
+    sd = _state()
+    sock = sd / "rfb.sock"
+    try:
+        pid = int((sd / "forward.pid").read_text())
+        cmd = psutil.Process(pid).cmdline()
+        prefix = f'127.0.0.1:{int(cfg["cdp_local_port"])}:127.0.0.1:'
+        port = next(int(arg.removeprefix(prefix)) for arg in cmd if arg.startswith(prefix))
+        if sock.exists() and _forward_alive(pid, cfg, port):
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.settimeout(0.4)
+                probe.connect(str(sock))
+                if probe.recv(12).startswith(b"RFB 003."):
+                    cached = _last_live_status.get(str(sd))
+                    if cached and cached[1] == port:
+                        return cached[2].copy()
+                    return {"running": True, "supported": True, "installed": True,
+                            "transport": "rfb", "socket": str(sock)}
+    except (OSError, ValueError, StopIteration, psutil.Error):
+        pass
+    return status(cfg)
+
+
 def status(cfg: dict) -> dict:
     key = str(_state())
     cached = _last_live_status.get(key)
