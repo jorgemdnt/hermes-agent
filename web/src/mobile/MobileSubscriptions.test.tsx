@@ -56,3 +56,11 @@ it("removes only the chosen row and refreshes without disconnect", async () => {
   expect(mocks.removeCredentialPoolEntry).toHaveBeenCalledWith("openai-codex", 2);
   expect(mocks.getSubscriptions).toHaveBeenCalledWith(true);
 });
+
+it("updates Codex rotation through the pool strategy endpoint", async () => {
+  await act(async () => root.render(<MobileSubscriptions />));
+  const select = host.querySelector('[aria-label="Codex rotation"]') as HTMLSelectElement;
+  expect(select.value).toBe("round_robin");
+  await act(async () => { select.value = "least_used"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(mocks.setCredentialPoolStrategy).toHaveBeenCalledWith("openai-codex", "least_used");
+});
