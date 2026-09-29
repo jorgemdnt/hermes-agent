@@ -29,6 +29,7 @@ import { uploadChatImage } from "@/lib/chatImagePaste";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type ChatRow, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
+import MobileSubscriptions from "./MobileSubscriptions";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
@@ -193,7 +194,7 @@ export default function MobileApp() {
   const swipeSource = useRef<Exclude<MobileView, "bots">>("chat");
   const [offsets] = useState(() => ({
     chat: motionValue<number | string>(0), board: motionValue<number | string>(0),
-    screen: motionValue<number | string>(0), settings: motionValue<number | string>(0),
+    screen: motionValue<number | string>(0), settings: motionValue<number | string>(0), subscriptions: motionValue<number | string>(0),
   }));
   const panX = view === "bots" ? offsets.chat : offsets[view];
   const reducedMotion = useReducedMotion();
@@ -1101,7 +1102,7 @@ export default function MobileApp() {
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header">{!desktop && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>}
-        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
@@ -1189,6 +1190,7 @@ export default function MobileApp() {
           <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul>
           {!activity.length && <p className="m-muted">{activityByBot[profile]?.preview || "Waiting for the next activity."}</p>}
         </section>)}
+        {view === "subscriptions" && <MobileSubscriptions />}
         {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
           <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>

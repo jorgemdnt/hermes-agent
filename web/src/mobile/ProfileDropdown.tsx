@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { LayoutGrid, LogOut, Monitor, Settings2 } from "lucide-react";
+import { CreditCard, LayoutGrid, LogOut, Monitor, Settings2 } from "lucide-react";
 import { Link } from "react-router";
 import { Avatar } from "./ui";
 
@@ -15,6 +15,7 @@ export function ProfileDropdown({ open, onOpenChange, showScreen, container, nam
         <DropdownMenu.Separator className="m-dropdown-separator" />
         <DropdownMenu.Item asChild><Link to="/m/board"><LayoutGrid size={17} aria-hidden="true" />Board</Link></DropdownMenu.Item>
         {showScreen && <DropdownMenu.Item asChild><Link to="/m/screen/samwise"><Monitor size={17} aria-hidden="true" />Screen</Link></DropdownMenu.Item>}
+        <DropdownMenu.Item asChild><Link to="/m/subscriptions"><CreditCard size={17} aria-hidden="true" />Subscriptions</Link></DropdownMenu.Item>
         <DropdownMenu.Item asChild><Link to="/m/settings"><Settings2 size={17} aria-hidden="true" />Settings</Link></DropdownMenu.Item>
         <DropdownMenu.Separator className="m-dropdown-separator" />
         <DropdownMenu.Item disabled={signingOut} onSelect={onSignOut}><LogOut size={17} aria-hidden="true" />Sign out</DropdownMenu.Item>

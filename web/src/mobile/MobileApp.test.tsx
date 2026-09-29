@@ -828,7 +828,7 @@ it("steers the running Samwise turn instead of starting a second one", async () 
 it("routes Board and Settings from the profile menu, and offers Screen only with Samwise", async () => {
   await renderApp(); await settle();
   await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
-  expect(Array.from(host.querySelectorAll('.m-dropdown a')).map(a => [a.textContent, a.getAttribute('href')])).toEqual([["Board", "/m/board"], ["Settings", "/m/settings"]]);
+  expect(Array.from(host.querySelectorAll('.m-dropdown a')).map(a => [a.textContent, a.getAttribute('href')])).toEqual([["Board", "/m/board"], ["Subscriptions", "/m/subscriptions"], ["Settings", "/m/settings"]]);
   await act(async () => (host.querySelector('.m-dropdown a[href="/m/settings"]') as HTMLAnchorElement).click());
   expect(window.location.pathname).toBe('/m/settings');
   await act(async () => (host.querySelector('[aria-label="Back to bots"]') as HTMLButtonElement).click());

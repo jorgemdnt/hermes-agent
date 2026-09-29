@@ -337,6 +337,14 @@ def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
     }
 
 
+@router.get("/api/subscriptions")
+async def list_subscriptions(fresh: bool = False):
+    from hermes_cli.subscriptions import subscription_snapshot
+
+    # Network quota probes and Claude CLI status must not block the event loop.
+    return await config_scoped_to_thread(None, lambda: subscription_snapshot(fresh=fresh))
+
+
 @router.get("/api/credentials/pool")
 async def list_credential_pool(profile: Optional[str] = None):
     from agent.credential_pool import load_pool

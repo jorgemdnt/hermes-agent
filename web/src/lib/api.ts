@@ -962,13 +962,13 @@ export const api = {
         method: "DELETE",
       },
     ),
-  startOAuthLogin: (providerId: string) =>
+  startOAuthLogin: (providerId: string, append = false) =>
     fetchJSON<OAuthStartResponse>(
       `/api/providers/oauth/${encodeURIComponent(providerId)}/start`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify(append ? { append: true } : {}),
       },
     ),
   submitOAuthCode: (providerId: string, sessionId: string, code: string) =>
@@ -1288,6 +1288,14 @@ export const api = {
         body: JSON.stringify({ enabled }),
       },
     ),
+
+  // Subscription inventory and provider quota (60-second server cache).
+  getSubscriptions: (fresh = false) =>
+    fetchJSON<SubscriptionsResponse>(`/api/subscriptions${fresh ? "?fresh=true" : ""}`),
+  setCredentialPoolStrategy: (provider: string, strategy: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/credentials/pool/${encodeURIComponent(provider)}/strategy`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }),
+    }),
 
   // ── Admin: Credential pool ──────────────────────────────────────────
   getCredentialPool: () =>
@@ -1806,6 +1814,32 @@ export interface WebhookCreate {
   deliver?: string;
   deliver_only?: boolean;
   deliver_chat_id?: string;
+}
+
+export interface SubscriptionWindow {
+  used_percent: number;
+  reset_at: string | null;
+}
+
+export interface SubscriptionEntry {
+  id: string;
+  index: number | null;
+  account: string;
+  plan: string | null;
+  status: "active" | "rate-limited" | "needs re-login";
+  windows: { five_hour?: SubscriptionWindow; weekly?: SubscriptionWindow };
+  in_use: boolean;
+}
+
+export interface SubscriptionProvider {
+  provider: string;
+  strategy: string;
+  rotation_supported: boolean;
+  entries: SubscriptionEntry[];
+}
+
+export interface SubscriptionsResponse {
+  providers: SubscriptionProvider[];
 }
 
 export interface CredentialPoolEntry {
