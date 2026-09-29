@@ -1211,7 +1211,7 @@ export default function MobileApp() {
       <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
         {renderHome()}
       </div>
-      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>Choose a bot</h2></main>}
+      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
