@@ -25,6 +25,24 @@ logger = logging.getLogger(__name__)
 # Skip multiplexing there; each command pays a fresh connection but the backend works. See #73927.
 _SSH_MULTIPLEX = os.name != "nt"
 
+
+def interactive_ssh_argv(host: str, user: str, *, port: int = 22, key_path: str = "") -> list[str]:
+    """An interactive SSH PTY with the backend's connection and host-key policy.
+
+    Unlike SSHEnvironment construction this does not sync files, create a remote
+    Hermes installation, or initialize a command session: it is a user's shell.
+    """
+    if not 1 <= port <= 65535:
+        raise ValueError("Invalid SSH port")
+    control_dir = Path(tempfile.gettempdir()) / "hermes-ssh"
+    control_dir.mkdir(parents=True, exist_ok=True)
+    socket_id = hashlib.sha256(f"{user}@{host}:{port}".encode()).hexdigest()[:16]
+    return (["ssh", "-o", f"ControlPath={control_dir / (socket_id + '.sock')}",
+             "-o", "ControlMaster=auto", "-o", "ControlPersist=300"] if _SSH_MULTIPLEX else ["ssh"]) + [
+        "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10",
+        *(["-p", str(port)] if port != 22 else []),
+        *(["-i", key_path] if key_path else []), "-tt", f"{user}@{host}"]
+
 # Module-level binding: tests patch ``ssh._load_hermes_env_vars`` to fake the .env file.
 _load_hermes_env_vars = load_hermes_env_vars
 

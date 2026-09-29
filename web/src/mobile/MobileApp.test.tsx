@@ -43,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: vi.fn(async () => ({ server_host: "testhost", client_on_server_host: false, profiles: {} })), api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -57,6 +57,7 @@ vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
 vi.mock("./useLatestBuild", () => ({ useLatestBuild: (_path: string, idle: () => boolean) => { mocks.latestBuildIdle = idle; } }));
 vi.mock("./mobile-push", () => ({ pushAvailable: () => false, registerMobileWorker: vi.fn(), subscribePush: vi.fn(), unsubscribePush: vi.fn(), localSignOut: vi.fn() }));
 vi.mock("./MobileKanban", () => ({ default: ({ taskId, onSelectTask }: { taskId?: string; onSelectTask: (id: string) => void }) => <div>{taskId ? `Task ${taskId}` : <button onClick={() => onSelectTask("t-1")}>Open task</button>}</div> }));
+vi.mock("./BotTerminalDock", () => ({ default: () => null }));
 vi.mock("./MobileScreen", () => ({ default: ({ onContinue }: { onContinue: () => Promise<void> }) => <button onClick={() => void onContinue()}>Continue after hand back</button> }));
 import MobileApp from "./MobileApp";
 import { PIN_STORAGE_KEY } from "./home-data";

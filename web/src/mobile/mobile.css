@@ -1,3 +1,23 @@
+.m-terminal-dock { position: absolute; z-index: 8; bottom: 0; left: 0; right: 0; height: var(--m-terminal-height); background: #15171b; color: #e8e9eb; border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.m-terminal-dock[data-open="false"] { visibility: hidden; pointer-events: none; }
+.m-terminal-resize { height: 8px; flex: none; cursor: row-resize; touch-action: none; background: var(--border); }
+.m-terminal-resize:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.m-terminal-bar { min-height: 42px; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-bottom: 1px solid #34363b; }
+.m-terminal-title { font-size: 12px; white-space: nowrap; color: #bec2c9; }
+.m-terminal-tabs { min-width: 0; flex: 1; display: flex; gap: 4px; overflow-x: auto; }
+.m-terminal-tab { display: flex; align-items: center; border-radius: 6px; background: #2a2d32; flex: none; }
+.m-terminal-tab:has([aria-pressed="true"]) { background: #454a52; }
+.m-terminal-dock button { border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: 12px; white-space: nowrap; }
+.m-terminal-dock button:hover { background: #545a64; border-radius: 6px; }
+.m-terminal-dock button:focus-visible { outline: 2px solid #a0b4ef; outline-offset: -2px; }
+.m-terminal-content { flex: 1; min-height: 0; position: relative; }
+.m-terminal-shell { position: absolute; inset: 0; }
+.m-terminal-shell[hidden] { display: none; }
+.m-terminal-surface { height: 100%; padding: 5px 10px; }
+.m-terminal-status { position: absolute; bottom: 8px; right: 12px; color: #ced2da; background: #292c32; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.m-terminal-full { inset: 0; height: auto; padding-bottom: env(safe-area-inset-bottom); }
+@media (min-width: 900px) { .m-terminal-dock:not(.m-terminal-full) { left: 320px; } }
+
 .m-shell {
   background: var(--background);
   color: var(--foreground);

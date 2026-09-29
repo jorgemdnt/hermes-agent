@@ -14,7 +14,7 @@ import { ProfileDropdown } from "./ProfileDropdown";
 import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
 import type { ServerRequest } from "@hermes/shared";
-import { api, HERMES_BASE_PATH, type AuthMeResponse, type ProfileInfo, type SessionMessage } from "@/lib/api";
+import { api, fetchJSON, HERMES_BASE_PATH, type AuthMeResponse, type ProfileInfo, type SessionMessage } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { sideConversations, type Conversation } from "./conversations";
 import { GatewayClient } from "@/lib/gatewayClient";
@@ -30,6 +30,8 @@ import { applyChatEvent, PROMPT_METHODS, transcriptRows, type ChatRow, type Mobi
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
 import { appendLive, HISTORY_PAGE_SIZE, historyPage, prependOlder } from "./history";
 import MobileSubscriptions from "./MobileSubscriptions";
+import BotTerminalDock from "./BotTerminalDock";
+import { showBotScreen, type BotTerminalCapabilities } from "./bot-terminal-rule";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
@@ -87,6 +89,30 @@ export default function MobileApp() {
   }, []);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState(() => route.profile || "");
+  const [terminalCapabilities, setTerminalCapabilities] = useState<BotTerminalCapabilities | null>(null);
+  const [terminalOpenByBot, setTerminalOpenByBot] = useState<Record<string, boolean>>({});
+  const [terminalHeight, setTerminalHeight] = useState(() => Number(localStorage.getItem("hermes:bot-terminal-height")) || 310);
+  useEffect(() => {
+    let active = true;
+    void fetchJSON<BotTerminalCapabilities>("/api/bot-terminal/capabilities")
+      .then(capabilities => { if (active) setTerminalCapabilities(capabilities); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!desktop || view !== "chat" || !profile) return;
+    const toggle = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "j" || event.shiftKey || event.altKey ||
+          !(navigator.platform.includes("Mac") ? event.metaKey : event.ctrlKey)) return;
+      event.preventDefault();
+      setTerminalOpenByBot(previous => ({ ...previous, [profile]: !previous[profile] }));
+    };
+    window.addEventListener("keydown", toggle);
+    return () => window.removeEventListener("keydown", toggle);
+  }, [desktop, view, profile]);
+  const terminalProfile = view === "terminal" ? route.profile || "" : profile;
+  const terminalVisible = view === "terminal" || (view === "chat" && desktop && !!terminalOpenByBot[profile]);
+  const screenVisible = showBotScreen(terminalCapabilities, profile, !desktop, window.hermetic?.hostName);
   const [sessions, setSessions] = useState<Conversation[]>([]);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
@@ -194,7 +220,7 @@ export default function MobileApp() {
   const swipeSource = useRef<Exclude<MobileView, "bots">>("chat");
   const [offsets] = useState(() => ({
     chat: motionValue<number | string>(0), board: motionValue<number | string>(0),
-    screen: motionValue<number | string>(0), settings: motionValue<number | string>(0), subscriptions: motionValue<number | string>(0),
+    screen: motionValue<number | string>(0), terminal: motionValue<number | string>(0), settings: motionValue<number | string>(0), subscriptions: motionValue<number | string>(0),
   }));
   const panX = view === "bots" ? offsets.chat : offsets[view];
   const reducedMotion = useReducedMotion();
@@ -1097,13 +1123,13 @@ export default function MobileApp() {
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
       </div>}
       <AnimatePresence initial={false} custom={skipExit}>
-        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit} style={{ x: panX }}
+        {view !== "bots" && <motion.div key={view} className="m-view m-detail" custom={skipExit} style={{ x: panX, bottom: view === "chat" && terminalVisible ? terminalHeight : undefined }}
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header">{!desktop && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>}
-        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
+        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && screenVisible && <button type="button" className="m-icon-button" aria-label={`Open ${name} computer`} onClick={() => routerNavigate(`/m/screen/${encodeURIComponent(profile)}`)}><Monitor size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
         const last = [...chat.rows].reverse().find(row => row.role === "user");
@@ -1200,6 +1226,9 @@ export default function MobileApp() {
     </>
       </motion.div>}
     </AnimatePresence>
+    <BotTerminalDock profile={terminalProfile} open={terminalVisible} fullScreen={view === "terminal"}
+      height={terminalHeight} onHeightChange={setTerminalHeight}
+      onClose={() => { if (view === "terminal") goBack(); else setTerminalOpenByBot(previous => ({ ...previous, [profile]: false })); }} />
     </div>
     {newChatOpen && <Sheet open={newChatOpen} onClose={() => setNewChatOpen(false)} label="Choose a bot">
       <div className="m-activity-head"><h2>New conversation</h2><button type="button" className="m-icon-button" aria-label="Close bot picker" onClick={() => setNewChatOpen(false)}><X size={20} aria-hidden="true" /></button></div>
@@ -1210,6 +1239,7 @@ export default function MobileApp() {
       <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinned.some(p => p.name === pinMenu)
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
         : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
+      <button type="button" className="m-pin-choice" onClick={() => { routerNavigate(`/m/terminal/${encodeURIComponent(pinMenu)}`); setPinMenu(""); }}>Terminal</button>
     </Sheet>}
     {messageAction?.scope === composerKey && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
       <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction(null)}><X size={20} aria-hidden="true" /></button></div>
@@ -1238,6 +1268,7 @@ export default function MobileApp() {
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>
+      <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); routerNavigate(`/m/terminal/${encodeURIComponent(profile)}`); }}><span>Terminal</span></button>
       <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); setConversationsOpen(true); }}><MessageSquare size={18} aria-hidden="true" />Conversations</button>
       {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">No activity yet.</p>}
     </Sheet>}

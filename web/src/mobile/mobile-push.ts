@@ -1,7 +1,7 @@
 import { authedFetch, fetchJSON, HERMES_BASE_PATH } from "@/lib/api";
 
 declare global {
-  interface Window { hermetic?: { titlebarInset: number; signIn(provider: string): Promise<boolean>; clearSession(): Promise<void> } }
+  interface Window { hermetic?: { titlebarInset: number; hostName: string; signIn(provider: string): Promise<boolean>; clearSession(): Promise<void> } }
 }
 
 interface PushKey { public_key: string }

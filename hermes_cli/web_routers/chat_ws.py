@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from agent.interrupt_scope import InterruptScope, bind_interrupt_scope
 from hermes_cli.pty_session import RegistryFull
@@ -433,6 +433,82 @@ async def _pty_fail(ws: WebSocket, exc: BaseException) -> None:
     _log.warning("pty start failed: %s: %s", type(exc).__name__, exc)
     await ws.send_text(f"\r\n\x1b[31m{chat_start_failure_message(exc)}\x1b[0m\r\n")
     await ws.close(code=1011)
+
+
+@router.get("/api/bot-terminal/capabilities")
+async def bot_terminal_capabilities(request: Request) -> dict:
+    """Server-owned backend hints; the browser never chooses a host or cwd."""
+    import socket
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli import profiles as profiles_mod
+    from hermes_cli.web_bot_terminal import client_on_server_host, public_capabilities
+
+    def read() -> dict:
+        rows = profiles_mod.list_profiles(lazy_skill_count=True)
+        return {row.name: public_capabilities(row.name) for row in rows}
+
+    return {"server_host": socket.gethostname(),
+            "client_on_server_host": client_on_server_host(request.client.host if request.client else None),
+            "profiles": await run_in_threadpool(read)}
+
+
+_bot_terminal_active = 0
+_BOT_TERMINAL_LIMIT = 16
+
+
+@router.websocket("/api/bot-terminal")
+async def bot_terminal_ws(ws: WebSocket) -> None:
+    """Authenticated raw shell PTY, local or the profile's configured SSH host."""
+    global _bot_terminal_active
+    from hermes_cli.web_bot_terminal import shell_argv, terminal_config
+    from hermes_cli.web_server_chat import PtyBridge, _PTY_BRIDGE_AVAILABLE
+    from tools.environments.local import build_subprocess_env
+
+    gate = await _ws_gate(ws, "bot-terminal")
+    if gate is None:
+        return
+    # A shell is more powerful than a chat TUI: only interactive OAuth sessions
+    # on the gated dashboard, not loopback bearer tokens or internal WS clients.
+    identity = getattr(ws, "_hermes_auth_identity", {}) or {}
+    if (_ws_auth_mode() != "gated" or gate[2] == "internal" or
+            not identity.get("user_id") or identity.get("provider") in {"bot-desktop", "internal"}):
+        await ws.close(code=4403, reason="Signed-in dashboard session required")
+        return
+    profile = ws.query_params.get("profile", "")
+    if not _VALID_CHANNEL_RE.fullmatch(profile):
+        await ws.close(code=4403, reason="Invalid bot profile")
+        return
+    try:
+        from hermes_cli.web_server_profiles import _resolve_profile_dir
+        _resolve_profile_dir(profile)  # no arbitrary profile/path supplied by client
+        config = await asyncio.to_thread(terminal_config, profile)
+        argv, cwd = shell_argv(config)
+    except (HTTPException, ValueError, OSError) as exc:
+        _log.warning("bot terminal configuration refused profile=%s reason=%s", profile, type(exc).__name__)
+        await ws.close(code=4403, reason="Bot terminal unavailable; check its backend settings")
+        return
+    if not _PTY_BRIDGE_AVAILABLE or _bot_terminal_active >= _BOT_TERMINAL_LIMIT:
+        await ws.close(code=1013, reason="Bot terminal capacity unavailable")
+        return
+    # Do not log argv, SSH key path, environment, terminal output or user input.
+    _bot_terminal_active += 1
+    try:
+        env = build_subprocess_env(scrub_secrets=True, inherit_profile_home=False)
+        env["TERM"] = "xterm-256color"
+        env["DISABLE_AUTO_UPDATE"] = "true"
+        bridge = await asyncio.to_thread(PtyBridge.spawn, argv, cwd=cwd, env=env)
+        await ws.accept()
+        _log.info("bot terminal opened profile=%s backend=%s peer=%s", profile, config["backend"], gate[0])
+        try:
+            await _legacy_pump(ws, bridge)
+        finally:
+            _log.info("bot terminal closed profile=%s backend=%s peer=%s", profile, config["backend"], gate[0])
+    except (OSError, RuntimeError) as exc:
+        _log.warning("bot terminal start failed profile=%s reason=%s", profile, type(exc).__name__)
+        if ws.application_state.name == "CONNECTING":
+            await ws.close(code=1011, reason="Bot terminal could not start")
+    finally:
+        _bot_terminal_active -= 1
 
 
 @router.websocket("/api/pty")
