@@ -109,6 +109,8 @@ def start():
             if sid == "qa-default-long":
                 for index in range(12):
                     db.append_message(sid, "user" if index % 2 else "assistant", f"Scroll proof row {index + 1}: fixture text passing behind the floating identity pill, without a header bar. " * 3)
+                db.append_message(sid, "user", "[IMPORTANT: Background process qa-a completed normally (exit code 0).]")
+                db.append_message(sid, "user", "[IMPORTANT: Background process qa-b completed normally (exit code 0).]")
                 db.append_message(sid, "assistant", f"Fixture transcript complete. Open http://localhost:{port}/api/health in the split browser.")
             if sid == "qa-default-short":
                 db.set_session_read(sid, False)

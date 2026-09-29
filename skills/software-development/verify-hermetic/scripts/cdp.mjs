@@ -40,7 +40,7 @@ try {
     case 'text': console.log(await evaluate('document.body.innerText')); break;
     case 'eval': console.log(JSON.stringify(await evaluate(rest.join(' ')))); break;
     case 'click': {
-      const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(rest[0])}); if (!e) throw Error('missing selector'); e.scrollIntoView({block:'nearest'}); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width,h:r.height}; })()`);
+      const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(rest[0])}); if (!e) throw Error('missing selector'); e.scrollIntoView({block:'center'}); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width,h:r.height}; })()`);
       if (!box.w || !box.h) throw Error('element has zero area');
       for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
       console.log(JSON.stringify(box)); break;
