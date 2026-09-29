@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -78,6 +79,9 @@ def start():
     if STATE.exists():
         raise SystemExit(f"fixture already exists: {STATE}; stop it first")
     QA.mkdir(parents=True, exist_ok=True)
+    # Keep screenshots/report, but never reuse a Git worktree from a prior fixture.
+    if (QA / "projects").exists():
+        shutil.rmtree(QA / "projects")
     ROOT.mkdir(parents=True, exist_ok=True)
     HOME.mkdir(mode=0o700)
     RUNTIME.mkdir(mode=0o700)
@@ -116,6 +120,15 @@ def start():
                 db.set_session_read(sid, False)
         finally:
             db.close()
+    # A real throwaway repository & first-class Project for first-send QA.
+    from hermes_cli import projects_db
+    repo = QA / "projects/orion"
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "user.email=qa@example.test", "-c", "user.name=QA", "commit", "--allow-empty", "-m", "fixture"], cwd=repo, check=True, capture_output=True)
+    with projects_db.connect_closing(db_path=HOME / "projects.db") as db:
+        projects_db.create_project(db, name="Orion", primary_path=str(repo))
+    with projects_db.connect_closing(db_path=HOME / "profiles/atlas/projects.db") as db:
+        projects_db.create_project(db, name="Nebula", primary_path=str(QA / "projects/nebula"))
     # QA-only credentials. Never reuse or copy the operator's secret store.
     password = secrets.token_urlsafe(18)
     secret = secrets.token_hex(32)
@@ -189,7 +202,7 @@ def stop():
     for _ in range(30):
         try:
             urlopen(f"http://127.0.0.1:{state['port']}/api/health", timeout=.2)
-        except URLError:
+        except (URLError, OSError):
             break
         time.sleep(.1)
     import shutil

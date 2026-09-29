@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import type { SessionInfo } from "@/lib/api";
-import { sideConversations } from "./conversations";
+import { conversationProject, sideConversations } from "./conversations";
+
+it("groups worktree sessions under their registered repository", () => {
+  expect(conversationProject({ git_repo_root: "/repo/.worktrees/feat-qa", cwd: "/repo/.worktrees/feat-qa" })).toBe("/repo");
+  expect(conversationProject({ git_repo_root: "/repo", cwd: "/repo" })).toBe("/repo");
+  expect(conversationProject({ git_repo_root: "", cwd: "/other" })).toBe("/other");
+});
 
 it("keeps back-filled pins, puts pins first, and leaves the Bot Chat on its bot row", () => {
   const rows = [

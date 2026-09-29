@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   waitingProfile: "",
   rosterPreview: {} as Record<string, string>,
   rosterAbsent: "",
+  fetchJSON: vi.fn(async (url: string, _init?: RequestInit): Promise<unknown> => { void _init; return url.startsWith("/api/mobile/projects") ? { projects: [], supported: true } : { server_host: "testhost", client_on_server_host: false, profiles: {} }; }),
   existingCanonical: "",
   getProfiles: vi.fn(async () => ({ profiles: [{ name: "frodo", is_default: true }, { name: "gandalf", is_default: false }] })),
   getAllProfileSessions: vi.fn(async (_limit?: number, archived?: "exclude" | "only"): Promise<{ sessions: Array<{ id: string; profile: string; title: string; preview: string; last_active: number; message_count: number; pinned?: boolean }> }> => { void _limit; return { sessions: archived === "only" ? [] : [
@@ -44,7 +45,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: vi.fn(async () => ({ server_host: "testhost", client_on_server_host: false, profiles: {} })), api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionUnread: mocks.setSessionUnread, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: mocks.fetchJSON, api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionUnread: mocks.setSessionUnread, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -1162,6 +1163,7 @@ it("switches to Chats, shows unread, opens with Ctrl+1 and marks the row read", 
   expect(chats.textContent).toContain("1");
   await act(async () => chats.click());
   expect(Array.from(host.querySelectorAll('.m-chat-row strong')).map(n => n.textContent)).toEqual(["Prior chat", "Found chat"]);
+  expect(host.querySelectorAll('.m-chat-row .m-bot-heading .m-chat-row-trailing .m-avatar-fallback').length).toBe(2);
   expect(host.querySelector('.m-chat-row[data-unread]')).not.toBeNull();
   expect(localStorage.getItem("hermes-mobile-home-tab")).toBe("chats");
   await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", ctrlKey: true })); });
@@ -1169,4 +1171,38 @@ it("switches to Chats, shows unread, opens with Ctrl+1 and marks the row read", 
   await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true })); });
   await settle();
   expect(mocks.setSessionUnread).toHaveBeenCalledWith("side-frodo", false, "frodo");
+});
+
+it("creates a project worktree on first send, shows failure and retries without losing the draft", async () => {
+  let attempts = 0;
+  mocks.fetchJSON.mockImplementation(async (url, init) => {
+    if (url.startsWith("/api/mobile/projects")) return { projects: [{ id: "p_qa", label: "QA repo", path: "/qa/repo" }], supported: true };
+    if (url === "/api/mobile/workspace") {
+      attempts++;
+      if (attempts === 1) throw new Error("Branch already exists");
+      expect(JSON.parse(String(init?.body))).toEqual({ profile: "frodo", project_id: "p_qa", mode: "worktree", branch: "feat/qa-flow" });
+      return { cwd: "/qa/repo/.worktrees/feat-qa-flow", branch: "feat/qa-flow" };
+    }
+    return { server_host: "testhost", client_on_server_host: false, profiles: {} };
+  });
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-home [aria-label="New conversation"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-bot-picker button') as HTMLButtonElement).click());
+  await settle();
+  expect(host.querySelector('.m-new-chat')?.textContent).toContain('New conversation with Frodo');
+  await act(async () => { const select = host.querySelector('#m-new-project') as HTMLSelectElement; select.value = 'p_qa'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => (Array.from(host.querySelectorAll('.m-new-mode button')).find(button => button.textContent === 'New worktree') as HTMLButtonElement).click());
+  await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'feat/qa-flow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => (host.querySelector('.m-composer .m-send') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-creation-progress [data-state="failed"]')?.textContent).toContain('Creating worktree');
+  expect(host.textContent).toContain('Branch already exists');
+  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Test first send');
+  expect(mocks.request).not.toHaveBeenCalledWith('session.create', expect.anything());
+  await act(async () => (host.querySelector('.m-creation-error button') as HTMLButtonElement).click());
+  expect(mocks.request).toHaveBeenCalledWith('session.create', { profile: 'frodo', source: 'mobile', close_on_disconnect: false, cwd: '/qa/repo/.worktrees/feat-qa-flow' });
+  expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { profile: 'frodo', session_id: 'new-runtime', text: 'Test first send' });
+  expect(host.querySelector('.m-creation-progress')?.textContent).toContain('Bot is working');
+  expect(attempts).toBe(2);
 });

@@ -436,6 +436,10 @@ async def _pty_fail(ws: WebSocket, exc: BaseException) -> None:
     await ws.close(code=1011)
 
 
+from hermes_cli.web_mobile_workspace import router as mobile_workspace_router
+
+router.include_router(mobile_workspace_router)
+
 @router.get("/api/bot-terminal/capabilities")
 async def bot_terminal_capabilities(request: Request) -> dict:
     """Server-owned backend hints; the browser never chooses a host or cwd."""

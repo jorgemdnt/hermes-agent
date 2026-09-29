@@ -15,7 +15,7 @@ cd web && npm run build && cd ..
 .venv/bin/python skills/software-development/verify-hermetic/scripts/fixture.py start
 ```
 
-The command prints the disposable dashboard URL and CDP port, not the fixture password. It creates `default` and `atlas` bots, a long-title transcript, an unread conversation, a localhost link targeting the fixture, and a read-only fixture file. It launches the installed app with `open -g -n` and a separate `HERMETIC_USER_DATA`; never bring a user's window forward. If `start` says a fixture exists, run `doctor` rather than creating another. A healthy launch exposes `/login` on the fixture loopback port and writes a private `fixture.json` (mode 0600) under `~/.hermes/cache/scratch/hermetic-v2/qa/`.
+The command prints the disposable dashboard URL and CDP port, not the fixture password. It creates `default` and `atlas` bots, registered Orion/Nebula projects (Orion is a committed throwaway Git repository), a long-title transcript, an unread conversation, a localhost link targeting the fixture, and a read-only fixture file. It launches the installed app with `open -g -n` and a separate `HERMETIC_USER_DATA`; never bring a user's window forward. If `start` says a fixture exists, run `doctor` rather than creating another. A healthy launch exposes `/login` on the fixture loopback port and writes a private `fixture.json` (mode 0600) under `~/.hermes/cache/scratch/hermetic-v2/qa/`.
 
 ```sh
 QA="$HOME/.hermes/cache/scratch/hermetic-v2/qa"

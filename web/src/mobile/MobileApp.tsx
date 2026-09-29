@@ -35,6 +35,7 @@ import { showBotScreen, type BotTerminalCapabilities } from "./bot-terminal-rule
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { HomeSwitch, type HomeTab } from "./HomeSwitch";
 import { ChatsPanel, ChatsToolbar } from "./ChatsPanel";
+import { NewChatSetup, type CreationProgress, type ProjectChoice, type WorkspaceMode } from "./NewChatSetup";
 import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
@@ -55,6 +56,7 @@ interface SessionSnapshot {
   inflight?: { assistant?: string; user?: string; streaming?: boolean } | null;
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+const branchForMessage = (message: string) => `feat/${message.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 42) || "chat"}`;
 const profileFromUrl = () => new URLSearchParams(window.location.search).get("profile") || "";
 const chatKey = (profile: string, session: string) => `${profile}/${session}`;
 const HOME_TAB_KEY = "hermes-mobile-home-tab";
@@ -220,6 +222,28 @@ export default function MobileApp() {
   const [helpOpen, setHelpOpen] = useState(false);
   const forcedUnread = useRef("");
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectChoice[]>([]);
+  const [projectSupported, setProjectSupported] = useState(true);
+  const [projectReason, setProjectReason] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
+  const [branchName, setBranchName] = useState("");
+  const [creation, setCreation] = useState<CreationProgress | null>(null);
+  const preparedWorkspace = useRef("");
+  const desiredProjectPath = useRef("");
+  useEffect(() => {
+    if (view !== "chat" || selected || !profile) return;
+    let active = true;
+    setProjects([]);
+    void fetchJSON<{ projects: ProjectChoice[]; supported: boolean; reason?: string }>(`/api/mobile/projects?profile=${encodeURIComponent(profile)}`)
+      .then(result => {
+        if (!active) return;
+        setProjects(result.projects); setProjectSupported(result.supported); setProjectReason(result.reason || "");
+        setProjectId(result.projects.find(project => project.path === desiredProjectPath.current)?.id || "");
+        desiredProjectPath.current = "";
+      }).catch(e => { if (active) setProjectReason(`Projects unavailable: ${errorText(e)}`); });
+    return () => { active = false; };
+  }, [view, selected, profile]);
   const [messageAction, setMessageAction] = useState<{ text: string; key: string; scope: string } | null>(null);
   const [reactions, setReactions] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(window.localStorage.getItem("hermes-mobile-reactions") || "{}"); } catch { return {}; }
@@ -585,6 +609,7 @@ export default function MobileApp() {
           else if (kind === "compacted") setWorking("");
         }
         if (ev.type === "message.complete") {
+          setCreation(null);
           const outcome = ev.payload as { status?: string; error?: string } | undefined;
           if (outcome?.status === "error" || outcome?.status === "interrupted") {
             setError(outcome.error || (outcome.status === "interrupted" ? "The turn was interrupted." : "The turn failed."));
@@ -870,6 +895,9 @@ export default function MobileApp() {
       } catch (e) { setError(errorText(e)); return; }
     }
     const session = targetSession;
+    setCreation(null);
+    preparedWorkspace.current = "";
+    if (!session) { setWorkspaceMode("local"); setBranchName(""); }
     if (name !== profile) {
       selectedRef.current = session;
       chatRef.current = null;
@@ -922,9 +950,23 @@ export default function MobileApp() {
     let optimistic = false;
     let optimisticText = "";
     let uploadingFile = "";
+    let creationStep: CreationProgress["step"] = "chat";
     try {
       if (!target) {
-        const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false });
+        let cwd = preparedWorkspace.current;
+        if (projectId && !cwd) {
+          creationStep = workspaceMode === "worktree" ? "worktree" : "chat";
+          setCreation({ step: creationStep });
+          const prepared = await fetchJSON<{ cwd: string; branch: string | null }>("/api/mobile/workspace", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ profile, project_id: projectId, mode: workspaceMode, branch: workspaceMode === "worktree" ? (branchName.trim() || branchForMessage(message)) : null }),
+          });
+          cwd = prepared.cwd;
+          preparedWorkspace.current = cwd;
+        }
+        creationStep = "chat";
+        setCreation({ step: "chat" });
+        const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false, ...(cwd ? { cwd } : {}) });
         target = { runtimeId: created.session_id, storedId: created.stored_session_id || created.session_id, rows: [], draft: "", running: false };
         skipResume.current = target.storedId;
         chatRef.current = target;
@@ -986,6 +1028,7 @@ export default function MobileApp() {
         await gw.request("prompt.submit", { session_id: fresh.runtimeId, profile, text: submitted });
       }
       staged.length = 0;
+      if (creation || creationStep === "chat" && !chat) { setCreation({ step: "working" }); preparedWorkspace.current = ""; }
       for (const photo of photos) URL.revokeObjectURL(photo.preview);
       const sentKey = chatKey(profile, target.storedId);
       setComposerDrafts(current => ({ ...current, [composerKey]: emptyDraft(), [sentKey]: emptyDraft() }));
@@ -993,6 +1036,7 @@ export default function MobileApp() {
       window.localStorage.removeItem(draftStorageKey(sentKey));
       setUploadStatus(current => ({ ...current, [composerKey]: {}, [sentKey]: {} }));
     } catch (e) {
+      if (!chat || creation) setCreation({ step: creationStep, error: errorText(e) });
       if (uploadingFile) markUpload(composerKey, uploadingFile, `Upload failed: ${errorText(e)}`);
       if (staged.length && target) {
         const runtimeId = target.runtimeId;
@@ -1178,6 +1222,11 @@ export default function MobileApp() {
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
     name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} desktop={desktop} />;
+  const setup = (compact = false) => <NewChatSetup bot={name} projects={projects} supported={projectSupported} reason={projectReason}
+    projectId={projectId} onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }}
+    mode={workspaceMode} onMode={mode => { setWorkspaceMode(mode); preparedWorkspace.current = ""; setCreation(null); }}
+    branch={branchName} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
+    progress={creation} onRetry={() => composerInput.current?.form?.requestSubmit()} compact={compact} />;
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
@@ -1194,6 +1243,18 @@ export default function MobileApp() {
       {homeTab === "chats" ? <>
         <ChatsToolbar sort={chatSort} onSort={chooseSort} grouped={chatsGrouped} onGrouped={chooseGrouped} />
         <ChatsPanel groups={chatView.groups} grouped={chatsGrouped} collapsed={collapsedGroups} onToggleGroup={toggleGroup} currentKey={view === "chat" ? chatKey(profile, selected) : ""} onOpen={openChat}
+          onNewInProject={group => { void (async () => {
+            const bot = group.chats[0]?.profile;
+            if (!bot) return;
+            try {
+              const choices = await fetchJSON<{ projects: ProjectChoice[]; supported: boolean; reason?: string }>(`/api/mobile/projects?profile=${encodeURIComponent(bot)}`);
+              if (!choices.supported) { toast.error(choices.reason || "Project workspaces are unavailable for this bot."); return; }
+              const project = choices.projects.find(item => item.path === group.key);
+              if (!project) { toast.error("This folder is not a registered project."); return; }
+              desiredProjectPath.current = project.path;
+              await selectProfile(bot, "");
+            } catch (e) { toast.error(`Could not open project: ${errorText(e)}`); }
+          })(); }}
           bots={{ label: botLabelFor, avatar: name => avatars[name] }} empty={searchOpen && searchQuery.trim() ? "No matching conversations." : "No conversations yet."} />
       </> : <>
       {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
@@ -1290,7 +1351,8 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
-              {!chat && !selected && <div className="m-empty"><span className="m-empty-avatar">{currentBot && avatar(currentBot)}</span><p>Start a conversation with {name}.</p></div>}
+              {!chat && !selected && setup()}
+              {!!selected && !!creation && setup(true)}
               {chat && groupNoticeRows(chat.rows).map((group, index, groups) => {
                 const previous = groups[index - 1]?.at(-1);
                 if (group.length > 1) return <details className="m-notice-group" key={index}>
