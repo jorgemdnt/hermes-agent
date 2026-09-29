@@ -29,8 +29,8 @@ function ChatRow({ chat, bots, current, onOpen }: { chat: Conversation; bots: Bo
   return <button type="button" className="m-chat-row" data-unread={chat.unread || undefined} aria-current={current ? "page" : undefined} onClick={() => onOpen(chat)}>
     <Avatar src={bots.avatar(chat.profile)} name={label} />
     <span className="m-bot-copy">
-      <span className="m-bot-heading"><strong>{chat.title}</strong><time>{activityTime(chat.lastActive)}</time></span>
-      <small>{label}{chat.preview ? ` · ${chat.preview}` : ""}</small>
+      <span className="m-bot-heading"><strong title={chat.title}>{chat.title}</strong></span>
+      <span className="m-chat-row-meta"><small>{label}{chat.preview ? ` · ${chat.preview}` : ""}</small><time>{activityTime(chat.lastActive)}</time></span>
     </span>
     {chat.unread ? <i className="m-unread-dot" role="img" aria-label="Unread" /> : <i className="m-unread-dot m-unread-none" aria-hidden="true" />}
   </button>;

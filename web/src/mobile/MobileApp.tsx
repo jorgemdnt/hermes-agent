@@ -39,7 +39,7 @@ import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
 import { RightSplit, type SplitTab } from "./RightSplit";
-import { fileLinkPath, localPreviewLink } from "./preview-links";
+import { conversationLocalLinks, fileLinkPath, localPreviewLink } from "./preview-links";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
 import "./mobile.css";
@@ -1367,7 +1367,7 @@ export default function MobileApp() {
       </AnimatePresence>
       {view === "chat" && <RightSplit open={splitOpen} width={splitWidth} onWidth={resizeSplit} onClose={() => setSplitOpen(false)}
         tab={splitTab === "screen" && !screenVisible ? "browser" : splitTab} onTab={setSplitTab}
-        browserUrl={browserUrl} onBrowserUrl={setBrowserUrl} filePath={filePath} profile={profile} session={selected}
+        browserUrl={browserUrl} onBrowserUrl={setBrowserUrl} suggestions={conversationLocalLinks(chat?.rows.map(row => row.text) || [])} filePath={filePath} profile={profile} session={selected}
         screen={screenVisible ? <MobileScreen gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : undefined} />}
       <BotTerminalDock profile={terminalProfile} session={terminalSession} open={terminalVisible} fullScreen={view === "terminal"}
       height={terminalHeight} onHeightChange={setTerminalHeight}

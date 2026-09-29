@@ -17,6 +17,17 @@ export function localPreviewLink(href: string): string | null {
   } catch { return null; }
 }
 
+export function conversationLocalLinks(messages: string[]): string[] {
+  const found = new Set<string>();
+  for (const text of messages) {
+    for (const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/[^\s)<>]*)?/gi)) {
+      const url = localPreviewLink(match[0].replace(/[.,;!?]+$/, ""));
+      if (url) found.add(url);
+    }
+  }
+  return [...found].slice(-5).reverse();
+}
+
 export function fileLinkPath(href: string, folder: string): string | null {
   let value: string;
   try { value = decodeURIComponent(href.trim().replace(/^file:\/\//, "")); }

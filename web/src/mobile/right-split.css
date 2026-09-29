@@ -14,6 +14,11 @@
 .m-split-address { display: flex; align-items: center; gap: 1px; flex: none; padding: 8px 6px; border-bottom: 1px solid var(--border); }
 .m-shell .m-split-address input { flex: 1; min-width: 0; height: 34px; min-height: 34px; padding: 6px 9px; border-radius: 8px; font-size: 12px; }
 .m-split-page { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+.m-split-page[hidden] { display: none; }
+.m-split-browser-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: var(--background); color: var(--muted-foreground); text-align: center; font-size: 13px; }
+.m-split-browser-empty p { margin: 0; max-width: 240px; }
+.m-split-suggestions { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.m-split-suggestions button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 8px 10px; border-radius: 8px; color: var(--foreground); background: var(--secondary); }
 .m-split-framing, .m-split-error, .m-split-empty { margin: 0; padding: 10px 14px; font-size: 12px; color: var(--muted-foreground); }
 .m-split-error { color: var(--destructive); }
 .m-split-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }

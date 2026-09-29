@@ -16,7 +16,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 const query = (profile: string, session: string, path: string, view: "list" | "content") =>
   `/api/bot-preview?${new URLSearchParams({ profile, session, path, view })}`;
 
-function BrowserPane({ address, onAddress }: { address: string; onAddress: (url: string) => void }) {
+function BrowserPane({ address, onAddress, suggestions }: { address: string; onAddress: (url: string) => void; suggestions: string[] }) {
   const [draft, setDraft] = useState<{ base: string; value: string } | null>(null);
   const [error, setError] = useState("");
   const [nav, setNav] = useState({ back: false, forward: false });
@@ -89,9 +89,11 @@ function BrowserPane({ address, onAddress }: { address: string; onAddress: (url:
     </form>
     {error && <p className="m-split-error" role="alert">{error}</p>}
     {!native && <p className="m-split-framing">Some sites refuse to load in a frame. If this stays blank, open it in your browser.</p>}
-    {native ? <div className="m-split-page">
+    {native && <div className="m-split-page" hidden={!address}>
       <webview ref={node => { guest.current = node as Guest | null; }} src="about:blank" partition={partition} style={{ width: "100%", height: "100%" }} />
-    </div> : address ? <iframe key={frameKey} className="m-split-page" title="Browser preview" src={address} sandbox="allow-forms allow-scripts allow-popups" referrerPolicy="no-referrer" /> : <p className="m-split-empty">Enter an address or open a localhost link from chat.</p>}
+    </div>}
+    {!address && <div className="m-split-browser-empty"><Globe2 size={24} aria-hidden="true" /><p>Enter an address, or open a localhost link from this conversation.</p>{suggestions.length > 0 && <div className="m-split-suggestions">{suggestions.map(url => <button type="button" key={url} title={url} onClick={() => visit(url)}>{url}</button>)}</div>}</div>}
+    {!native && address && <iframe key={frameKey} className="m-split-page" title="Browser preview" src={address} sandbox="allow-forms allow-scripts allow-popups" referrerPolicy="no-referrer" />}
   </div>;
 }
 
@@ -158,9 +160,9 @@ function FilesPane({ profile, session, requestedPath }: { profile: string; sessi
   </div>;
 }
 
-export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserUrl, onBrowserUrl, filePath, profile, session, screen }: {
+export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserUrl, onBrowserUrl, suggestions, filePath, profile, session, screen }: {
   open: boolean; width: number; onWidth: (width: number) => void; onClose: () => void; tab: SplitTab; onTab: (tab: SplitTab) => void;
-  browserUrl: string; onBrowserUrl: (url: string) => void; filePath: string; profile: string; session: string; screen?: ReactNode;
+  browserUrl: string; onBrowserUrl: (url: string) => void; suggestions: string[]; filePath: string; profile: string; session: string; screen?: ReactNode;
 }) {
   const initial = useRef<{ x: number; width: number } | null>(null);
   if (!open) return null;
@@ -169,7 +171,7 @@ export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserU
     <div className="m-split-resize" role="separator" tabIndex={0} aria-label="Resize right split" aria-orientation="vertical" aria-valuenow={width} onPointerDown={event => { initial.current = { x: event.clientX, width }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (initial.current) onWidth(clamp(initial.current.width + initial.current.x - event.clientX)); }} onPointerUp={() => { initial.current = null; }} onPointerCancel={() => { initial.current = null; }} onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); onWidth(clamp(width + (event.key === "ArrowLeft" ? 24 : -24))); } }} />
     <div className="m-split-header"><div role="tablist" aria-label="Right split views">{(["browser", "files", ...(screen ? ["screen"] : [])] as SplitTab[]).map(item => <button type="button" role="tab" aria-selected={tab === item} key={item} onClick={() => onTab(item)}>{item === "browser" ? <Globe2 size={16} /> : item === "files" ? <FileText size={16} /> : <Monitor size={16} />}{item[0].toUpperCase() + item.slice(1)}</button>)}</div><button type="button" aria-label="Close right split" onClick={onClose}><X size={18} /></button></div>
     <div className="m-split-body" role="tabpanel" aria-label={tab}>
-      <div className="m-split-tab-pane" hidden={tab !== "browser"}><BrowserPane address={browserUrl} onAddress={onBrowserUrl} /></div>
+      <div className="m-split-tab-pane" hidden={tab !== "browser"}><BrowserPane address={browserUrl} onAddress={onBrowserUrl} suggestions={suggestions} /></div>
       {tab === "files" && <FilesPane key={`${profile}/${session}/${filePath}`} profile={profile} session={session} requestedPath={filePath} />}
       {tab === "screen" && screen}
     </div>

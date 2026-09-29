@@ -905,6 +905,7 @@ it("opens the phone's full-screen split from the chat header with a Screen tab",
   await act(async () => (host.querySelector('[aria-label="Open right split"]') as HTMLButtonElement).click());
   expect(window.location.pathname).toContain('/m/chat/');
   expect(host.querySelector('.m-right-split')).not.toBeNull();
+  expect(host.querySelector('.m-split-browser-empty')?.textContent).toContain('Enter an address');
   const address = host.querySelector('[aria-label="Browser address"]') as HTMLInputElement;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(address, 'localhost:9119');
