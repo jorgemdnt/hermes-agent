@@ -452,3 +452,13 @@
 .m-shell :is(.m-pinned-bot, .m-bot-main)[aria-current="page"] { background: var(--secondary); opacity: 1; }
 .m-shell .m-bot-main[aria-current="page"] { border-radius: 10px; }
 .m-shell .m-pinned-bot[aria-current="page"] { border-radius: 12px; }
+
+/* Markdown inside chat bubbles: inline code and tables follow the bubble's own colours
+   and wrap inside it instead of spilling past the right edge. */
+.m-bubble { overflow-wrap: anywhere; }
+.m-bubble:has(.m-table-scroll, .m-code-block) { width: 100%; }
+.m-shell .m-bubble :not(pre) > code { background: color-mix(in srgb, currentColor 9%, transparent) !important; color: inherit !important; border-radius: 6px; padding: 1px 5px; font-size: .88em; white-space: break-spaces; }
+.m-bubble .m-table-scroll { border-color: color-mix(in srgb, currentColor 14%, transparent); background: transparent; }
+.m-bubble .m-table-scroll table { min-width: 0; table-layout: auto; }
+.m-bubble .m-table-scroll th { background: color-mix(in srgb, currentColor 6%, transparent); }
+.m-bubble .m-table-scroll :is(th, td) { max-width: none; border-color: color-mix(in srgb, currentColor 12%, transparent); vertical-align: top; }
