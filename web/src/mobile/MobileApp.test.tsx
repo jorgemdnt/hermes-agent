@@ -905,6 +905,14 @@ it("opens the phone's full-screen split from the chat header with a Screen tab",
   await act(async () => (host.querySelector('[aria-label="Open right split"]') as HTMLButtonElement).click());
   expect(window.location.pathname).toContain('/m/chat/');
   expect(host.querySelector('.m-right-split')).not.toBeNull();
+  const address = host.querySelector('[aria-label="Browser address"]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(address, 'localhost:9119');
+    address.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => (address.closest('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(host.querySelector('iframe[title="Browser preview"]')?.getAttribute('src')).toBe('http://localhost:9119/');
+  expect(host.querySelector('.m-split-framing')?.textContent).toContain('refuse');
   await act(async () => (host.querySelector('[role="tab"]:last-child') as HTMLButtonElement).click());
   expect(host.querySelector('[role="tabpanel"]')?.getAttribute('aria-label')).toBe('screen');
   expect(host.querySelector('[aria-label="Close right split"]')).not.toBeNull();
