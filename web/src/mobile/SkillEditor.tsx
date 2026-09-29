@@ -23,12 +23,12 @@ function at(root: HTMLElement, offset: number): Range {
   const visit = (node: Node): boolean => {
     if (node.nodeType === Node.TEXT_NODE) {
       const length = node.textContent?.length || 0;
-      if (offset <= position + length) { range.setStart(node, offset - position); return true; }
+      if (offset < position + length) { range.setStart(node, offset - position); return true; }
       position += length; return false;
     }
     if (node instanceof HTMLElement && node.dataset.skill) {
       const length = node.dataset.skill.length;
-      if (offset <= position + length) { range.setStartBefore(node); return true; }
+      if (offset < position + length) { range.setStartBefore(node); return true; }
       position += length; return false;
     }
     for (const child of Array.from(node.childNodes)) if (visit(child)) return true;
@@ -41,6 +41,22 @@ function at(root: HTMLElement, offset: number): Range {
   range.collapse(true);
   return range;
 }
+function skillPill(token: string): HTMLElement {
+  const chip = document.createElement("span");
+  chip.className = "m-skill-pill";
+  chip.contentEditable = "false";
+  chip.dataset.skill = token;
+  chip.setAttribute("aria-label", `Skill ${token.slice(1)}`);
+  const icon = document.createElement("span");
+  icon.className = "m-skill-pill-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>';
+  const label = document.createElement("span");
+  label.textContent = token.slice(1);
+  chip.append(icon, label);
+  return chip;
+}
+
 function paint(root: HTMLElement, value: string, picked: string[]) {
   root.replaceChildren();
   const names = new Set(picked);
@@ -51,13 +67,7 @@ function paint(root: HTMLElement, value: string, picked: string[]) {
     if (!names.has(token)) continue;
     const start = match.index! + match[1].length;
     root.append(document.createTextNode(value.slice(last, start)));
-    const chip = document.createElement("span");
-    chip.className = "m-skill-pill";
-    chip.contentEditable = "false";
-    chip.dataset.skill = token;
-    chip.setAttribute("aria-label", `Skill ${token.slice(1)}`);
-    chip.textContent = token;
-    root.append(chip);
+    root.append(skillPill(token));
     last = start + token.length;
   }
   root.append(document.createTextNode(value.slice(last)));
@@ -93,9 +103,7 @@ export const SkillEditor = forwardRef<SkillEditorHandle, {
       range.setStart(before.startContainer, before.startOffset);
       range.setEnd(after.startContainer, after.startOffset);
       range.deleteContents();
-      const chip = document.createElement("span");
-      chip.className = "m-skill-pill"; chip.contentEditable = "false";
-      chip.dataset.skill = name; chip.setAttribute("aria-label", `Skill ${name.slice(1)}`); chip.textContent = name;
+      const chip = skillPill(name);
       range.insertNode(chip);
       const space = document.createTextNode(" "); chip.after(space);
       el.focus();
