@@ -58,7 +58,18 @@ def client_on_server_host(client_ip: str | None) -> bool:
         if peer.is_loopback:
             return True
         addresses = socket.getaddrinfo(socket.gethostname(), None)
-        return any(peer == ipaddress.ip_address(str(item[4][0]).split("%")[0]) for item in addresses)
+        if any(peer == ipaddress.ip_address(str(item[4][0]).split("%")[0]) for item in addresses):
+            return True
+        # MagicDNS hostname lookups omit the host's Tailscale utun address.
+        # Uvicorn's trusted proxy headers expose that address as the peer when
+        # a desktop browser opens the dashboard through Tailscale Serve.
+        try:
+            import psutil
+        except ImportError:
+            return False
+        return any(peer == ipaddress.ip_address(address.address.split("%")[0])
+                   for interface in psutil.net_if_addrs().values()
+                   for address in interface if address.family in {socket.AF_INET, socket.AF_INET6})
     except (ValueError, OSError):
         return False
 

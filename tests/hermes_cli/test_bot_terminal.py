@@ -1,4 +1,6 @@
 import pytest
+import socket
+from types import SimpleNamespace
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -14,6 +16,13 @@ def test_local_shell_uses_configured_cwd(tmp_path):
     assert argv[-1] == "-l"
     assert client_on_server_host("127.0.0.1")
     assert not client_on_server_host("198.51.100.10")
+
+
+def test_tailnet_interface_counts_as_this_server(monkeypatch):
+    import psutil
+    monkeypatch.setattr(psutil, "net_if_addrs", lambda: {"utun9": [SimpleNamespace(family=socket.AF_INET, address="100.121.114.44")]})
+    assert client_on_server_host("100.121.114.44")
+    assert not client_on_server_host("100.121.114.45")
 
 
 def test_ssh_shell_uses_backend_identity_not_a_host_path():
