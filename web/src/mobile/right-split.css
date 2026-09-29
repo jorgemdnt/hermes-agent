@@ -38,5 +38,5 @@
 .m-split-code .hljs-string, .m-split-code .hljs-attr { color: #218047; }
 .m-split-code .hljs-number, .m-split-code .hljs-literal { color: #ad6928; }
 .m-split-code .hljs-comment { color: var(--muted-foreground); }
-@media (min-width: 900px) { .m-shell .m-detail.m-with-split { right: var(--m-split-width); width: calc(100% - 320px - var(--m-split-width)); } }
-@media (max-width: 899px) { .m-right-split { position: absolute; inset: 0; width: 100%; min-width: 0; z-index: 12; padding-bottom: env(safe-area-inset-bottom); box-shadow: none; } .m-split-resize { display: none; } }
+@media (min-width: 1360px) { .m-shell .m-detail.m-with-split { right: var(--m-split-width); width: calc(100% - var(--m-sidebar-width) - var(--m-split-width)); } }
+@media (max-width: 1359px) { .m-right-split { position: absolute; inset: 0; width: 100%; min-width: 0; z-index: 12; padding-bottom: env(safe-area-inset-bottom); box-shadow: none; } .m-split-resize { display: none; } }

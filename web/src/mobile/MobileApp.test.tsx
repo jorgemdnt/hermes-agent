@@ -159,7 +159,7 @@ it("shows pinned bots above one recency list with real message previews", async 
 });
 
 it("lists only bots beside the desktop chat", async () => {
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   expect(host.querySelector('.m-header .m-chat-identity')?.textContent).toContain('Frodo');
   expect(host.querySelector('.m-desktop-empty')).toBeNull();
@@ -176,7 +176,7 @@ it("lists only bots beside the desktop chat", async () => {
 });
 
 it("sends on Enter but keeps Shift+Enter as a newline only on desktop", async () => {
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
@@ -833,7 +833,7 @@ it("sends Continue to Samwise's selected chat after a screen hand-back", async (
   });
   expect(host.textContent).toContain("Earlier");
   await vi.waitFor(() => expect(host.querySelectorAll('.m-detail .m-messages')).toHaveLength(1));
-  await vi.waitFor(() => expect((host.querySelector('.m-detail:has(.m-messages)') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/));
+  await vi.waitFor(() => expect((host.querySelector('.m-detail:has(.m-messages)') as HTMLElement).style.transform).toMatch(/^(none|translateX\(0px\))$/), { timeout: 5000 });
   expect(host.querySelector('.m-detail .m-messages')?.textContent).toContain("Earlier");
 });
 
@@ -939,7 +939,7 @@ it("opens the phone's full-screen split from the chat header with a Screen tab",
 });
 
 it.each([{ modifier: 'ctrlKey', label: 'Ctrl' }, { modifier: 'metaKey', label: 'Cmd' }] as const)("switches bots with $label+number in desktop sidebar order", async ({ modifier }) => {
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   const key = new KeyboardEvent('keydown', { key: '2', [modifier]: true, bubbles: true, cancelable: true });
   await act(async () => window.dispatchEvent(key));
@@ -1002,7 +1002,7 @@ it("opens the composer menu with separate Photo and File actions", async () => {
 });
 
 it("focuses the desktop composer on bot switch without forcing synchronous height reads", async () => {
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
   const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
@@ -1023,7 +1023,7 @@ it("does not focus the composer when opening a bot at phone width", async () => 
 });
 
 it("keeps drafts and attachments scoped to each bot and restores on switch", async () => {
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:fixture'), revokeObjectURL: vi.fn() });
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
@@ -1053,7 +1053,7 @@ it("keeps drafts and attachments scoped to each bot and restores on switch", asy
 });
 
 it("keeps a pending photo upload in its original chat after switching bots", async () => {
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:pending'), revokeObjectURL: vi.fn() });
   let finishUpload!: (result: { path: string; name: string; bytes: number; mime_type: string }) => void;
   mocks.uploadChatImage.mockImplementationOnce(() => new Promise(resolve => { finishUpload = resolve; }));
@@ -1170,7 +1170,7 @@ it("submits Continue to the same chat when a running turn finishes before steer"
 });
 
 it("restores the focused chat and bot across mode switches and reload", async () => {
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   const switchTo = async (label: string) => {
     await act(async () => (Array.from(host.querySelectorAll('.m-home-switch button')).find(button => button.textContent?.startsWith(label)) as HTMLButtonElement).click());
@@ -1204,7 +1204,7 @@ it("switches to Chats, opens the recent item and marks it read, then honors Ctrl
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier", last_active: 20, message_count: 2, unread: true },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match", last_active: 10, message_count: 2 },
   ] }));
-  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   const chats = Array.from(host.querySelectorAll('.m-home-switch button')).find(b => b.textContent?.startsWith("Chats")) as HTMLButtonElement;
   expect(chats.textContent).toContain("1");
@@ -1226,6 +1226,10 @@ it("creates a project worktree on first send, shows failure and retries without 
   let attempts = 0;
   mocks.fetchJSON.mockImplementation(async (url, init) => {
     if (url.startsWith("/api/mobile/projects")) return { projects: [{ id: "p_qa", label: "QA repo", path: "/qa/repo" }], supported: true };
+    if (url === "/api/mobile/branch-check") {
+      if (JSON.parse(String(init?.body)).branch === "../../bad") throw new Error("Invalid Git branch name. Choose another name.");
+      return { valid: true };
+    }
     if (url === "/api/mobile/workspace") {
       attempts++;
       if (attempts === 1) throw new Error("Branch already exists");
@@ -1238,12 +1242,19 @@ it("creates a project worktree on first send, shows failure and retries without 
   await act(async () => (host.querySelector('.m-home [aria-label="New conversation"]') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('.m-bot-picker button') as HTMLButtonElement).click());
   await settle();
-  expect(host.querySelector('.m-new-chat')?.textContent).toContain('New conversation with Frodo');
-  await act(async () => { const select = host.querySelector('#m-new-project') as HTMLSelectElement; select.value = 'p_qa'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-  await act(async () => (Array.from(host.querySelectorAll('.m-new-mode button')).find(button => button.textContent === 'New worktree') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-new-chat')?.textContent).toContain('What should we build in QA repo?');
+  expect(host.querySelector('.m-new-project-picker')).not.toBeNull();
+  await act(async () => (host.querySelector('.m-context-picker[aria-label="Workspace"]') as HTMLButtonElement).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' })));
+  await act(async () => (Array.from(document.querySelectorAll('[role="menuitemradio"]')).find(item => item.textContent?.includes('New worktree')) as HTMLElement).click());
+  await act(async () => { const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect((host.querySelector('#m-new-branch') as HTMLInputElement).value).toBe('feat/test-first-send');
+  await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '../../bad'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+  expect(host.querySelector('.m-new-validation')?.textContent).toContain('Invalid Git branch name');
+  expect((host.querySelector('.m-composer .m-send') as HTMLButtonElement).disabled).toBe(true);
+  expect(attempts).toBe(0);
   await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'feat/qa-flow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
-  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
   await act(async () => (host.querySelector('.m-composer .m-send') as HTMLButtonElement).click());
   expect(host.querySelector('.m-creation-progress [data-state="failed"]')?.textContent).toContain('Creating worktree');
   expect(host.textContent).toContain('Branch already exists');

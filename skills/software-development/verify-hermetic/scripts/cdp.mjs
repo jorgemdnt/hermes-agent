@@ -77,8 +77,11 @@ try {
     }
     case 'key': {
       const key = rest[0], modifiers = Number(rest[1] || 0);
-      await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, modifiers });
-      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, modifiers });
+      const enter = key === 'Enter';
+      const fields = enter ? { key, code: key, modifiers, windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 36 } : { key, code: key, modifiers };
+      await send('Input.dispatchKeyEvent', { type: enter ? 'rawKeyDown' : 'keyDown', ...fields });
+      if (enter) await send('Input.dispatchKeyEvent', { type: 'char', ...fields, text: '\r', unmodifiedText: '\r' });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...fields });
       console.log(`${key} ${modifiers}`); break;
     }
     case 'resize': await send('Emulation.setDeviceMetricsOverride', { width: Number(rest[0]), height: Number(rest[1]), deviceScaleFactor: 1, mobile: Number(rest[0]) < 600 }); console.log(rest.join('x')); break;
