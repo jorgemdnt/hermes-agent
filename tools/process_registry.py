@@ -34,6 +34,7 @@ from hermes_cli.config import get_hermes_home
 
 from tools.process_registry_notifications import format_process_notification
 from tools.process_registry_checkpoint import ProcessCheckpointMixin
+from tools.process_registry_lifecycle import record_process_exit
 from tools.process_registry_results import load_completed_results, save_completed_result
 
 logger = logging.getLogger(__name__)
@@ -1415,6 +1416,7 @@ class ProcessRegistry(ProcessCheckpointMixin):
             session.mark_exited(-1, "failed_start", "failed_start")
             session.output_buffer = f"Failed to start: {e}"
         if session.exited:
+            record_process_exit(session)
             with self._lock:
                 self._prune_if_needed()
         else:
@@ -1698,6 +1700,8 @@ class ProcessRegistry(ProcessCheckpointMixin):
                 save_completed_result(session)
                 self._running.pop(session.id)
             self._finished[session.id] = session
+        if was_running:
+            record_process_exit(session)
         # Release the retained Popen/PTY handles now: otherwise every
         # finished-but-unpruned session keeps its stdout pipe (or PTY master)
         # FD open until FINISHED_TTL_SECONDS elapses, and heavy background
@@ -2296,6 +2300,7 @@ class ProcessRegistry(ProcessCheckpointMixin):
             # so the durable record matches what the caller was told.
             if not self._move_to_finished(session):
                 save_completed_result(session)
+                record_process_exit(session)
             self._write_checkpoint()
             return {
                 "status": "killed", "session_id": session.id, "completion_reason": session.completion_reason,

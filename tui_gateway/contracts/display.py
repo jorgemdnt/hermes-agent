@@ -56,6 +56,7 @@ class DisplayStatus(Result):
     geometry: str
     install_command: str | None = None
     browser: str | None = None
+    transport: str | None = None  # rfb by default; jpeg for the default profile's local Mac screen
     blocker: str | None = None  # why display.start would refuse now (host memory); the pane shows it instead of Start
     memory_available_mb: int | None = None
     memory_limit_mb: int | None = None

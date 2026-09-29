@@ -86,7 +86,10 @@ async def display_ws(ws: WebSocket) -> None:
     if info is None:
         await ws.close(code=_CLOSE_BAD_TICKET, reason="display ticket missing, expired or used")
         return
-    await _bridge(ws, info)
+    if info.get("transport") == "jpeg":
+        await _bridge_mac(ws, info)
+    else:
+        await _bridge(ws, info)
 
 
 async def _open_rfb(profile_home: Path):
@@ -241,4 +244,90 @@ async def _bridge(ws: WebSocket, info: dict) -> None:
         try:
             await ws.close()
         except Exception:  # already closed by the peer or by an eviction
+            pass
+
+
+def _local_mac_home() -> str:
+    from pathlib import Path
+    return str(Path.home() / ".hermes")
+
+
+async def _bridge_mac(ws: WebSocket, info: dict) -> None:
+    """Ticketed JPEG frames for the default profile's physical Mac; lease-gated input."""
+    import json
+    from pathlib import Path
+    from tools.bot_desktop import lease as _lease, mac
+
+    home = str(Path(info["hermes_home"]).resolve())
+    if home != _local_mac_home() or not mac.enabled():
+        await ws.close(code=_CLOSE_NOT_ALLOWED, reason="Mac screen is only available to the default profile")
+        return
+    viewer_id = str(info.get("viewer_id") or "")
+    viewer_closed = asyncio.Event()
+    size = [0, 0, 0, 0]
+    held = {"ever": _lease.viewer_may_send_input(viewer_id, profile_key=home)}
+    evicted = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def on_lease(key: str, value) -> None:
+        from hermes_constants import hermes_home_key
+        if key == hermes_home_key(home) and _should_evict(held, value, viewer_id):
+            loop.call_soon_threadsafe(evicted.set)
+    unsubscribe = _lease.on_change(on_lease)
+
+    async def frames() -> None:
+        while True:
+            try:
+                frame, width, height, raw_width, raw_height = await asyncio.to_thread(mac.capture)
+            except Exception as exc:
+                await ws.send_text(json.dumps({"error": str(exc)[:300]}))
+                return
+            size[:] = [width, height, raw_width, raw_height]
+            await ws.send_text(json.dumps({"width": width, "height": height}))
+            await ws.send_bytes(frame)
+            await asyncio.sleep(0.7)
+
+    async def input_events() -> None:
+        while True:
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                if message.get("code") in _CLEAN_CLOSE:
+                    viewer_closed.set()
+                return
+            text = message.get("text")
+            if text is None or len(text) > 4096 or not all(size):
+                continue
+            try:
+                event = json.loads(text)
+                if not isinstance(event, dict) or event.get("type") not in {"click", "move", "scroll", "text", "key"}:
+                    continue
+                # Read immediately before each action. Never trust the client's viewOnly flag.
+                if not _lease.viewer_may_send_input(viewer_id, profile_key=home):
+                    continue
+                await asyncio.to_thread(mac.input_event, event, frame_size=tuple(size))
+            except (ValueError, TypeError) as exc:
+                await ws.send_text(json.dumps({"error": str(exc)[:300]}))
+            except Exception as exc:
+                await ws.send_text(json.dumps({"error": f"Mac input failed: {exc}"[:300]}))
+
+    async def watch_eviction() -> None:
+        await evicted.wait()
+        await ws.close(code=_CLOSE_CONTROL_TAKEN, reason="control-taken")
+
+    tasks = [asyncio.create_task(frames()), asyncio.create_task(input_events()), asyncio.create_task(watch_eviction())]
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            if not task.cancelled() and task.exception():
+                _log.warning("Mac screen stream ended: %s", task.exception())
+    finally:
+        unsubscribe()
+        if viewer_closed.is_set() and _lease.viewer_may_send_input(viewer_id, profile_key=home):
+            _lease.release(viewer_id, profile_key=home)
+        try:
+            await ws.close()
+        except Exception:
             pass

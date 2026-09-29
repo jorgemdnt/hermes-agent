@@ -800,10 +800,14 @@ def run_fenced_pair(session_info: Dict[str, Any], fn: Callable[[], "tuple[str, D
 
 
 def _shares_bot_desktop_browser(session_info: Dict[str, Any]) -> bool:
-    """Decided by provenance, not transport: every LOCAL session (plain ``--session``, real-profile CDP
-    attach, Lightpanda) is a browser Hermes launched with this profile's Bot Desktop DISPLAY, so it is the
-    screen a human who took over is typing into. Cloud / user-supplied CDP sessions are another browser.
-    A human lease with the screen already gone (dead Xvnc) still fences — computer_use does the same."""
+    """The browser on this profile's screen, whether local or the opt-in remote SSH CDP endpoint.
+
+    A configured remote endpoint is fenced only when it matches the forwarded loopback port; an
+    unrelated user-supplied CDP connection still belongs to its owner, not the screen lease.
+    """
+    from tools.bot_desktop import remote as _bd_remote
+    if _bd_remote.is_shared_cdp(session_info):
+        return True
     if not (session_info.get("features") or {}).get("local"):
         return False
     from tools.bot_desktop import lease as _bd_lease, runtime as _bd_runtime
@@ -812,7 +816,7 @@ def _shares_bot_desktop_browser(session_info: Dict[str, Any]) -> bool:
 
 def _bot_desktop_attach_port(session_info: Dict[str, Any]) -> Optional[int]:
     """DevTools port of a human-started Chromium on the Bot Desktop's shared profile, else ``None``."""
-    if not _shares_bot_desktop_browser(session_info):
+    if not (session_info.get("features") or {}).get("local") or not _shares_bot_desktop_browser(session_info):
         return None
     from tools.bot_desktop import browser as _bd_browser
     return _bd_browser.running_instance_cdp_port(str(_bd_browser.profile_dir()),

@@ -343,6 +343,48 @@ def test_bearer_authenticates_gated_route_without_cookie(gated_client):
 
 
 
+def test_native_session_exchange_sets_normal_cookie_and_is_single_use(gated_client):
+    verifier, challenge = _make_pkce()
+    code, state = _walk_native_login(
+        gated_client, redirect_uri="http://127.0.0.1:53999/cb",
+        challenge=challenge, state="desktop-state",
+    )
+    assert state == "desktop-state"
+    response = gated_client.post(
+        "/auth/native/session", json={"code": code, "code_verifier": verifier})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert "access_token" not in response.text
+    assert "__Host-hermes_session_at" in response.headers["set-cookie"]
+    assert gated_client.get("/api/auth/me").json()["user_id"] == "stub-user-1"
+    assert gated_client.post(
+        "/auth/native/session", json={"code": code, "code_verifier": verifier}
+    ).status_code == 400
+
+
+def test_native_session_wrong_verifier_consumes_code(gated_client):
+    verifier, challenge = _make_pkce()
+    code, _ = _walk_native_login(
+        gated_client, redirect_uri="http://127.0.0.1:53999/cb", challenge=challenge)
+    assert gated_client.post(
+        "/auth/native/session", json={"code": code, "code_verifier": "wrong"}
+    ).status_code == 400
+    assert gated_client.post(
+        "/auth/native/session", json={"code": code, "code_verifier": verifier}
+    ).status_code == 400
+
+
+def test_native_session_expired_code(gated_client, monkeypatch):
+    verifier, challenge = _make_pkce()
+    code, _ = _walk_native_login(
+        gated_client, redirect_uri="http://127.0.0.1:53999/cb", challenge=challenge)
+    now = time.time()
+    monkeypatch.setattr(native_flow.time, "time", lambda: now + 61)
+    assert gated_client.post(
+        "/auth/native/session", json={"code": code, "code_verifier": verifier}
+    ).status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # Capability advertisement on /api/status
 # ---------------------------------------------------------------------------

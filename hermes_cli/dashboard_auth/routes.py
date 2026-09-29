@@ -8,8 +8,9 @@ allowlists the public ones.
   GET  /auth/native/authorize  RFC 8252 native-app (desktop) login start
   GET  /auth/callback          completes login, sets session cookies
   POST /auth/password-login    username/password login (JSON)
-  POST /auth/logout            clears cookies, best-effort revoke
+  POST /auth/logout            revokes the upstream grant (best-effort), clears cookies
   POST /auth/native/token      loopback code -> bearer tokens
+  POST /auth/native/session    loopback code -> normal dashboard cookies
   POST /auth/native/refresh    desktop-held refresh token rotation
   GET  /api/auth/providers     list registered providers (login bootstrap)
   GET  /api/auth/me            current Session as JSON (auth-required)
@@ -18,6 +19,7 @@ allowlists the public ones.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import defaultdict, deque
@@ -25,7 +27,7 @@ from typing import Any, Deque, Dict
 from urllib.parse import quote, unquote, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -34,10 +36,11 @@ from hermes_cli.dashboard_auth import (
 from hermes_cli.dashboard_auth import prefix as _prefix_mod
 from hermes_cli.dashboard_auth.audit import AuditEvent, audit_log
 from hermes_cli.dashboard_auth.base import (
-    InvalidCodeError, InvalidCredentialsError, ProviderError, Session)
+    AccountNotAllowedError, InvalidCodeError, InvalidCredentialsError, ProviderError, Session)
 from hermes_cli.dashboard_auth.cookies import (
     clear_pkce_cookie, clear_session_cookies, clear_sso_attempt_cookie, detect_https,
-    parse_pkce_payload, read_pkce_cookie, read_session_cookies, set_pkce_cookie,
+    parse_pkce_payload, read_pkce_cookie, read_session_browser_id, read_session_cookies,
+    set_pkce_cookie, set_sso_attempt_cookie,
     set_session_cookies)
 from hermes_cli.dashboard_auth.login_page import (
     render_login_html, render_native_provider_choice_html)
@@ -105,6 +108,7 @@ def _set_session(resp, request: Request, session: Session) -> None:
         resp, access_token=session.access_token, refresh_token=session.refresh_token,
         access_token_expires_in=access_token_max_age(session), use_https=detect_https(request),
         prefix=_prefix(request), provider=session.provider)
+    clear_sso_attempt_cookie(resp, prefix=_prefix(request))
 
 
 def _bearer_payload(session: Session) -> dict[str, Any]:
@@ -226,6 +230,13 @@ def _validate_loopback_redirect_uri(raw: str) -> str:
         raise _http(400, "native redirect_uri must be http:// on the loopback interface")
     if (parsed.hostname or "").lower() not in ("127.0.0.1", "::1"):
         raise _http(400, "native redirect_uri host must be a loopback IP literal (127.0.0.1 / ::1)")
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if (not port or parsed.username or parsed.password or parsed.fragment or parsed.query or
+            not parsed.path.startswith("/")):
+        raise _http(400, "native redirect_uri must be a loopback URL with a port and path")
     return raw
 
 
@@ -249,8 +260,10 @@ async def auth_native_authorize(
     go to the ``/login`` form instead."""
     if code_challenge_method.upper() != "S256":
         raise _http(400, "code_challenge_method must be S256")
-    if not code_challenge:
-        raise _http(400, "code_challenge required")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", code_challenge):
+        raise _http(400, "code_challenge must be S256 base64url")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", state):
+        raise _http(400, "state must be URL-safe")
     _validate_loopback_redirect_uri(redirect_uri)
     p = _select_native_provider(provider)
     if p is None and not provider:
@@ -315,6 +328,9 @@ async def auth_callback(
     except InvalidCodeError as e:
         _login_failure(request, provider_name, "invalid_code")
         raise _http(400, f"Invalid code: {e}")
+    except AccountNotAllowedError:
+        _login_failure(request, provider_name, "account_not_allowed")
+        raise _http(403, "Account not allowed")
     except ProviderError as e:
         _login_failure(request, provider_name, "provider_unreachable")
         raise _http(503, f"Provider unreachable: {e}")
@@ -420,13 +436,17 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
 
 @router.post("/auth/logout", name="auth_logout")
 async def auth_logout(request: Request):
-    _at, rt = read_session_cookies(request)
-    # Best-effort revoke on every provider; failures logged, never raised.
-    for provider in list_providers() if rt else ():
-        try:
-            provider.revoke_session(refresh_token=rt)
-        except Exception as e:  # noqa: BLE001 — best-effort
-            _log.warning("dashboard-auth: revoke on %r failed: %s", provider.name, e)
+    from hermes_cli.dashboard_auth.local_logout import revoke
+    access, refresh = read_session_cookies(request)
+    # Preserve the dashboard's upstream-revoking logout contract. The mobile
+    # app uses /api/mobile/logout to leave other browsers' grants untouched.
+    if refresh:
+        for provider in list_providers():
+            try:
+                provider.revoke_session(refresh_token=refresh)
+            except Exception as e:  # noqa: BLE001 — best-effort
+                _log.warning("dashboard-auth: revoke on %r failed: %s", provider.name, e)
+    revoke(access or "", refresh or "", read_session_browser_id(request))
     sess = getattr(request.state, "session", None)
     _audit(request, AuditEvent.LOGOUT, provider=(sess.provider if sess else "unknown"),
            user_id=(sess.user_id if sess else ""))
@@ -434,6 +454,7 @@ async def auth_logout(request: Request):
     resp = RedirectResponse(url=f"{prefix}/login", status_code=302)
     clear_session_cookies(resp, prefix=prefix)
     clear_pkce_cookie(resp, use_https=detect_https(request), prefix=prefix)
+    set_sso_attempt_cookie(resp, use_https=detect_https(request), prefix=prefix, signed_out=True)
     return resp
 
 
@@ -450,9 +471,38 @@ def _require_session(request: Request):
 async def api_auth_me(request: Request):
     """Return the verified session as JSON. Auth-required (gate enforces)."""
     sess = _require_session(request)
+    from hermes_cli.dashboard_auth.avatar import google_picture_url
     return {
         "user_id": sess.user_id, "email": sess.email, "display_name": sess.display_name,
-        "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at}
+        "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at,
+        "picture": f"{_prefix(request)}/api/auth/avatar" if google_picture_url(sess.picture) else ""}
+
+@router.get("/api/auth/avatar", name="auth_avatar")
+async def api_auth_avatar(request: Request):
+    from hermes_cli.dashboard_auth.avatar import fetch_avatar
+    sess = _require_session(request)
+    image, media_type = await fetch_avatar(sess.picture)
+    return Response(image, media_type=media_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/api/mobile/logout", name="mobile_logout")
+async def mobile_logout(request: Request):
+    """Clear this browser's cookies without revoking the other devices' Google grant."""
+    sess = _require_session(request)
+    from hermes_cli.dashboard_auth.local_logout import revoke
+    from hermes_constants import get_process_hermes_home
+    from plugins.mobile.push import unsubscribe_browser
+    access, refresh = read_session_cookies(request)
+    browser_id = read_session_browser_id(request)
+    if browser_id:
+        unsubscribe_browser(get_process_hermes_home(), sess.user_id, browser_id)
+    revoke(access or "", refresh or "", browser_id)
+    _audit(request, AuditEvent.LOGOUT, provider=sess.provider, user_id=sess.user_id)
+    response = JSONResponse({"ok": True})
+    clear_session_cookies(response, prefix=_prefix(request))
+    clear_pkce_cookie(response, use_https=detect_https(request), prefix=_prefix(request))
+    set_sso_attempt_cookie(response, use_https=detect_https(request), prefix=_prefix(request), signed_out=True)
+    return response
 
 
 @router.post("/api/auth/ws-ticket", name="auth_ws_ticket")
@@ -461,7 +511,14 @@ async def api_auth_ws_ticket(request: Request):
     ``Authorization`` on the upgrade); one ticket per WS."""
     sess = _require_session(request)
     from hermes_cli.dashboard_auth.ws_tickets import TTL_SECONDS, mint_ticket
-    ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider)
+    from hermes_cli.dashboard_auth.local_logout import _digest, browser_epoch
+    access, _ = read_session_cookies(request)
+    browser_id = read_session_browser_id(request)
+    ticket = mint_ticket(user_id=sess.user_id, provider=sess.provider,
+                         extra={"session_expires_at": sess.expires_at,
+                                "email": sess.email, "browser_id": browser_id,
+                                "access_digest": _digest(access) if access else None,
+                                "browser_epoch": browser_epoch(browser_id) if browser_id else None})
     _audit(request, AuditEvent.WS_TICKET_MINTED, provider=sess.provider, user_id=sess.user_id)
     return {"ticket": ticket, "ttl_seconds": TTL_SECONDS}
 
@@ -486,6 +543,24 @@ async def auth_native_token(request: Request, body: _NativeTokenBody):
     _audit(request, AuditEvent.NATIVE_TOKEN_SUCCESS, provider=session.provider,
            user_id=session.user_id)
     return _bearer_payload(session)
+
+
+@router.post("/auth/native/session", name="auth_native_session")
+async def auth_native_session(request: Request, body: _NativeTokenBody):
+    """Redeem the same one-time PKCE code into the dashboard's normal HttpOnly cookies.
+
+    The webview's session cookie jar stores the response; tokens never enter page JS.
+    """
+    try:
+        session = native_flow.redeem_code(code=body.code, code_verifier=body.code_verifier)
+    except (native_flow.CodeInvalid, UnicodeEncodeError):
+        _audit(request, AuditEvent.NATIVE_TOKEN_FAILURE, reason="invalid_code_or_pkce")
+        raise _http(400, "Invalid or expired authorization code.")
+    resp = JSONResponse({"ok": True}, headers=_NO_STORE)
+    _set_session(resp, request, session)
+    _audit(request, AuditEvent.NATIVE_TOKEN_SUCCESS, provider=session.provider,
+           user_id=session.user_id)
+    return resp
 
 
 class _NativeRefreshBody(BaseModel):

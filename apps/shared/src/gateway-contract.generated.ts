@@ -4248,6 +4248,14 @@ export interface SecretRequestParams {
   prompt: string
   metadata?: Record<string, unknown> | null
 }
+export interface GeneralSecretParams {
+  session_id: string
+  name: string
+  reason: string
+  destination: Record<string, unknown>
+  requester: string
+  expires_at: number
+}
 export interface VaultUnlockRequestParams {
   session_id: string
   backend: string
@@ -5473,6 +5481,8 @@ export interface ServerRequestMap {
   'preview.read': { params: ReadRangeRequestParams; result: ValueResult }
   /** Masked value for a named env var (skills / setup flows). */
   secret: { params: SecretRequestParams; result: ValueResult }
+  /** One-time authenticated phone secret, bound to the server-side destination. */
+  'secret.request': { params: GeneralSecretParams; result: ValueResult }
   /** Masked sudo password for the terminal tool. */
   sudo: { params: SudoRequestParams; result: ValueResult }
   /** Read the visible in-app terminal buffer (JSON text answer). */
@@ -5496,6 +5506,7 @@ export const SERVER_REQUEST_METHODS = [
   'preview.act',
   'preview.read',
   'secret',
+  'secret.request',
   'sudo',
   'terminal.read',
   'tour',

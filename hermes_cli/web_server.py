@@ -340,6 +340,8 @@ def _get_pty_active_session_files(app: "FastAPI") -> dict[str, Path]:
 
 
 app = FastAPI(title="Hermes Agent", version=get_version_info().base_version, lifespan=_lifespan)
+from hermes_cli.dashboard_auth.socket_expiry import SessionSocketExpiry  # noqa: E402
+app.add_middleware(SessionSocketExpiry)
 
 
 # Memory-provider OAuth connect routes live in the memory layer, not here.
@@ -1585,6 +1587,9 @@ def start_server(
         if not config.loaded:
             config.load()
         server.lifespan = config.lifespan_class(config)
+        from tui_gateway.exit_telemetry import install_uvicorn_exit_telemetry, record_host_exit
+
+        install_uvicorn_exit_telemetry(server)
         with server.capture_signals():
             await server.startup()
             if server.should_exit:
@@ -1602,6 +1607,8 @@ def start_server(
             )
 
             await server.main_loop()
+            # A caught signal already recorded itself; this covers a stop with none.
+            record_host_exit("shutdown")
             if server.started:
                 await server.shutdown()
 

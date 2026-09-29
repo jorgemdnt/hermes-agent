@@ -339,16 +339,17 @@ class TestRateLimit:
 
 class TestLoginPageRender:
 
-    def test_oauth_only_page_stays_script_free(self):
+    def test_oauth_only_page_has_native_bridge_without_password_script(self):
         clear_providers()
         register_provider(StubAuthProvider())
         try:
             html = render_login_html()
             assert "provider-btn" in html
-            assert "<script>" not in html
-            # No password FORM element rendered (the .provider-form CSS
-            # rule lives in the template's <style> block unconditionally;
-            # what must be absent is an actual rendered form + its script).
+            assert 'data-native-provider="stub"' in html
+            assert "window.hermetic.signIn" in html
+            assert "window.hermetic ||" in html
+            # Browser without the preload bridge follows the ordinary href.
+            assert 'href="/auth/login?provider=stub"' in html
             assert '<form class="provider-form"' not in html
             assert "/auth/password-login" not in html
         finally:

@@ -7,19 +7,32 @@ import { I18nProvider } from "./i18n";
 import { exposePluginSDK } from "./plugins";
 import { ThemeProvider } from "./themes";
 import { HERMES_BASE_PATH } from "./lib/api";
+import MobileRoot from "./mobile/MobileRoot";
 
 // Expose the plugin SDK before rendering so plugins loaded via <script>
 // can access React, components, etc. immediately.
 exposePluginSDK();
 
+const mobileRoute = /^\/m(?:\/|$)/.test(window.location.pathname.slice(HERMES_BASE_PATH.length));
+if (mobileRoute) {
+  document.documentElement.classList.add("mobile-document");
+  const saved = window.localStorage.getItem("hermes-mobile-theme");
+  const dark = saved === "dark" || (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0a0a0a" : "#ffffff");
+}
+
 createRoot(document.getElementById("root")!).render(
   <BrowserRouter basename={HERMES_BASE_PATH || undefined}>
-    <I18nProvider>
-      <ThemeProvider>
-        <SystemActionsProvider>
-          <App />
-        </SystemActionsProvider>
-      </ThemeProvider>
-    </I18nProvider>
+    {mobileRoute ? (
+      <MobileRoot />
+    ) : (
+      <I18nProvider>
+        <ThemeProvider>
+          <SystemActionsProvider>
+            <App />
+          </SystemActionsProvider>
+        </ThemeProvider>
+      </I18nProvider>
+    )}
   </BrowserRouter>,
 );

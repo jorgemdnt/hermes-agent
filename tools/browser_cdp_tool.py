@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from tools.registry import registry, tool_error
 from tools.browser_extension_router import routed_browser_handler
@@ -207,6 +207,14 @@ async def _cdp_call(ws_url: str, method: str, params: Dict[str, Any], target_id:
         return msg.get("result", {})
 
 
+def _fenced_cdp_result(endpoint: str, fn: Callable[[], str]) -> str:
+    """Fence only the profile's forwarded screen endpoint, including results from a raced takeover."""
+    from tools.browser_tool_session import run_fenced
+    result = run_fenced({"features": {"cdp_override": True}, "cdp_url": endpoint},
+                        lambda: {"raw": fn()})
+    return result["raw"] if "raw" in result else json.dumps(result, ensure_ascii=False)
+
+
 def _browser_cdp_via_supervisor(task_id: str, frame_id: str, method: str, params: Optional[Dict[str, Any]],
                                 timeout: float) -> str:
     """Route a CDP call through the live supervisor session for an OOPIF frame."""
@@ -221,7 +229,12 @@ def _browser_cdp_via_supervisor(task_id: str, frame_id: str, method: str, params
         return tool_error(f"No CDP supervisor is attached for task={task_id!r}. Call browser_navigate or "
                           "/browser connect first so the supervisor can attach. Once attached, browser_snapshot "
                           "will populate frame_tree with frame_ids you can pass here.")
+    return _fenced_cdp_result(supervisor.cdp_url, lambda: _cdp_on_supervisor(
+        supervisor, frame_id, method, params, timeout))
 
+
+def _cdp_on_supervisor(supervisor: Any, frame_id: str, method: str,
+                       params: Optional[Dict[str, Any]], timeout: float) -> str:
     tree = supervisor.snapshot().frame_tree
     frame_info: Optional[Dict[str, Any]] = next(
         (f for f in [tree.get("top"), *(tree.get("children") or [])] if f and f.get("frame_id") == frame_id), None)
@@ -291,7 +304,13 @@ def browser_cdp(method: str, params: Optional[Dict[str, Any]] = None, target_id:
     if not isinstance(call_params, dict):
         return tool_error(f"'params' must be an object/dict, got {type(call_params).__name__}")
 
-    blocked = _browser_cdp_private_guard(task_id=effective_task_id, method=method, params=call_params)
+    return _fenced_cdp_result(endpoint, lambda: _browser_cdp_direct(
+        endpoint, method, call_params, target_id, timeout, effective_task_id))
+
+
+def _browser_cdp_direct(endpoint: str, method: str, call_params: Dict[str, Any],
+                        target_id: Optional[str], timeout: float, task_id: str) -> str:
+    blocked = _browser_cdp_private_guard(task_id=task_id, method=method, params=call_params)
     if blocked:
         return blocked
 

@@ -13807,6 +13807,46 @@
         "title": "GatewayReadyPayload",
         "type": "object"
       },
+      "GeneralSecretParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "destination": {
+            "additionalProperties": true,
+            "title": "Destination",
+            "type": "object"
+          },
+          "requester": {
+            "title": "Requester",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "session_id",
+          "name",
+          "reason",
+          "destination",
+          "requester",
+          "expires_at"
+        ],
+        "title": "GeneralSecretParams",
+        "type": "object"
+      },
       "GoalContractSnapshot": {
         "additionalProperties": false,
         "description": "``hermes_cli/goals.py::GoalContract.to_dict``.",
@@ -38065,6 +38105,24 @@
           "name": "params",
           "schema": {
             "$ref": "#/components/schemas/SecretRequestParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ValueResult"
+        }
+      }
+    },
+    {
+      "name": "secret.request",
+      "summary": "One-time authenticated phone secret, bound to the server-side destination.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/GeneralSecretParams"
           }
         }
       ],

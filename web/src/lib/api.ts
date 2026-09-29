@@ -402,6 +402,12 @@ function appendSessionFilters(url: string, options: SessionQueryOptions): string
   return appendProfileParam(next, options.profile);
 }
 
+const MOBILE_CONVERSATION_EXCLUDED_SOURCES = [
+  "cron", "kanban", "oneshot", "subagent", "tool", "telegram", "discord", "slack", "mattermost",
+  "matrix", "signal", "whatsapp", "bluebubbles", "photon", "homeassistant", "email", "sms",
+  "webhook", "api_server", "weixin", "wecom", "qqbot", "yuanbao", "dingtalk", "feishu",
+].join(",");
+
 export const api = {
   buildWsUrl,
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
@@ -437,6 +443,19 @@ export const api = {
       window.location.assign("/login");
       return r;
     }),
+  transcribeAudio: (dataUrl: string, mimeType: string, profile: string) =>
+    fetchJSON<{ ok: boolean; transcript: string }>(
+      appendProfileParam("/api/audio/transcribe", profile),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data_url: dataUrl, mime_type: mimeType }),
+      },
+    ),
+  getAllProfileSessions: (limit = 200, archived: "exclude" | "only" = "exclude") =>
+    fetchJSON<PaginatedSessions>(
+      `/api/profiles/sessions?limit=${limit}&offset=0&min_messages=1&archived=${archived}&order=recent&profile=all&exclude_sources=${encodeURIComponent(MOBILE_CONVERSATION_EXCLUDED_SOURCES)}`,
+    ),
   getSessions: (
     limit = 20,
     offset = 0,
@@ -451,13 +470,14 @@ export const api = {
       ),
     );
   },
-  getSessionMessages: (id: string, profile = getManagementProfile()) =>
-    fetchJSON<SessionMessagesResponse>(
-      appendProfileParam(
-        `/api/sessions/${encodeURIComponent(id)}/messages?limit=500&order=latest`,
-        profile,
-      ),
-    ),
+  getSessionMessages: (id: string, profile = getManagementProfile(), page: { limit?: number; offset?: number; order?: "latest" | "oldest"; includeCompacted?: boolean } = {}) => {
+    const query = new URLSearchParams({ limit: String(page.limit ?? 500), order: page.order ?? "latest" });
+    if (page.offset !== undefined) query.set("offset", String(page.offset));
+    if (page.includeCompacted !== undefined) query.set("include_compacted", String(page.includeCompacted));
+    return fetchJSON<SessionMessagesResponse>(
+      appendProfileParam(`/api/sessions/${encodeURIComponent(id)}/messages?${query}`, profile),
+    );
+  },
   getSessionDetail: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -514,6 +534,33 @@ export const api = {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, profile: profile || undefined }),
+      },
+    ),
+  setSessionArchived: (id: string, archived: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; archived: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived, profile }),
+      },
+    ),
+  setSessionUnread: (id: string, unread: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; unread: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unread, profile }),
+      },
+    ),
+  setSessionPinned: (id: string, pinned: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; pinned: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned, profile }),
       },
     ),
   getSessionStats: (profile = getManagementProfile()) =>
@@ -924,13 +971,13 @@ export const api = {
         method: "DELETE",
       },
     ),
-  startOAuthLogin: (providerId: string) =>
+  startOAuthLogin: (providerId: string, append = false) =>
     fetchJSON<OAuthStartResponse>(
       `/api/providers/oauth/${encodeURIComponent(providerId)}/start`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify(append ? { append: true } : {}),
       },
     ),
   submitOAuthCode: (providerId: string, sessionId: string, code: string) =>
@@ -1251,6 +1298,22 @@ export const api = {
       },
     ),
 
+  // Subscription inventory and provider quota (60-second server cache).
+  getSubscriptions: (fresh = false, sessionId?: string) =>
+    fetchJSON<SubscriptionsResponse>(`/api/subscriptions${fresh || sessionId ? `?${new URLSearchParams({ ...(fresh ? { fresh: "true" } : {}), ...(sessionId ? { session_id: sessionId } : {}) })}` : ""}`),
+  startClaudeSubscriptionLogin: () =>
+    fetchJSON<{ session_id: string; status: string }>("/api/subscriptions/claude/login", { method: "POST" }),
+  pollClaudeSubscriptionLogin: (session: string) =>
+    fetchJSON<{ status: string }>(`/api/subscriptions/claude/login/${encodeURIComponent(session)}`),
+  cancelClaudeSubscriptionLogin: (session: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/subscriptions/claude/login/${encodeURIComponent(session)}`, { method: "DELETE" }),
+  removeClaudeSubscription: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/subscriptions/claude/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setCredentialPoolStrategy: (provider: string, strategy: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/credentials/pool/${encodeURIComponent(provider)}/strategy`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }),
+    }),
+
   // ── Admin: Credential pool ──────────────────────────────────────────
   getCredentialPool: () =>
     fetchJSON<{ providers: CredentialPoolProvider[] }>("/api/credentials/pool"),
@@ -1453,6 +1516,7 @@ export interface AuthMeResponse {
   org_id: string;
   provider: string;
   expires_at: number;
+  picture: string;
 }
 
 /** Preflight for `hermes gateway migrate --multiplex` (mirrors the CLI plan JSON). */
@@ -1767,6 +1831,33 @@ export interface WebhookCreate {
   deliver?: string;
   deliver_only?: boolean;
   deliver_chat_id?: string;
+}
+
+export interface SubscriptionWindow {
+  used_percent: number;
+  reset_at: string | null;
+}
+
+export interface SubscriptionEntry {
+  id: string;
+  index: number | null;
+  account: string;
+  plan: string | null;
+  status: "active" | "rate-limited" | "needs re-login";
+  windows: { five_hour?: SubscriptionWindow; weekly?: SubscriptionWindow };
+  in_use: boolean;
+  last_used?: boolean;
+}
+
+export interface SubscriptionProvider {
+  provider: string;
+  strategy: string;
+  rotation_supported: boolean;
+  entries: SubscriptionEntry[];
+}
+
+export interface SubscriptionsResponse {
+  providers: SubscriptionProvider[];
 }
 
 export interface CredentialPoolEntry {
@@ -2099,11 +2190,16 @@ export interface SessionInfo {
   last_active: number;
   is_active: boolean;
   message_count: number;
+  pinned?: boolean;
   tool_call_count: number;
   input_tokens: number;
   output_tokens: number;
   preview: string | null;
   parent_session_id?: string | null;
+  /** Derived read state (last_read_at watermark vs last_active). */
+  unread?: boolean;
+  cwd?: string | null;
+  git_repo_root?: string | null;
   /** Owning profile stamped by the list/detail endpoints (the store the row
    * was read from). Absent on search-endpoint rows, which carry no stamp. */
   profile?: string;

@@ -1064,10 +1064,16 @@ def _(rid, params: dict) -> dict:
     if err:
         return err
     current = str(params.get("current_session_id") or "")
+    requested_profile = str(params.get("profile") or "").strip()
+    try:
+        profile_home = _profile_home(requested_profile) if requested_profile else _ANY_PROFILE
+    except ProfileUnavailableError as exc:
+        return _err(rid, 4007, str(exc))
     # ``_finalized`` sessions linger until the reaper pops them (they inflated the footer). Do NOT filter on
     # the WS-detached sentinel: detached is attachable until grace-reap, and ``hermes --tui`` rides stdio.
     # Keep insertion order (focused must not jump).
-    rows = [_session_live_item(sid, session, current) for sid, session in snapshot if not session.get("_finalized")]
+    rows = [_session_live_item(sid, session, current) for sid, session in snapshot
+            if not session.get("_finalized") and _live_profile_matches(session, profile_home)]
     return _ok(rid, {"sessions": rows})
 
 

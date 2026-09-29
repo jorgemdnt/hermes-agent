@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
 
 /**
  * Lightweight markdown renderer for LLM output.
@@ -9,20 +10,25 @@ import { useMemo, type ReactNode } from "react";
  * appears to hug the final character instead of wrapping onto a new line
  * after a block element (paragraph/list/code/…).
  */
+const FileLinkContext = createContext<((path: string) => void) | null>(null);
+
 export function Markdown({
   content,
   highlightTerms,
   streaming,
+  onFileLink,
 }: {
   content: string;
   highlightTerms?: string[];
   streaming?: boolean;
+  onFileLink?: (path: string) => void;
 }) {
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const caret = streaming ? <StreamingCaret /> : null;
 
   return (
-    <div className="text-sm text-foreground leading-relaxed space-y-2">
+    <FileLinkContext.Provider value={onFileLink || null}>
+    <div className="m-markdown text-sm text-foreground leading-relaxed space-y-2">
       {blocks.map((block, i) => (
         <Block
           key={i}
@@ -33,6 +39,7 @@ export function Markdown({
       ))}
       {blocks.length === 0 && caret}
     </div>
+    </FileLinkContext.Provider>
   );
 }
 
@@ -40,7 +47,7 @@ function StreamingCaret() {
   return (
     <span
       aria-hidden
-      className="inline-block w-[0.5em] h-[1em] ml-0.5 align-[-0.15em] bg-foreground/50 animate-pulse"
+      className="m-streaming-caret inline-block w-[0.5em] h-[1em] ml-0.5 align-[-0.15em] bg-foreground/50 animate-pulse"
     />
   );
 }
@@ -53,8 +60,35 @@ type BlockNode =
   | { type: "code"; lang: string; content: string }
   | { type: "heading"; level: number; content: string }
   | { type: "hr" }
-  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "list"; ordered: boolean; start: number; items: Array<{ text: string; nested: BlockNode[] }> }
+  | { type: "table"; header: string[]; rows: string[][] }
+  | { type: "quote"; blocks: BlockNode[] }
   | { type: "paragraph"; content: string };
+
+const listMarker = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/;
+const tableDivider = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/;
+const cells = (line: string) => line.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map(cell => cell.trim().replaceAll("\\|", "|"));
+
+function parseList(lines: string[], from: number): { block: BlockNode; next: number } {
+  const first = lines[from].match(listMarker)!;
+  const indent = first[1].length;
+  const ordered = /^\d/.test(first[2]);
+  const items: Array<{ text: string; nested: BlockNode[] }> = [];
+  let i = from;
+  while (i < lines.length) {
+    const match = lines[i].match(listMarker);
+    if (!match || match[1].length !== indent || /^\d/.test(match[2]) !== ordered) break;
+    const text = match[3];
+    const childLines: string[] = [];
+    i++;
+    while (i < lines.length && (lines[i].trim() === "" && /^\s+\S/.test(lines[i + 1] || "") || /^\s+\S/.test(lines[i]) && (lines[i].match(/^\s*/)?.[0].length || 0) > indent)) {
+      childLines.push(lines[i].slice(Math.min(lines[i].match(/^\s*/)?.[0].length || 0, indent + 2)));
+      i++;
+    }
+    items.push({ text, nested: parseBlocks(childLines.join("\n")) });
+  }
+  return { block: { type: "list", ordered, start: ordered ? parseInt(first[2], 10) : 1, items }, next: i };
+}
 
 /* ------------------------------------------------------------------ */
 /*  Block parser                                                       */
@@ -83,6 +117,30 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
+    // Table (the separator, not a pipe in prose, determines the shape).
+    if (line.includes("|") && tableDivider.test(lines[i + 1] || "")) {
+      const header = cells(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(cells(lines[i++]));
+      blocks.push({ type: "table", header, rows });
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quoted: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) quoted.push(lines[i++].replace(/^>\s?/, ""));
+      blocks.push({ type: "quote", blocks: parseBlocks(quoted.join("\n")) });
+      continue;
+    }
+
+    if (listMarker.test(line)) {
+      const list = parseList(lines, i);
+      blocks.push(list.block);
+      i = list.next;
+      continue;
+    }
+
     // Heading
     const headingMatch = line.match(/^(#{1,4})\s+(.+)/);
     if (headingMatch) {
@@ -102,28 +160,6 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
-    // Unordered list
-    if (/^[-*+]\s/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^[-*+]\s/, ""));
-        i++;
-      }
-      blocks.push({ type: "list", ordered: false, items });
-      continue;
-    }
-
-    // Ordered list
-    if (/^\d+[.)]\s/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+[.)]\s/, ""));
-        i++;
-      }
-      blocks.push({ type: "list", ordered: true, items });
-      continue;
-    }
-
     // Empty line
     if (line.trim() === "") {
       i++;
@@ -137,8 +173,9 @@ function parseBlocks(text: string): BlockNode[] {
       lines[i].trim() !== "" &&
       !lines[i].match(/^```/) &&
       !lines[i].match(/^#{1,4}\s/) &&
-      !lines[i].match(/^[-*+]\s/) &&
-      !lines[i].match(/^\d+[.)]\s/) &&
+      !lines[i].match(/^>\s?/) &&
+      !(lines[i].includes("|") && tableDivider.test(lines[i + 1] || "")) &&
+      !listMarker.test(lines[i]) &&
       !lines[i].match(/^[-*_]{3,}\s*$/)
     ) {
       paraLines.push(lines[i]);
@@ -156,6 +193,14 @@ function parseBlocks(text: string): BlockNode[] {
 /*  Block renderer                                                     */
 /* ------------------------------------------------------------------ */
 
+function CodeBlock({ content, lang, caret }: { content: string; lang: string; caret?: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  return <div className="m-code-block">
+    <div className="m-code-header"><span>{lang || "Code"}</span><button type="button" aria-label="Copy code" onClick={() => void navigator.clipboard.writeText(content).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1800); }).catch(() => setCopied(false))}>{copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}{copied ? "Copied" : "Copy"}</button></div>
+    <pre className="bg-secondary/60 border border-border px-3 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto"><code>{content}{caret}</code></pre>
+  </div>;
+}
+
 function Block({
   block,
   highlightTerms,
@@ -167,14 +212,7 @@ function Block({
 }) {
   switch (block.type) {
     case "code":
-      return (
-        <pre className="bg-secondary/60 border border-border px-3 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
-          <code>
-            {block.content}
-            {caret}
-          </code>
-        </pre>
-      );
+      return <CodeBlock content={block.content} lang={block.lang} caret={caret} />;
 
     case "heading": {
       const Tag = `h${Math.min(block.level, 4)}` as "h1" | "h2" | "h3" | "h4";
@@ -204,19 +242,24 @@ function Block({
       const Tag = block.ordered ? "ol" : "ul";
       const last = block.items.length - 1;
       return (
-        <Tag
-          className={`space-y-0.5 ${block.ordered ? "list-decimal" : "list-disc"} pl-5 text-sm`}
-        >
-          {block.items.map((item, i) => (
-            <li key={i}>
-              <InlineContent text={item} highlightTerms={highlightTerms} />
-              {i === last ? caret : null}
-            </li>
-          ))}
+        <Tag start={block.ordered ? block.start : undefined} className={`space-y-0.5 ${block.ordered ? "list-decimal" : "list-disc"} pl-5 text-sm`}>
+          {block.items.map((item, i) => <li key={i}>
+            <InlineContent text={item.text} highlightTerms={highlightTerms} />
+            {item.nested.map((child, j) => <Block key={j} block={child} highlightTerms={highlightTerms} />)}
+            {i === last ? caret : null}
+          </li>)}
         </Tag>
       );
     }
 
+    case "table":
+      return <div className="m-table-scroll" role="region" aria-label="Markdown table" tabIndex={0}>
+        <table><thead><tr>{block.header.map((cell, i) => <th key={i} scope="col"><InlineContent text={cell} highlightTerms={highlightTerms} /></th>)}</tr></thead>
+          <tbody>{block.rows.map((row, i) => <tr key={i}>{block.header.map((_, j) => <td key={j}><InlineContent text={row[j] || ""} highlightTerms={highlightTerms} />{i === block.rows.length - 1 && j === block.header.length - 1 ? caret : null}</td>)}</tr>)}</tbody>
+        </table>
+      </div>;
+    case "quote":
+      return <blockquote>{block.blocks.map((child, i) => <Block key={i} block={child} highlightTerms={highlightTerms} caret={i === block.blocks.length - 1 ? caret : null} />)}</blockquote>;
     case "paragraph":
       return (
         <p>
@@ -290,6 +333,7 @@ function InlineContent({
   highlightTerms?: string[];
 }) {
   const nodes = useMemo(() => parseInline(text), [text]);
+  const onFileLink = useContext(FileLinkContext);
 
   return (
     <>
@@ -315,7 +359,7 @@ function InlineContent({
           case "bold":
             return (
               <strong key={i} className="font-semibold">
-                <HighlightedText text={node.content} terms={highlightTerms} />
+                <InlineContent text={node.content} highlightTerms={highlightTerms} />
               </strong>
             );
           case "italic":
@@ -329,6 +373,9 @@ function InlineContent({
             // (javascript:, data:, vbscript:) are dropped to plain text so a
             // crafted link in agent/message content can't execute on click.
             const href = node.href.trim();
+            if (onFileLink && (/^file:\/\//i.test(href) || /^\.?\.?\//.test(href) || /^[\w.-]+\/[\w./%-]+$/.test(href))) {
+              return <button key={i} type="button" className="m-file-link" onClick={() => onFileLink(href)}>{node.text}</button>;
+            }
             if (!/^(https?:|mailto:)/i.test(href)) {
               return (
                 <HighlightedText

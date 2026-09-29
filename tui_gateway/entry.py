@@ -16,7 +16,8 @@ import traceback
 from contextlib import suppress
 
 from tui_gateway._env import env_float
-from tui_gateway._stdin_recovery import handle_spurious_eof
+from tui_gateway._stdin_recovery import MAX_RECOVERIES_PER_MINUTE, handle_spurious_eof
+from tui_gateway.exit_telemetry import drain_before_hard_exit, record_host_exit
 
 from tui_gateway import server
 from tui_gateway.event_replay import replay_epoch
@@ -107,6 +108,7 @@ def _hard_exit() -> None:
     with suppress(Exception):
         from tools.environments.base import kill_live_foreground_processes
         kill_live_foreground_processes(now=True)
+    drain_before_hard_exit()
     os._exit(0)
 
 
@@ -130,6 +132,9 @@ def _log_signal(signum: int, frame) -> None:
 
     _append_crash_log(f"{name} received · {time.strftime('%Y-%m-%d %H:%M:%S')}", _dump)
     print(f"[gateway-signal] {name}", file=sys.stderr, flush=True)
+    # Before the teardown below interrupts turns, so the line shows what the signal cut short.
+    with suppress(Exception):
+        record_host_exit("signal", signum=signum)
     # ``os._exit`` skips atexit but breaks the mid-flush deadlock; the crash log is the trail.
     timer = threading.Timer(_shutdown_grace_seconds(), _hard_exit)
     timer.daemon = True
@@ -321,6 +326,11 @@ def main():
         if not raw:
             # Spurious (child flipped O_NONBLOCK on the shared description) or genuine EOF?
             if not handle_spurious_eof(_recovery_times, _log_exit):
+                # The recovery cap is the only non-peer reason to stop reading here.
+                if len(_recovery_times) > MAX_RECOVERIES_PER_MINUTE:
+                    record_host_exit("stdin_recovery_exhausted", detail="spurious_eof_rate")
+                else:
+                    record_host_exit("parent_disconnect", detail="stdin_eof")
                 break
             continue
         line = raw.strip()

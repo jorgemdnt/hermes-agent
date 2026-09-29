@@ -28,11 +28,17 @@ _DISPLAY_ERR = 5300
 _lease_listener_installed = threading.Event()
 
 
-def _display_snapshot() -> dict:
+def _display_runtime() -> dict:
+    from tools.bot_desktop import mac, remote, runtime
+    cfg = remote.settings()
+    return remote.status(cfg) if cfg else mac.status() if mac.enabled() else runtime.status().as_dict()
+
+
+def _display_snapshot(runtime_snapshot: dict | None = None) -> dict:
     from hermes_constants import hermes_home_key
-    from tools.bot_desktop import lease as _bd_lease, runtime as _bd_runtime
-    st = _bd_runtime.status()
-    return {**st.as_dict(), "lease": _bd_lease.public_view(_bd_lease.get()), "profile_key": hermes_home_key()}
+    from tools.bot_desktop import lease as _bd_lease
+    return {**(runtime_snapshot if runtime_snapshot is not None else _display_runtime()),
+            "lease": _bd_lease.public_view(_bd_lease.get()), "profile_key": hermes_home_key()}
 
 
 def _install_lease_listener() -> None:
@@ -82,10 +88,17 @@ def _(rid, params: dict) -> dict:
 @_profile_scoped
 def _(rid, params: dict) -> dict:
     _install_lease_listener()
-    from tools.bot_desktop import runtime as _bd_runtime
+    from tools.bot_desktop import mac as _bd_mac, remote as _bd_remote, runtime as _bd_runtime
     try:
-        _bd_runtime.start()
-        return _ok(rid, _display_snapshot())
+        cfg = _bd_remote.settings()
+        if cfg:
+            snapshot = _bd_remote.start(cfg)
+        elif _bd_mac.enabled():
+            _bd_mac.capture()  # fail now with a useful permission error, not on the stream
+            snapshot = _bd_mac.status()
+        else:
+            snapshot = _bd_runtime.start().as_dict()
+        return _ok(rid, _display_snapshot(snapshot))
     except Exception as e:
         return _err(rid, _DISPLAY_ERR, str(e))
 
@@ -95,7 +108,9 @@ def _(rid, params: dict) -> dict:
 def _(rid, params: dict) -> dict:
     """Stopping kills the screen under whoever is on it, so it obeys the same rule as a bare
     display.lease.release: refused while a human holds unless the caller says ``force``."""
-    from tools.bot_desktop import lease as _bd_lease, runtime as _bd_runtime
+    from tools.bot_desktop import lease as _bd_lease, mac as _bd_mac, remote as _bd_remote, runtime as _bd_runtime
+    if _bd_mac.enabled() and not _bd_remote.settings():
+        return _err(rid, _DISPLAY_ERR, "The physical Mac screen cannot be stopped from a bot viewer")
     force = bool(params.get("force"))
     # Refusal and release are ONE lease transition: a takeover landing between a separate human_holds()
     # check and the release would be acknowledged to the human and then silently revoked here.
@@ -103,7 +118,12 @@ def _(rid, params: dict) -> dict:
         return _err(rid, _DISPLAY_ERR, "a human holds this screen; pass force: true to stop it anyway",
                     data={"code": "viewer_mismatch"})
     try:
-        stopped = _bd_runtime.stop()
+        cfg = _bd_remote.settings()
+        if cfg:
+            result = _bd_remote.stop(cfg)
+            stopped = result["stopped"]
+        else:
+            stopped = _bd_runtime.stop()
         return _ok(rid, {**_display_snapshot(), "stopped": stopped})
     except Exception as e:
         return _err(rid, _DISPLAY_ERR, str(e))
@@ -154,16 +174,23 @@ def _(rid, params: dict) -> dict:
     who passes it to ``display.lease.acquire`` / ``release``) so the lease can name the holder."""
     from hermes_constants import get_hermes_home
     from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
-    from tools.bot_desktop import runtime as _bd_runtime
+    from tools.bot_desktop import mac as _bd_mac, remote as _bd_remote, runtime as _bd_runtime
     try:
-        # The bridge dials either the host RFB socket or the sandbox relay; neither exists before start.
-        if _bd_runtime.rfb_socket_path() is None and not _bd_runtime.sandbox_screen_running():
+        cfg = _bd_remote.settings()
+        mac_screen = not cfg and _bd_mac.enabled()
+        observed_runtime = None
+        if cfg:
+            observed_runtime = _bd_remote.observe_status(cfg)
+            if not observed_runtime["running"]:
+                return _err(rid, _DISPLAY_ERR, "this profile's Bot Desktop is not running; call display.start first")
+        elif not mac_screen and _bd_runtime.rfb_socket_path() is None and not _bd_runtime.sandbox_screen_running():
             return _err(rid, _DISPLAY_ERR, "this profile's Bot Desktop is not running; call display.start first")
         viewer_id = _mint_viewer_id(str(params.get("viewer_id") or "").strip())
         ticket = mint_ticket(user_id=f"display:{viewer_id}", provider="bot-desktop",
-                             extra={"hermes_home": str(get_hermes_home()), "viewer_id": viewer_id})
+                             extra={"hermes_home": str(get_hermes_home()), "viewer_id": viewer_id,
+                                    "transport": "jpeg" if mac_screen else "rfb"})
         return _ok(rid, {"ticket": ticket, "path": "/api/display/ws", "viewer_id": viewer_id,
-                         **_display_snapshot()})
+                         **_display_snapshot(observed_runtime if cfg else None)})
     except Exception as e:
         return _err(rid, _DISPLAY_ERR, str(e))
 

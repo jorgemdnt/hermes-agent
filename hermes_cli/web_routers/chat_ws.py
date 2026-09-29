@@ -13,7 +13,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 from agent.interrupt_scope import InterruptScope, bind_interrupt_scope
 from hermes_cli.pty_session import RegistryFull
@@ -433,6 +434,149 @@ async def _pty_fail(ws: WebSocket, exc: BaseException) -> None:
     _log.warning("pty start failed: %s: %s", type(exc).__name__, exc)
     await ws.send_text(f"\r\n\x1b[31m{chat_start_failure_message(exc)}\x1b[0m\r\n")
     await ws.close(code=1011)
+
+
+from hermes_cli.web_mobile_workspace import router as mobile_workspace_router
+
+router.include_router(mobile_workspace_router)
+
+@router.get("/api/bot-terminal/capabilities")
+async def bot_terminal_capabilities(request: Request) -> dict:
+    """Server-owned backend hints; the browser never chooses a host or cwd."""
+    import socket
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli import profiles as profiles_mod
+    from hermes_cli.web_bot_terminal import client_on_server_host, public_capabilities
+
+    def read() -> dict:
+        rows = profiles_mod.list_profiles(lazy_skill_count=True)
+        return {row.name: public_capabilities(row.name) for row in rows}
+
+    return {"server_host": socket.gethostname(),
+            "client_on_server_host": client_on_server_host(request.client.host if request.client else None),
+            "profiles": await run_in_threadpool(read)}
+
+
+@router.get("/api/bot-preview")
+async def bot_file_preview(request: Request, profile: str, session: str = "", path: str = "", view: str = "list"):
+    """Read-only file browser rooted at the server-owned conversation folder."""
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, stored_session_folder, terminal_config
+    from hermes_cli.web_file_preview import IMAGE_TYPES, list_preview, read_preview, remote_preview
+    from hermes_cli.web_server_profiles import _resolve_profile_dir
+
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or view not in {"list", "content"} or
+            any(key in request.query_params for key in ("cwd", "root", "workdir"))):
+        raise HTTPException(status_code=400, detail="Invalid preview request")
+    _resolve_profile_dir(profile)
+    try:
+        def read():
+            config = terminal_config(profile)
+            root = resolve_terminal_folder(config, stored_session_folder(profile, session))
+            if config["backend"] == "ssh":
+                result = remote_preview(config, root, path, view)
+                if view == "list":
+                    return result
+                kind, data = result
+            elif config["backend"] == "local":
+                if view == "list":
+                    return {"folder": root, "path": path, "entries": list_preview(root, path)}
+                kind, data = read_preview(root, path)
+            else:
+                raise ValueError("Unsupported preview backend")
+            if kind in {"image", "pdf"}:
+                from pathlib import Path
+                media_type = IMAGE_TYPES.get(Path(path).suffix.lower(), "application/pdf")
+                return Response(data, media_type=media_type, headers={
+                    "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
+                })
+            return {"kind": kind, "content": data.decode("utf-8")}
+        return await run_in_threadpool(read)
+    except (ValueError, OSError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/bot-terminal/folder")
+async def bot_terminal_folder(request: Request, profile: str, session: str = "") -> dict:
+    """Display only the server-resolved folder, matching the shell launch rules."""
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, stored_session_folder, terminal_config
+    from hermes_cli.web_server_profiles import _resolve_profile_dir
+
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or
+            any(key in request.query_params for key in ("cwd", "path", "workdir"))):
+        raise HTTPException(status_code=400, detail="Invalid terminal request")
+    _resolve_profile_dir(profile)
+    try:
+        def read() -> str:
+            return resolve_terminal_folder(terminal_config(profile), stored_session_folder(profile, session))
+        return {"folder": await run_in_threadpool(read)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Conversation unavailable") from exc
+
+
+_bot_terminal_active = 0
+_BOT_TERMINAL_LIMIT = 16
+
+
+@router.websocket("/api/bot-terminal")
+async def bot_terminal_ws(ws: WebSocket) -> None:
+    """Authenticated raw shell PTY, local or the profile's configured SSH host."""
+    global _bot_terminal_active
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, shell_argv, stored_session_folder, terminal_config
+    from hermes_cli.web_server_chat import PtyBridge, _PTY_BRIDGE_AVAILABLE
+    from tools.environments.local import build_subprocess_env
+
+    gate = await _ws_gate(ws, "bot-terminal")
+    if gate is None:
+        return
+    # A shell is more powerful than a chat TUI: only interactive OAuth sessions
+    # on the gated dashboard, not loopback bearer tokens or internal WS clients.
+    identity = getattr(ws, "_hermes_auth_identity", {}) or {}
+    if (_ws_auth_mode() != "gated" or gate[2] == "internal" or
+            not identity.get("user_id") or identity.get("provider") in {"bot-desktop", "internal"}):
+        await ws.close(code=4403, reason="Signed-in dashboard session required")
+        return
+    profile = ws.query_params.get("profile", "")
+    session_id = ws.query_params.get("session", "")
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or
+            any(key in ws.query_params for key in ("cwd", "path", "workdir"))):
+        await ws.close(code=4403, reason="Invalid terminal request")
+        return
+    try:
+        from hermes_cli.web_server_profiles import _resolve_profile_dir
+        _resolve_profile_dir(profile)
+        config = await asyncio.to_thread(terminal_config, profile)
+        stored = await asyncio.to_thread(stored_session_folder, profile, session_id)
+        folder = resolve_terminal_folder(config, stored)
+        argv, cwd = shell_argv({**config, "cwd": folder})
+    except (HTTPException, ValueError, OSError) as exc:
+        _log.warning("bot terminal configuration refused profile=%s reason=%s", profile, type(exc).__name__)
+        await ws.close(code=4403, reason="Bot terminal unavailable; check its backend settings")
+        return
+    if not _PTY_BRIDGE_AVAILABLE or _bot_terminal_active >= _BOT_TERMINAL_LIMIT:
+        await ws.close(code=1013, reason="Bot terminal capacity unavailable")
+        return
+    # Do not log argv, SSH key path, environment, terminal output or user input.
+    _bot_terminal_active += 1
+    try:
+        env = build_subprocess_env(scrub_secrets=True, inherit_profile_home=False)
+        env["TERM"] = "xterm-256color"
+        env["DISABLE_AUTO_UPDATE"] = "true"
+        bridge = await asyncio.to_thread(PtyBridge.spawn, argv, cwd=cwd, env=env)
+        await ws.accept()
+        _log.info("bot terminal opened profile=%s backend=%s peer=%s", profile, config["backend"], gate[0])
+        try:
+            await _legacy_pump(ws, bridge)
+        finally:
+            _log.info("bot terminal closed profile=%s backend=%s peer=%s", profile, config["backend"], gate[0])
+    except (OSError, RuntimeError) as exc:
+        _log.warning("bot terminal start failed profile=%s reason=%s", profile, type(exc).__name__)
+        if ws.application_state.name == "CONNECTING":
+            await ws.close(code=1011, reason="Bot terminal could not start")
+    finally:
+        _bot_terminal_active -= 1
 
 
 @router.websocket("/api/pty")

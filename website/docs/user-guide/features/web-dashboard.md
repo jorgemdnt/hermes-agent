@@ -834,7 +834,7 @@ Like the Nous provider, it auto-loads and only registers itself once it's config
 
 #### Configuration
 
-Configure an **issuer** and a **client_id** (a public PKCE client — no client secret). The plugin fetches the IDP's `authorization_endpoint`, `token_endpoint`, and `jwks_uri` from `{issuer}/.well-known/openid-configuration`, so you never hardcode endpoint URLs.
+Configure an **issuer** and a **client_id** (PKCE S256; a client secret is optional). The plugin fetches the IDP's `authorization_endpoint`, `token_endpoint`, and `jwks_uri` from `{issuer}/.well-known/openid-configuration`, so you never hardcode endpoint URLs.
 
 **`config.yaml`** — the canonical surface:
 
@@ -846,15 +846,20 @@ dashboard:
       issuer: https://auth.example.com/application/o/hermes/   # required
       client_id: hermes-dashboard                              # required
       scopes: "openid profile email"                           # optional (this is the default)
+      allowed_emails: ["owner@example.com"]                    # optional; requires email_verified: true
+      auth_params: {access_type: offline, prompt: consent}      # optional extra authorize parameters
 ```
 
-**Environment variables** — operator overrides (env wins over `config.yaml` when set non-empty; an empty value is treated as unset):
+**Environment variables** — operator overrides (env wins over `config.yaml` when set non-empty; an empty value is treated as unset). Keep client secrets in the profile `.env`, not `config.yaml`:
 
 | Env var | Overrides | Notes |
 |---------|-----------|-------|
 | `HERMES_DASHBOARD_OIDC_ISSUER` | `dashboard.oauth.self_hosted.issuer` | OIDC issuer URL — required |
 | `HERMES_DASHBOARD_OIDC_CLIENT_ID` | `dashboard.oauth.self_hosted.client_id` | Public client id — required |
 | `HERMES_DASHBOARD_OIDC_SCOPES` | `dashboard.oauth.self_hosted.scopes` | Defaults to `openid profile email` |
+| `HERMES_DASHBOARD_OIDC_CLIENT_SECRET` | `dashboard.oauth.self_hosted.client_secret` | Optional confidential client credential (secret) |
+
+`allowed_emails` and `auth_params` are `config.yaml` options. An absent allowlist retains the existing unrestricted-identity behavior; an empty list denies all. A configured allowlist is checked against the signed ID token's verified `email` and literal boolean `email_verified` claims on login, each session check, and refresh. Changing the list removes access on the next request. Extra authorization parameters cannot replace `state`, PKCE fields, the redirect URI or other required OIDC parameters.
 
 In your IDP, register a **public** application/client with the authorization-code + PKCE (S256) grant and add the dashboard's callback as an allowed redirect URI. The callback is `<dashboard public URL>/auth/callback` (see [Public URL override](#public-url-override) for how the dashboard derives its public URL behind a proxy).
 
@@ -869,9 +874,9 @@ The provider verifies the OpenID Connect **ID token** (RS256/ES256) against the 
 | `display_name` | `name` → `preferred_username` → `nickname` → `email` |
 | `org_id` | `org_id` / `organization`, else joined `groups` |
 
-The ID token is what establishes identity — the access token is treated as opaque (the OIDC spec does not require it to be a JWT). Endpoint URLs are required to be HTTPS (loopback `http://` is allowed for local-dev IDPs), and the discovery document's advertised `issuer` must match your configured one (a trailing-slash difference is tolerated). Refresh tokens, when the IDP issues them, are used for silent re-auth via the standard `refresh_token` grant; logout calls the IDP's RFC 7009 `revocation_endpoint` when advertised.
+The ID token is what establishes identity — the access token is treated as opaque (the OIDC spec does not require it to be a JWT). Endpoint URLs are required to be HTTPS (loopback `http://` is allowed for local-dev IDPs), and the discovery document's advertised `issuer` must match your configured one (a trailing-slash difference is tolerated). Refresh tokens, when the IDP issues them, are used for silent re-auth via the standard `refresh_token` grant. Dashboard `/auth/logout` attempts to revoke that upstream grant and invalidates the local cookie tokens even if revocation fails; it may affect other devices using the same grant. The phone's `/api/mobile/logout` only invalidates its browser-bound tokens and unsubscribes its push endpoint, leaving other devices signed in. Browser WebSocket tickets expire with the access session, and open ticket-authenticated sockets close with 4401 at that deadline.
 
-> **Confidential clients** (those with a `client_secret`) are not supported yet — configure a public + PKCE client, which is the typical choice for a browser-facing dashboard.
+> **Confidential clients** can authenticate to the token endpoint using `client_secret_basic` or `client_secret_post` as advertised by discovery; PKCE remains required.
 
 #### Worked example: Keycloak
 
@@ -1046,7 +1051,7 @@ All three are `Path=/`. The session cookies are `SameSite=Lax`; the PKCE cookie 
 
 ### Logout
 
-The sidebar widget shows `Logged in as <user_id…> via nous` with a logout icon. Clicking it POSTs `/auth/logout`, which clears all dashboard-auth cookies and redirects back to `/login`.
+The sidebar widget shows `Logged in as <user_id…> via nous` with a logout icon. Clicking it POSTs `/auth/logout`, which best-effort revokes the provider's refresh grant, invalidates this browser's tokens, clears the dashboard-auth cookies and redirects to `/login`. The phone's Sign out instead POSTs `/api/mobile/logout` to sign out only that browser without revoking the shared provider grant.
 
 ### Audit log
 

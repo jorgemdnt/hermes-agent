@@ -1,0 +1,42 @@
+.m-right-split { position: absolute; inset: 0 0 0 auto; z-index: 6; width: var(--m-split-width); min-width: 320px; display: flex; flex-direction: column; min-height: 0; background: var(--background); border-left: 1px solid var(--border); box-shadow: -8px 0 22px var(--shadow); }
+.m-split-resize { position: absolute; z-index: 2; inset: 0 auto 0 -5px; width: 10px; cursor: col-resize; touch-action: none; }
+.m-split-resize:hover, .m-split-resize:focus-visible { background: color-mix(in srgb, var(--ring) 35%, transparent); outline: none; }
+.m-split-header { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 54px; border-bottom: 1px solid var(--border); }
+.m-split-header [role="tablist"] { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1; }
+.m-split-header button, .m-split-address button, .m-split-crumbs button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: none; padding: 6px 8px; min-height: 34px; border: 0; border-radius: 8px; background: transparent; font-size: 12px; }
+.m-split-header [role="tab"][aria-selected="true"] { background: var(--secondary); font-weight: 600; }
+.m-split-header button:hover, .m-split-address button:hover, .m-split-crumbs button:hover { background: var(--secondary); }
+.m-right-split :is(button, input):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.m-split-files { overscroll-behavior: contain; }
+.m-split-body, .m-split-tab-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.m-split-tab-pane[hidden] { display: none; }
+.m-split-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.m-split-address { display: flex; align-items: center; gap: 1px; flex: none; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+.m-shell .m-split-address input { flex: 1; min-width: 0; height: 34px; min-height: 34px; padding: 6px 9px; border-radius: 8px; font-size: 12px; }
+.m-split-page { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+.m-split-page[hidden] { display: none; }
+.m-split-browser-empty { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: var(--background); color: var(--muted-foreground); text-align: center; font-size: 13px; }
+.m-split-browser-empty p { margin: 0; max-width: 240px; }
+.m-split-suggestions { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.m-split-suggestions button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 8px 10px; border-radius: 8px; color: var(--foreground); background: var(--secondary); }
+.m-split-framing, .m-split-error, .m-split-empty { margin: 0; padding: 10px 14px; font-size: 12px; color: var(--muted-foreground); }
+.m-split-error { color: var(--destructive); }
+.m-split-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.m-split-crumbs { display: flex; align-items: center; gap: 2px; overflow-x: auto; white-space: nowrap; padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.m-split-crumbs span { display: flex; align-items: center; gap: 2px; }
+.m-split-file-list { flex: none; max-height: 32%; overflow-y: auto; padding: 6px; border-bottom: 1px solid var(--border); }
+.m-shell .m-split-file-list button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 9px; border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 12px; }
+.m-split-file-list button:hover, .m-split-file-list button[aria-current="true"] { background: var(--secondary) !important; }
+.m-split-file-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-split-file-content { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.m-split-file-content :is(img, iframe) { width: 100%; height: 100%; border: 0; object-fit: contain; }
+.m-split-code { margin: 0; overflow: auto; color: var(--foreground); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+.m-shell .m-split-code code { color: var(--foreground); }
+.m-split-code-line { display: block; white-space: pre; min-height: 1.6em; }
+.m-split-line-number { display: inline-block; position: sticky; left: 0; min-width: 3.5em; margin-right: 12px; padding-right: 8px; color: var(--muted-foreground); text-align: right; background: var(--background); user-select: none; border-right: 1px solid var(--border); }
+.m-split-code .hljs-keyword, .m-split-code .hljs-selector-tag { color: #a045a0; }
+.m-split-code .hljs-string, .m-split-code .hljs-attr { color: #218047; }
+.m-split-code .hljs-number, .m-split-code .hljs-literal { color: #ad6928; }
+.m-split-code .hljs-comment { color: var(--muted-foreground); }
+@media (min-width: 900px) { .m-shell .m-detail.m-with-split { right: var(--m-split-width); width: calc(100% - 320px - var(--m-split-width)); } }
+@media (max-width: 899px) { .m-right-split { position: absolute; inset: 0; width: 100%; min-width: 0; z-index: 12; padding-bottom: env(safe-area-inset-bottom); box-shadow: none; } .m-split-resize { display: none; } }

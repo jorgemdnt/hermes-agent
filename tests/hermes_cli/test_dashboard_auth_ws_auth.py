@@ -14,19 +14,23 @@ pre-existing regression unrelated to dashboard-auth.
 from __future__ import annotations
 
 from types import SimpleNamespace
+import time
 
 import pytest
 
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from hermes_cli import web_server
 import hermes_cli.web_server_chat as _web_server_chat
-from hermes_cli.dashboard_auth import clear_providers, register_provider
+from hermes_cli.dashboard_auth import clear_providers, get_provider, register_provider
 from hermes_cli.dashboard_auth.ws_tickets import (
     _reset_for_tests,
     consume_internal_credential,
     internal_ws_credential,
     mint_ticket,
+    consume_ticket,
+    TicketInvalid,
 )
 from tests.hermes_cli.conftest_dashboard_auth import StubAuthProvider
 
@@ -121,6 +125,194 @@ class TestWsTicketEndpoint:
         assert isinstance(body["ticket"], str)
         assert len(body["ticket"]) >= 32
         assert body["ttl_seconds"] == 30
+        identity = consume_ticket(body["ticket"])
+        assert identity["session_expires_at"] == gated_app.get("/api/auth/me").json()["expires_at"]
+
+    def test_session_expired_ticket_rejected_even_during_ticket_ttl(self, gated_app):
+        ticket = mint_ticket(user_id="u", provider="stub",
+                             extra={"session_expires_at": time.time() + 0.1})
+        time.sleep(0.15)
+        with pytest.raises(TicketInvalid, match="session expired"):
+            consume_ticket(ticket)
+
+    def test_live_ticket_socket_closes_at_session_expiry(self, gated_app):
+        ticket = mint_ticket(user_id="u", provider="stub",
+                             extra={"session_expires_at": time.time() + 1.0})
+        with gated_app.websocket_connect(f"/api/events?channel=expiry&ticket={ticket}",
+                                         headers={"host": "fly-app.fly.dev"}) as socket:
+            with pytest.raises(WebSocketDisconnect) as exc:
+                socket.receive_text()
+        assert exc.value.code == 4401
+
+    def test_dashboard_logout_attempts_upstream_revoke_and_invalidates_local_tokens(
+        self, gated_app, monkeypatch,
+    ):
+        _logged_in(gated_app)
+        provider = get_provider("stub")
+        old_cookies = dict(gated_app.cookies)
+        refresh = next(value for name, value in old_cookies.items()
+                       if name.endswith("hermes_session_rt"))
+        revoked = []
+
+        def fail_revoke(*, refresh_token):
+            revoked.append(refresh_token)
+            raise RuntimeError("IdP unavailable")
+
+        monkeypatch.setattr(provider, "revoke_session", fail_revoke)
+        response = gated_app.post("/auth/logout", follow_redirects=False)
+        assert revoked == [refresh]
+        assert response.status_code == 302
+        assert gated_app.get("/api/auth/me", follow_redirects=False).status_code == 401
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
+
+    def test_mobile_logout_revokes_only_this_browser_tokens(self, gated_app, monkeypatch):
+        _logged_in(gated_app)
+        other = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        _logged_in(other)
+        provider = get_provider("stub")
+        revoked = []
+        monkeypatch.setattr(provider, "revoke_session", lambda **kwargs: revoked.append(kwargs))
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.post("/api/mobile/logout").status_code == 200
+        assert revoked == []
+        assert gated_app.get("/api/auth/me", follow_redirects=False).status_code == 401
+        # A replayed old refresh cookie cannot silently re-create a logged-out session.
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
+        assert other.get("/api/auth/me").status_code == 200
+
+    def test_sign_out_redirects_m_and_rejects_replayed_cookie(self, gated_app):
+        _logged_in(gated_app)
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.get("/m").status_code == 200
+        assert gated_app.post("/api/mobile/logout").json() == {"ok": True}
+        assert gated_app.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        assert gated_app.get("/api/auth/me").status_code == 401
+        assert gated_app.get("/api/auth/avatar").status_code == 401
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        assert replay.get("/api/auth/me").status_code == 401
+
+    def test_sign_out_then_back_in_with_stub_provider(self, gated_app):
+        _logged_in(gated_app)
+        assert gated_app.get("/m").status_code == 200
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.post("/api/mobile/logout").json() == {"ok": True}
+        assert gated_app.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+        _logged_in(gated_app)
+        assert gated_app.get("/m").status_code == 200
+        assert gated_app.get("/api/auth/me").json()["display_name"] == "Stub User"
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/m", follow_redirects=False).headers["location"].startswith("/login")
+
+    def test_google_picture_claim_is_proxied_without_browser_cookies(self, gated_app, monkeypatch):
+        from dataclasses import replace
+        import httpx
+        from plugins.dashboard_auth._shared import session_from_claims
+
+        picture = "https://lh3.googleusercontent.com/a/test-avatar"
+        mapped = session_from_claims("self-hosted", {"sub": "u", "exp": int(time.time()) + 60,
+                                                     "picture": picture}, access_token="t", refresh_token="")
+        assert mapped.picture == picture
+        _logged_in(gated_app)
+        provider = get_provider("stub")
+        assert provider is not None
+        verify = provider.verify_session
+        def with_picture(url):
+            def inner(**kw):
+                session = verify(**kw)
+                assert session is not None
+                return replace(session, picture=url)
+            return inner
+        monkeypatch.setattr(provider, "verify_session", with_picture(picture))
+        outgoing = []
+        original_client = httpx.AsyncClient
+
+        def fetch(request):
+            outgoing.append(request)
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nimage", headers={"Content-Type": "image/png"})
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original_client(
+            transport=httpx.MockTransport(fetch), **kw))
+        me = gated_app.get("/api/auth/me").json()
+        assert me["picture"] == "/api/auth/avatar"
+        avatar = gated_app.get(me["picture"])
+        assert avatar.status_code == 200
+        assert avatar.headers["content-type"] == "image/png"
+        assert avatar.content == b"\x89PNG\r\n\x1a\nimage"
+        assert len(outgoing) == 1
+        assert str(outgoing[0].url) == picture
+        assert "cookie" not in outgoing[0].headers
+        monkeypatch.setattr(provider, "verify_session", with_picture("http://127.0.0.1/private"))
+        assert gated_app.get("/api/auth/me").json()["picture"] == ""
+        assert gated_app.get("/api/auth/avatar").status_code == 404
+        assert len(outgoing) == 1
+
+    def test_mobile_logout_prunes_only_its_own_push_subscription(self, gated_app):
+        from hermes_constants import get_process_hermes_home
+        from plugins.mobile import push
+
+        _logged_in(gated_app)
+        other = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        _logged_in(other)
+        def browser_id(client):
+            return next(value for name, value in client.cookies.items()
+                        if name.endswith("hermes_session_browser"))
+        home = get_process_hermes_home()
+        def subscription(name):
+            return {"endpoint": f"https://web.push.apple.com/{name}",
+                    "keys": {"p256dh": "p" * 32, "auth": "a" * 16}}
+        push.subscribe(home, subscription("first"), "stub-user-1", browser_id(gated_app))
+        push.subscribe(home, subscription("second"), "stub-user-1", browser_id(other))
+        assert gated_app.post("/api/mobile/logout").status_code == 200
+        assert list(push._read(home)) == [subscription("second")["endpoint"]]
+        assert other.get("/api/auth/me").status_code == 200
+
+    def test_legacy_session_gets_binding_before_local_logout(self, gated_app):
+        """Pre-deployment cookies gain a revocable browser identity on use."""
+        from hermes_cli.dashboard_auth.local_logout import _db
+
+        _logged_in(gated_app)
+        with _db() as db:
+            db.execute("DELETE FROM browser_tokens")
+        browser_cookie = next(name for name in gated_app.cookies if name.endswith("hermes_session_browser"))
+        gated_app.cookies.delete(browser_cookie)
+        assert gated_app.get("/api/auth/me").status_code == 200
+        assert browser_cookie in gated_app.cookies
+        old_cookies = dict(gated_app.cookies)
+        assert gated_app.post("/api/mobile/logout").status_code == 200
+        replay = TestClient(web_server.app, base_url="https://fly-app.fly.dev")
+        replay.cookies.update(old_cookies)
+        assert replay.get("/api/auth/me", follow_redirects=False).status_code == 401
+
+    def test_direct_legacy_logout_does_not_reissue_cookies(self, gated_app):
+        from hermes_cli.dashboard_auth.local_logout import _db
+
+        _logged_in(gated_app)
+        with _db() as db:
+            db.execute("DELETE FROM browser_tokens")
+        browser_cookie = next(name for name in gated_app.cookies if name.endswith("hermes_session_browser"))
+        gated_app.cookies.delete(browser_cookie)
+        assert gated_app.post("/api/mobile/logout").status_code == 200
+        assert not any(name.endswith("hermes_session_at") for name in gated_app.cookies)
+
+    def test_authenticated_mobile_shell_and_push_assets(self, gated_app):
+        _logged_in(gated_app)
+        shell = gated_app.get("/m")
+        assert shell.status_code == 200
+        assert 'rel="manifest"' in shell.text
+        manifest = gated_app.get("/mobile.webmanifest")
+        assert manifest.status_code == 200
+        assert manifest.json()["display"] == "standalone"
+        worker = gated_app.get("/mobile-sw.js")
+        assert worker.status_code == 200
+        assert "cache" not in worker.text.replace("never cache", "")
+        assert gated_app.get("/api/plugins/mobile/push/key").status_code == 200
 
     def test_unauthenticated_returns_401_or_redirect(self, gated_app):
         r = gated_app.post("/api/auth/ws-ticket", follow_redirects=False)

@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from hermes_cli.dashboard_auth import LoginStart, ProviderError, Session
+from hermes_cli.dashboard_auth import AccountNotAllowedError, LoginStart, ProviderError, Session
 from plugins.dashboard_auth._shared import (
     JSON_HEADERS,
     TOKEN_ENDPOINT_TIMEOUT_SEC as _TOKEN_ENDPOINT_TIMEOUT_SEC,
@@ -79,7 +79,11 @@ class SelfHostedOIDCProvider(JwtOAuthProvider):
     name = "self-hosted"
     display_name = "Self-Hosted OIDC"
 
-    def __init__(self, *, issuer: str, client_id: str, scopes: str = _DEFAULT_SCOPES, client_secret: str = "") -> None:
+    def __init__(
+        self, *, issuer: str, client_id: str, scopes: str = _DEFAULT_SCOPES,
+        client_secret: str = "", allowed_emails: Optional[list[str]] = None,
+        auth_params: Optional[Dict[str, str]] = None, policy_from_config: bool = False,
+    ) -> None:
         if not issuer:
             raise ValueError("issuer is required")
         if not client_id:
@@ -93,6 +97,22 @@ class SelfHostedOIDCProvider(JwtOAuthProvider):
         # Empty/whitespace secret ⇒ public client, so a provisioned-but-blank secret
         # can't flip us into a broken confidential mode.
         self._client_secret = (client_secret or "").strip()
+        if allowed_emails is not None and (not isinstance(allowed_emails, list) or
+                                           any(not isinstance(email, str) or not email.strip() for email in allowed_emails)):
+            raise ValueError("allowed_emails must be a list of nonempty email addresses")
+        self._allowed_emails = (frozenset(email.strip().casefold() for email in allowed_emails)
+                                if allowed_emails is not None else None)
+        self._policy_from_config = policy_from_config
+        if auth_params is not None and (not isinstance(auth_params, dict) or
+                                        any(not isinstance(k, str) or not isinstance(v, str)
+                                            for k, v in auth_params.items())):
+            raise ValueError("auth_params must be a string-to-string mapping")
+        if auth_params and auth_params.keys() & {
+            "response_type", "client_id", "redirect_uri", "scope", "state",
+            "code_challenge", "code_challenge_method",
+        }:
+            raise ValueError("auth_params cannot override PKCE/OIDC parameters")
+        self._auth_params = dict(auth_params or {})
         # Discovery + JWKS resolve lazily so registration never hits the network
         # (the IDP may be down at boot; fail per-request instead).
         self._discovery: Dict[str, Any] | None = None
@@ -105,7 +125,8 @@ class SelfHostedOIDCProvider(JwtOAuthProvider):
         validate_redirect_uri(redirect_uri)
         disco = self._get_discovery()
         return pkce_login_start(
-            disco["authorization_endpoint"], client_id=self._client_id, scope=self._scopes, redirect_uri=redirect_uri)
+            disco["authorization_endpoint"], client_id=self._client_id, scope=self._scopes,
+            redirect_uri=redirect_uri, auth_params=self._auth_params)
 
     def revoke_session(self, *, refresh_token: str) -> None:
         # Best-effort RFC 7009 revocation when the IDP advertises an endpoint.
@@ -260,6 +281,18 @@ class SelfHostedOIDCProvider(JwtOAuthProvider):
         ``Session.access_token`` so the per-request ``verify_session`` re-verifies a real
         JWT; the opaque OAuth access token is not kept — the dashboard only needs identity."""
         email = str(claims.get("email", "") or "")
+        allowed = self._allowed_emails
+        if self._policy_from_config:
+            current = _load_config_oauth_section().get("allowed_emails")
+            if isinstance(current, list) and all(isinstance(item, str) for item in current):
+                allowed = frozenset(item.strip().casefold() for item in current)
+            elif allowed is not None or current is not None:
+                # A removed/unreadable/invalid allowlist cannot silently admit everyone.
+                allowed = frozenset()
+        if allowed is not None and (
+            claims.get("email_verified") is not True or email.casefold() not in allowed
+        ):
+            raise AccountNotAllowedError("Verified email is not allowed for this dashboard")
         # Org/tenant is non-standard: accept common spellings, else join ``groups`` so
         # multi-tenant IDPs surface *something* (free-form string).
         org_id = claims.get("org_id") or claims.get("organization") or ""
@@ -270,6 +303,12 @@ class SelfHostedOIDCProvider(JwtOAuthProvider):
             self.name, claims, access_token=id_token, refresh_token=refresh_token, label="ID token", email=email,
             display_name=str(claims.get("name") or claims.get("preferred_username") or claims.get("nickname") or email or ""),
             org_id=str(org_id or ""))
+
+    def accepts_cached_session(self, session: Session) -> bool:
+        try:
+            return self.verify_session(access_token=session.access_token) is not None
+        except AccountNotAllowedError:
+            return False
 
 
 # ---- Plugin entry point ----
@@ -298,6 +337,9 @@ def _settings() -> dict:
     return {
         "issuer": issuer, "client_id": client_id,
         "scopes": setting("HERMES_DASHBOARD_OIDC_SCOPES", "scopes") or _DEFAULT_SCOPES,
+        "allowed_emails": oidc_cfg.get("allowed_emails"),
+        "policy_from_config": True,
+        "auth_params": oidc_cfg.get("auth_params"),
         # Credential: canonical home is the env var / ~/.hermes/.env. Empty ⇒ public client.
         "client_secret": setting("HERMES_DASHBOARD_OIDC_CLIENT_SECRET", "client_secret")}
 

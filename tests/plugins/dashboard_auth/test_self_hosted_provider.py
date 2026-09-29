@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 import plugins.dashboard_auth.self_hosted as oidc_plugin
 from hermes_cli.dashboard_auth import (
+    AccountNotAllowedError,
     InvalidCodeError,
     ProviderError,
     Session,
@@ -460,6 +461,17 @@ class TestStartLogin:
         parts = dict(seg.split("=", 1) for seg in pkce.split(";") if "=" in seg)
         assert parts["state"] == params["state"]
 
+    def test_extra_authorize_params_preserve_pkce(self, rsa_keypair):
+        provider = _make_provider(rsa_keypair)
+        provider._auth_params = {"access_type": "offline", "prompt": "consent"}
+        result = provider.start_login(redirect_uri="https://hermes.example/auth/callback")
+        params = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(result.redirect_url).query))
+        assert params["access_type"] == "offline" and params["prompt"] == "consent"
+        assert params["code_challenge_method"] == "S256" and params["state"]
+        with pytest.raises(ValueError, match="cannot override"):
+            oidc_plugin.SelfHostedOIDCProvider(
+                issuer=_ISSUER, client_id=_CLIENT_ID, auth_params={"state": "forged"})
+
 
 # ---------------------------------------------------------------------------
 # complete_login
@@ -684,6 +696,42 @@ class TestVerifySession:
         token = _mint_id_token(rsa_keypair, ttl_seconds=-1)
         assert provider.verify_session(access_token=token) is None
 
+    def test_allowlist_requires_verified_email_on_every_token_path(self, rsa_keypair):
+        provider = _make_provider(rsa_keypair)
+        provider._allowed_emails = frozenset({"alice@example.com"})
+        allowed = _mint_id_token(rsa_keypair, extra_claims={"email_verified": True})
+        assert provider.verify_session(access_token=allowed).email == "alice@example.com"
+        for claims in ({"email_verified": False}, {"email_verified": "true"}, {}):
+            token = _mint_id_token(rsa_keypair, extra_claims=claims)
+            with pytest.raises(AccountNotAllowedError):
+                provider.verify_session(access_token=token)
+        foreign = _mint_id_token(rsa_keypair, email="bob@example.com", extra_claims={"email_verified": True})
+        with pytest.raises(AccountNotAllowedError):
+            provider.verify_session(access_token=foreign)
+
+    def test_refresh_denies_disallowed_identity(self, rsa_keypair):
+        provider = _make_provider(rsa_keypair)
+        provider._allowed_emails = frozenset({"alice@example.com"})
+        foreign = _mint_id_token(rsa_keypair, email="bob@example.com", extra_claims={"email_verified": True})
+        with patch("plugins.dashboard_auth.self_hosted.httpx.post",
+                   return_value=_mock_post(200, {"id_token": foreign, "token_type": "Bearer"})):
+            from hermes_cli.dashboard_auth import RefreshExpiredError
+            with pytest.raises(RefreshExpiredError):
+                provider.refresh_session(refresh_token="old-rt")
+
+
+    def test_recently_issued_token_with_small_clock_skew_verifies(self, provider, rsa_keypair):
+        token = _mint_id_token(rsa_keypair, extra_claims={"iat": int(time.time()) + 5})
+        session = provider.verify_session(access_token=token)
+        assert session is not None
+        assert session.email == "alice@example.com"
+
+    def test_token_issued_far_in_future_is_rejected_not_unreachable(self, provider, rsa_keypair):
+        token = _mint_id_token(rsa_keypair, extra_claims={"iat": int(time.time()) + 600})
+        with pytest.raises(InvalidCodeError, match="not yet valid"):
+            provider._verify_id_token(token)
+        assert provider.verify_session(access_token=token) is None
+
     def test_wrong_audience_raises(self, provider, rsa_keypair):
         token = _mint_id_token(rsa_keypair, aud="some-other-client")
         with pytest.raises(ProviderError, match="verification failed"):
@@ -709,6 +757,69 @@ class TestVerifySession:
         with pytest.raises(ProviderError, match="JWKS"):
             provider.verify_session(access_token=token)
 
+
+
+def test_configured_oidc_callback_rejects_unlisted_and_rechecks_existing_sessions(
+    rsa_keypair, tmp_path, monkeypatch,
+):
+    from fastapi.testclient import TestClient
+    from hermes_cli import web_server
+    from hermes_cli.dashboard_auth import clear_providers, register_provider
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    cfg = tmp_path / "config.yaml"
+
+    def set_allowed(emails):
+        cfg.write_text(json.dumps({"dashboard": {"oauth": {"self_hosted": {
+            "issuer": _ISSUER, "client_id": _CLIENT_ID, "allowed_emails": emails,
+            "auth_params": {"access_type": "offline", "prompt": "consent"},
+        }}}}))
+
+    set_allowed(["alice@example.com"])
+    provider = oidc_plugin.SelfHostedOIDCProvider(**oidc_plugin._settings())
+    provider._discovery = dict(_DISCOVERY_DOC)
+    provider._discovery_fetched_at = time.time()
+    provider._jwks_client = _make_provider(rsa_keypair)._jwks_client
+    clear_providers()
+    register_provider(provider)
+    old_required = getattr(web_server.app.state, "auth_required", None)
+    old_host = getattr(web_server.app.state, "bound_host", None)
+    web_server.app.state.auth_required = True
+    web_server.app.state.bound_host = "hermes.example"
+    client = TestClient(web_server.app, base_url="https://hermes.example", follow_redirects=False)
+    try:
+        def callback_for(token):
+            start = client.get("/auth/login?provider=self-hosted&next=/m")
+            assert start.status_code == 302
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(start.headers["location"]).query)
+            with patch("plugins.dashboard_auth.self_hosted.httpx.post",
+                       return_value=_mock_post(200, {"id_token": token, "refresh_token": "rt", "token_type": "Bearer"})):
+                return client.get("/auth/callback", params={"code": "valid", "state": query["state"][0]})
+
+        foreign = _mint_id_token(rsa_keypair, email="bob@example.com", extra_claims={"email_verified": True})
+        denied = callback_for(foreign)
+        assert denied.status_code == 403
+        assert "hermes_session_at" not in denied.headers.get("set-cookie", "")
+        assert any('"reason":"account_not_allowed"' in line for line in
+                   (tmp_path / "logs" / "dashboard-auth.log").read_text().splitlines())
+
+        allowed = _mint_id_token(rsa_keypair, extra_claims={"email_verified": True})
+        accepted = callback_for(allowed)
+        assert accepted.status_code == 302 and accepted.headers["location"] == "/m"
+        assert client.get("/api/auth/me").json()["email"] == "alice@example.com"
+        with patch("plugins.dashboard_auth.self_hosted.httpx.post",
+                   return_value=_mock_post(200, {"id_token": allowed, "token_type": "Bearer"})):
+            assert client.post("/auth/native/refresh",
+                               json={"provider": "self-hosted", "refresh_token": "rt"}).status_code == 200
+        set_allowed(["bob@example.com"])
+        assert client.get("/api/auth/me").status_code == 401
+        # The single-flight replay cache must not resurrect an identity removed from config.
+        assert client.post("/auth/native/refresh",
+                           json={"provider": "self-hosted", "refresh_token": "rt"}).status_code == 401
+    finally:
+        clear_providers()
+        web_server.app.state.auth_required = old_required
+        web_server.app.state.bound_host = old_host
 
 
 # ---------------------------------------------------------------------------

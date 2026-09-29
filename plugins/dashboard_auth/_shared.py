@@ -12,18 +12,21 @@ import hashlib
 import logging
 import os
 import secrets
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional
 
 import httpx
 
 from hermes_cli.dashboard_auth import (
-    DashboardAuthProvider, InvalidCodeError, LoginStart, ProviderError, RefreshExpiredError, Session,
+    AccountNotAllowedError, DashboardAuthProvider, InvalidCodeError, LoginStart, ProviderError, RefreshExpiredError, Session,
     classify_jwks_lookup_error)
 
 # JWKS Cache-Control max-age (nous contract C7); self-hosted mirrors it.
 JWKS_CACHE_SECONDS = 300
 TOKEN_ENDPOINT_TIMEOUT_SEC = 10.0
+# OIDC issuers can mint tokens just ahead of this host's clock; allow bounded skew.
+JWT_CLOCK_SKEW_SECONDS = 60
 JSON_HEADERS = {"Accept": "application/json"}
 
 
@@ -101,7 +104,10 @@ def validate_redirect_uri(redirect_uri: str) -> None:
         raise ProviderError(f"redirect_uri path must end with '/auth/callback', got {redirect_uri!r}")
 
 
-def pkce_login_start(authorize_url: str, *, client_id: str, scope: str, redirect_uri: str) -> LoginStart:
+def pkce_login_start(
+    authorize_url: str, *, client_id: str, scope: str, redirect_uri: str,
+    auth_params: Optional[Dict[str, str]] = None,
+) -> LoginStart:
     """Build the authorization-code + PKCE (S256) redirect and cookie payload. Callers
     validate ``redirect_uri`` first. The auth-route layer expects
     ``cookie_payload["hermes_session_pkce"]`` as a flat ``state=…;verifier=…`` string
@@ -112,6 +118,11 @@ def pkce_login_start(authorize_url: str, *, client_id: str, scope: str, redirect
         "response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": scope, "state": state,
         "code_challenge": b64url_no_pad(hashlib.sha256(code_verifier.encode("ascii")).digest()),
         "code_challenge_method": "S256"}
+    if auth_params:
+        overlap = params.keys() & auth_params.keys()
+        if overlap:
+            raise ValueError(f"auth_params cannot override PKCE/OIDC parameters: {sorted(overlap)}")
+        params.update(auth_params)
     return LoginStart(
         redirect_url=f"{authorize_url}?{urllib.parse.urlencode(params)}",
         cookie_payload={"hermes_session_pkce": f"state={state};verifier={code_verifier}"})
@@ -174,7 +185,8 @@ def session_from_claims(
         raise ProviderError(f"{label} missing 'sub' (user_id) claim")
     return Session(
         user_id=user_id, email=email, display_name=display_name, org_id=org_id, provider=provider,
-        expires_at=int(claims["exp"]), access_token=access_token, refresh_token=refresh_token)
+        expires_at=int(claims["exp"]), access_token=access_token, refresh_token=refresh_token,
+        picture=str(claims["picture"]) if isinstance(claims.get("picture"), str) else "")
 
 
 # ---- JWT verification ----
@@ -195,9 +207,9 @@ def verify_jwt(
 
     Unreachable JWKS → ``ProviderError`` (503); a bearer that is not one of our JWTs
     (opaque peer key, foreign kid) → ``InvalidCodeError`` (None / next provider); folding
-    both into 503 broke peer-key bearers. Expiry raises ``InvalidCodeError`` (verify_session
-    maps it to None); any other claim failure raises ``ProviderError`` with the unverified
-    iss/aud appended so operators can spot config drift.
+    both into 503 broke peer-key bearers. Expiry and immature timestamps raise
+    ``InvalidCodeError`` (verify_session maps them to None); other claim failures
+    raise ``ProviderError`` with unverified iss/aud for diagnosing config drift.
     """
     import jwt  # lazy — keeps startup fast for the ungated path
 
@@ -210,11 +222,18 @@ def verify_jwt(
         # foreign kid) -> InvalidCodeError (None / next provider). Folding both into 503 produced #94558.
         raise classify_jwks_lookup_error(exc) from exc
     try:
-        return jwt.decode(
+        claims = jwt.decode(
             token, signing_key.key, algorithms=algorithms, audience=audience, issuer=issuer,
+            leeway=JWT_CLOCK_SKEW_SECONDS,
             options={"require": ["exp", "iat", "aud", "iss", "sub"]})
+        # PyJWT applies leeway to exp too; retain strict session expiration.
+        if int(claims["exp"]) <= time.time():
+            raise jwt.ExpiredSignatureError("Signature has expired")
+        return claims
     except jwt.ExpiredSignatureError as exc:
         raise InvalidCodeError(f"{label} expired: {exc}") from exc
+    except jwt.ImmatureSignatureError as exc:
+        raise InvalidCodeError(f"{label} not yet valid: {exc}") from exc
     except jwt.InvalidTokenError as exc:
         # Decoding without verification is safe here: verification already failed and
         # these values are surfaced for diagnostics only, never trusted.
@@ -274,8 +293,11 @@ class JwtOAuthProvider(DashboardAuthProvider):
         if not refresh_token:
             raise RefreshExpiredError("no refresh token present in session")
         data, headers = self._refresh_request(refresh_token)
-        return self._grant(
-            data, headers=headers, bad_request_exc=RefreshExpiredError, previous_refresh_token=refresh_token)
+        try:
+            return self._grant(
+                data, headers=headers, bad_request_exc=RefreshExpiredError, previous_refresh_token=refresh_token)
+        except AccountNotAllowedError as exc:
+            raise RefreshExpiredError("account not allowed") from exc
 
     def verify_session(self, *, access_token: str) -> Optional[Session]:
         # None on expiry/invalidity (middleware then tries refresh); a ProviderError

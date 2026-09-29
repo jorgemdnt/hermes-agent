@@ -34,9 +34,11 @@ from hermes_cli.web_routers._common import (
     spawn_profile_action,
 )
 from hermes_cli.web_routers.files import stream_upload_to_path
+from hermes_cli.web_claude_subscriptions import router as claude_subscriptions_router
 
 _log = logging.getLogger("hermes_cli.web_server")
 router = APIRouter()
+router.include_router(claude_subscriptions_router)
 
 # Late-bound so a test's monkeypatch on the owning module wins at call time.
 _discover_memory_provider_statuses = late("_discover_memory_provider_statuses", "hermes_cli.web_server_memory")
@@ -335,6 +337,14 @@ def _pool_entry_summary(entry: Any, index: int) -> Dict[str, Any]:
         "token_preview": redact_key(token) if token else "",
         "has_refresh": bool(entry.refresh_token),
     }
+
+
+@router.get("/api/subscriptions")
+async def list_subscriptions(fresh: bool = False, session_id: Optional[str] = None):
+    from hermes_cli.subscriptions import subscription_snapshot
+
+    # Network quota probes and Claude CLI status must not block the event loop.
+    return await config_scoped_to_thread(None, lambda: subscription_snapshot(fresh=fresh, session_id=session_id))
 
 
 @router.get("/api/credentials/pool")
