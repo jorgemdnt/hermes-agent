@@ -95,7 +95,7 @@
 .m-shell .m-home-menu a:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 @media (hover: hover) { .m-shell :is(.m-bot-main, .m-search-result, .m-pinned-bot, .m-home-menu a, .m-bot-picker button, .m-pin-choice):hover { background: color-mix(in srgb, var(--accent) 8%, var(--background)); } }
 .m-shell :is(.m-bot-main, .m-search-result, .m-pinned-bot, .m-home-menu a, .m-bot-picker button, .m-pin-choice):active { background: color-mix(in srgb, var(--accent) 18%, var(--background)); }
-.m-shell :is(.m-bot-main, .m-pinned-bot)[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, var(--background)); box-shadow: inset 3px 0 var(--ring); border-radius: 10px; }
+.m-shell :is(.m-bot-main, .m-pinned-bot)[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, var(--background)); border-radius: 10px; }
 .m-inbox { border-top: 0; padding-top: 12px; }
 .m-header { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 16px; min-height: 60px; border: 0; }
 .m-shell .m-icon-button { display: grid; place-items: center; background: var(--card); border: 1px solid var(--border); border-radius: 50%; padding: 0; flex: none; width: 46px; height: 46px; box-shadow: 0 3px 14px var(--shadow); }
@@ -497,7 +497,7 @@
 .m-unread-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--foreground); }
 .m-unread-none { visibility: hidden; }
 @media (hover: hover) { .m-shell .m-chat-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--background)); } }
-.m-shell .m-chat-row[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, var(--background)); box-shadow: inset 3px 0 var(--ring); }
+.m-shell .m-chat-row[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, var(--background)); }
 .m-shell .m-chat-row:focus-visible, .m-shell .m-chat-group-head:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .m-chats-empty { padding: 32px 8px; text-align: center; color: var(--muted-foreground); }
 .m-shortcuts { display: grid; gap: 4px; margin: 16px 0; }
