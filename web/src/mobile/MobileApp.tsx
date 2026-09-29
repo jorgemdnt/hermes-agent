@@ -12,15 +12,17 @@ import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
 import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
+import { SkillEditor, type SkillEditorHandle } from "./SkillEditor";
+import { queuedMessage, readQueues, writeQueue, type QueuedMessage } from "./mobile-queue";
 import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
-import type { ServerRequest } from "@hermes/shared";
+import { skillInvocationText, type ServerRequest } from "@hermes/shared";
 import { api, fetchJSON, HERMES_BASE_PATH, type AuthMeResponse, type ProfileInfo, type SessionMessage } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { sideConversations, type Conversation } from "./conversations";
 import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
-import { Avatar, Badge, Button, Sheet, Skeleton, Textarea, Tooltip } from "./ui";
+import { Avatar, Badge, Button, Sheet, Skeleton, Tooltip } from "./ui";
 import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
@@ -64,11 +66,12 @@ const HOME_TAB_KEY = "hermes-mobile-home-tab";
 const CHAT_SORT_KEY = "hermes-mobile-chat-sort";
 const CHAT_GROUP_KEY = "hermes-mobile-chat-group";
 const CHAT_COLLAPSED_KEY = "hermes-mobile-chat-collapsed";
-type ComposerDraft = { text: string; cursor: number; photos: Array<{ file: File; preview: string }>; files: File[] };
-const emptyDraft = (): ComposerDraft => ({ text: "", cursor: 0, photos: [], files: [] });
+type ComposerDraft = { text: string; cursor: number; skills: string[]; photos: Array<{ file: File; preview: string }>; files: File[] };
+const emptyDraft = (): ComposerDraft => ({ text: "", cursor: 0, skills: [], photos: [], files: [] });
 const draftStorageKey = (key: string) => `hermes-mobile-draft:${key}`;
+const draftSkills = (key: string): string[] => { try { const result: unknown = JSON.parse(localStorage.getItem(`${draftStorageKey(key)}:skills`) || "[]"); return Array.isArray(result) ? result.filter((item): item is string => typeof item === "string" && /^\/[\w.-]+$/.test(item)) : []; } catch { return []; } };
 const displayRows = (messages: SessionMessage[]) => transcriptRows(messages.map(m => ({
-  role: m.role, text: (m as SessionMessage & { display_content?: string }).display_content ?? m.content, timestamp: m.timestamp,
+  role: m.role, text: (m as SessionMessage & { display_content?: string }).display_content ?? (m.role === "user" ? skillInvocationText(m.content || "") : null) ?? m.content, timestamp: m.timestamp,
 })));
 const previewText = (text: string) => {
   const plain = text.replace(/>>>|<<</g, "").replace(/^\s{0,3}(?:#{1,6}\s+|[-*]\s+)/gm, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -164,23 +167,29 @@ export default function MobileApp() {
   const markUpload = (key: string, file: string, status: string) => setUploadStatus(current => ({ ...current, [key]: { ...current[key], [file]: status } }));
   const draft = composerDrafts[composerKey];
   const text = draft?.text ?? window.localStorage.getItem(draftStorageKey(composerKey)) ?? "";
+  const pickedSkills = draft?.skills ?? draftSkills(composerKey);
+  const [queues, setQueues] = useState(readQueues);
+  const queued = queues[composerKey] || [];
+  const setQueue = (key: string, entries: QueuedMessage[]) => setQueues(writeQueue(key, entries));
   const photos = draft?.photos ?? [];
   const files = draft?.files ?? [];
   const cursor = draft?.cursor ?? 0;
   const updateDraft = (key: string, update: (draft: ComposerDraft) => ComposerDraft) => setComposerDrafts(current => {
-    const previous = current[key] ?? { ...emptyDraft(), text: window.localStorage.getItem(draftStorageKey(key)) ?? "" };
+    const previous = current[key] ?? { ...emptyDraft(), text: window.localStorage.getItem(draftStorageKey(key)) ?? "", skills: draftSkills(key) };
     const next = update(previous);
     if (next.text) window.localStorage.setItem(draftStorageKey(key), next.text);
     else window.localStorage.removeItem(draftStorageKey(key));
+    if (next.skills.length) window.localStorage.setItem(`${draftStorageKey(key)}:skills`, JSON.stringify(next.skills));
+    else window.localStorage.removeItem(`${draftStorageKey(key)}:skills`);
     return { ...current, [key]: next };
   });
   const setText = (value: string | ((previous: string) => string)) => updateDraft(composerKey, previous => ({ ...previous, text: typeof value === "function" ? value(previous.text) : value }));
   const setPhotos = (value: ComposerDraft["photos"] | ((previous: ComposerDraft["photos"]) => ComposerDraft["photos"])) => updateDraft(composerKey, previous => ({ ...previous, photos: typeof value === "function" ? value(previous.photos) : value }));
   const setFiles = (value: File[] | ((previous: File[]) => File[])) => updateDraft(composerKey, previous => ({ ...previous, files: typeof value === "function" ? value(previous.files) : value }));
-  const setCursor = (value: number) => updateDraft(composerKey, previous => ({ ...previous, cursor: value }));
   const photoInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const composerInput = useRef<SkillEditorHandle>(null);
+  const composerForm = useRef<HTMLFormElement>(null);
   useEffect(() => () => { for (const entry of Object.values(composerDraftsRef.current)) for (const photo of entry.photos) URL.revokeObjectURL(photo.preview); }, []);
   const composerDraftsRef = useRef(composerDrafts);
   composerDraftsRef.current = composerDrafts;
@@ -301,6 +310,7 @@ export default function MobileApp() {
   };
   const shellRef = useRef<HTMLDivElement>(null);
   const goBack = useCallback(() => {
+    if (view === "board" && route.task) { routerNavigate("/m/board"); return; }
     if (window.history.state?.idx > 0) window.history.back();
     else routerNavigate(view === "board" && route.task ? "/m/board" : "/m");
   }, [routerNavigate, view, route.task]);
@@ -413,6 +423,7 @@ export default function MobileApp() {
   const voice = useMobileDictation(profile, `${view}/${selected}`, transcript => setText(previous => `${previous.trimEnd()}${previous.trim() ? " " : ""}${transcript}`));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [steerNext, setSteerNext] = useState(false);
   const [sending, setSending] = useState<Record<string, boolean>>({});
   const sendingHere = !!sending[composerKey];
   const idleRef = useRef({ text: "", busy: false, running: false, attachments: false, dictating: false });
@@ -957,11 +968,29 @@ export default function MobileApp() {
     choosePhotos(candidates.filter(file => file.type.startsWith("image/")));
     chooseFiles(candidates.filter(file => !file.type.startsWith("image/")));
   };
-  const send = async (event: FormEvent) => {
-    event.preventDefault();
-    const message = text.trim() || (photos.length ? "What do you see in this photo?" : files.length ? "Please read the attached file." : "");
+  const send = async (event: FormEvent | null, fromQueue?: QueuedMessage, steer = false) => {
+    event?.preventDefault();
+    const messagePhotos = fromQueue ? [] : photos;
+    const messageFiles = fromQueue ? [] : files;
+    const message = (fromQueue?.text ?? text).trim() || (messagePhotos.length ? "What do you see in this photo?" : messageFiles.length ? "Please read the attached file." : "");
     const gw = client.current;
-    if (!message || !gw || connection !== "open" || busy || sendingHere || chat?.running || voice.phase !== "idle") return;
+    if (!message || !gw || connection !== "open" || busy || sendingHere || voice.phase !== "idle") return;
+    if ((chat?.running || queued.length) && !fromQueue) {
+      if (steer && chat?.running && chat.runtimeId && !photos.length && !files.length && !/^\/[\w.-]+(?:\s|$)/.test(message)) {
+        try {
+          const result = await gw.request<{ status: string }>("session.steer", { session_id: chat.runtimeId, profile, text: message });
+          if (result.status === "queued") {
+            updateDraft(composerKey, previous => ({ ...previous, text: "", skills: [] }));
+            return;
+          }
+        } catch (e) { setError(errorText(e)); return; }
+      }
+      if (photos.length || files.length) { setError("Wait for this turn to finish before sending attachments."); return; }
+      setQueue(composerKey, [...(readQueues()[composerKey] || []), queuedMessage(message, pickedSkills)]);
+      updateDraft(composerKey, previous => ({ ...previous, text: "", skills: [] }));
+      return;
+    }
+    if (chat?.running) return;
     scrollToLatest();
     setSending(current => ({ ...current, [composerKey]: true })); setError("");
     let target = chat;
@@ -1000,18 +1029,18 @@ export default function MobileApp() {
         routerNavigate(`${chatPath(profile, target.storedId)}?mode=${homeTabRef.current}`, { replace: true });
       }
       const runtimeId = target.runtimeId;
-      for (const [index, photo] of photos.entries()) {
+      for (const [index, photo] of messagePhotos.entries()) {
         uploadingFile = `photo:${index}`;
-        markUpload(composerKey, uploadingFile, `Uploading ${index + 1} of ${photos.length + files.length}…`);
+        markUpload(composerKey, uploadingFile, `Uploading ${index + 1} of ${messagePhotos.length + messageFiles.length}…`);
         const uploaded = await uploadChatImage(photo.file, profile);
         await gw.request("image.attach", { session_id: runtimeId, profile, path: uploaded.path });
         staged.push(uploaded.path);
         markUpload(composerKey, uploadingFile, "Ready");
       }
       const refs: string[] = [];
-      for (const [index, file] of files.entries()) {
+      for (const [index, file] of messageFiles.entries()) {
         uploadingFile = `file:${index}`;
-        markUpload(composerKey, uploadingFile, `Uploading ${photos.length + index + 1} of ${photos.length + files.length}…`);
+        markUpload(composerKey, uploadingFile, `Uploading ${messagePhotos.length + index + 1} of ${messagePhotos.length + messageFiles.length}…`);
         const data_url = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(file);
         });
@@ -1021,8 +1050,20 @@ export default function MobileApp() {
         markUpload(composerKey, uploadingFile, "Ready");
       }
       uploadingFile = "";
-      const submitted = [message, ...refs].join("\n");
-      const shown = staged.length ? `${submitted}\n${staged.map(path => `@image:${path}`).join("\n")}` : submitted;
+      const activeSkills = (fromQueue?.skills ?? pickedSkills).filter(skill => message.includes(skill));
+      let modelText = message;
+      if (activeSkills.length) {
+        const instruction = message.replace(/(^|\s)\/[\w.-]+(?=\s|$)/g, "$1").trim();
+        const expanded: string[] = [];
+        for (const skill of [...new Set(activeSkills)]) {
+          const dispatch = await gw.request<{ type: string; message: string }>("command.dispatch", { session_id: runtimeId, profile, name: skill.slice(1), arg: instruction });
+          if (!dispatch.message || !["skill", "send"].includes(dispatch.type)) throw new Error(`Could not load ${skill}`);
+          expanded.push(dispatch.message);
+        }
+        modelText = expanded.join("\n\n");
+      }
+      const submitted = [modelText, ...refs].join("\n");
+      const shown = [message, ...refs, ...staged.map(path => `@image:${path}`)].join("\n");
       optimisticText = shown;
       optimistic = true;
       lastTurnSignal.current = Date.now();
@@ -1048,12 +1089,18 @@ export default function MobileApp() {
       }
       staged.length = 0;
       if (creation || creationStep === "chat" && !chat) { setCreation({ step: "working" }); preparedWorkspace.current = ""; }
-      for (const photo of photos) URL.revokeObjectURL(photo.preview);
+      for (const photo of messagePhotos) URL.revokeObjectURL(photo.preview);
       const sentKey = chatKey(profile, target.storedId);
-      setComposerDrafts(current => ({ ...current, [composerKey]: emptyDraft(), [sentKey]: emptyDraft() }));
-      window.localStorage.removeItem(draftStorageKey(composerKey));
-      window.localStorage.removeItem(draftStorageKey(sentKey));
-      setUploadStatus(current => ({ ...current, [composerKey]: {}, [sentKey]: {} }));
+      if (fromQueue) {
+        setQueue(composerKey, (readQueues()[composerKey] || []).filter(entry => entry.id !== fromQueue.id));
+      } else {
+        setComposerDrafts(current => ({ ...current, [composerKey]: emptyDraft(), [sentKey]: emptyDraft() }));
+        window.localStorage.removeItem(draftStorageKey(composerKey));
+        window.localStorage.removeItem(`${draftStorageKey(composerKey)}:skills`);
+        window.localStorage.removeItem(draftStorageKey(sentKey));
+        window.localStorage.removeItem(`${draftStorageKey(sentKey)}:skills`);
+        setUploadStatus(current => ({ ...current, [composerKey]: {}, [sentKey]: {} }));
+      }
     } catch (e) {
       if (!chat || creation) setCreation({ step: creationStep, error: errorText(e) });
       if (uploadingFile) markUpload(composerKey, uploadingFile, `Upload failed: ${errorText(e)}`);
@@ -1076,6 +1123,17 @@ export default function MobileApp() {
     }
     finally { setSending(current => ({ ...current, [composerKey]: false })); }
   };
+
+  const queueDraining = useRef(false);
+  const failedQueue = useRef(new Set<string>());
+  useEffect(() => {
+    const entry = queued[0];
+    if (!entry || failedQueue.current.has(entry.id) || queueDraining.current || !chat || chat.running || sendingHere || connection !== "open") return;
+    queueDraining.current = true;
+    void send(null, entry).then(() => {
+      if ((readQueues()[composerKey] || []).some(item => item.id === entry.id)) failedQueue.current.add(entry.id);
+    }).finally(() => { queueDraining.current = false; });
+  }, [queued, chat?.running, chat?.runtimeId, sendingHere, connection, composerKey]);
 
   const answer = useCallback((id: string, result: Record<string, unknown>) => {
     const prompt = prompts[id];
@@ -1123,7 +1181,7 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
-  const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
+  const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profile, profiles, input: composerInput, onPickSkill: (start, end, name) => composerInput.current?.insertSkill(start, end, name) });
   const chooseHomeTab = (tab: HomeTab) => {
     if (tab === homeTab) return;
     homeTabRef.current = tab;
@@ -1266,7 +1324,7 @@ export default function MobileApp() {
     projectId={projectId} onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }}
     mode={workspaceMode} onMode={mode => { setWorkspaceMode(mode); preparedWorkspace.current = ""; setCreation(null); }}
     branch={branchName} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
-    progress={creation} onRetry={() => composerInput.current?.form?.requestSubmit()} compact={compact} />;
+    progress={creation} onRetry={() => composerForm.current?.requestSubmit()} compact={compact} />;
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
@@ -1367,7 +1425,7 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header">{!desktop && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={goBack}><ArrowLeft size={22} aria-hidden="true" /></button>}
+      <header className="m-header">{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
@@ -1409,13 +1467,15 @@ export default function MobileApp() {
             </div>
           </div>
           {!atBottom && <div className="m-jump-row"><button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button></div>}
-          <form className="m-composer" onSubmit={e => void send(e)}>
+          {!!queued.length && <div className="m-queued" aria-label="Queued messages">{queued.map((entry, index) => <div key={entry.id} className="m-queued-entry"><span>Queued {index + 1}: {entry.text}</span><button type="button" onClick={() => { failedQueue.current.delete(entry.id); setText(entry.text); updateDraft(composerKey, previous => ({ ...previous, text: entry.text, skills: entry.skills || [] })); setQueue(composerKey, (readQueues()[composerKey] || []).filter(item => item.id !== entry.id)); composerInput.current?.focus(); }}>Edit</button><button type="button" aria-label={`Remove queued message ${index + 1}`} onClick={() => setQueue(composerKey, (readQueues()[composerKey] || []).filter(item => item.id !== entry.id))}>Remove</button></div>)}</div>}
+          <form ref={composerForm} className="m-composer" onSubmit={e => { void send(e, undefined, steerNext); setSteerNext(false); }}>
             {voice.phase !== "idle" && <p className="m-voice-status" role="status" aria-live="polite">{voice.phase === "recording" ? "Recording · tap to stop" : voice.phase === "starting" ? "Starting microphone…" : "Transcribing…"}</p>}
             {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
               <img src={photo.preview} alt={photo.file.name} /><span className="m-photo-label">{photo.file.name} · {Math.ceil(photo.file.size / 1024)} KB{uploadStatus[composerKey]?.[`photo:${index}`] && <small role="status">{uploadStatus[composerKey][`photo:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
             </div>)}</div>}
             {!!files.length && <div className="m-file-previews" aria-label="Selected files">{files.map((file, index) => <span key={`${file.name}-${index}`}><FileUp size={15} aria-hidden="true" /><span>{file.name} · {Math.ceil(file.size / 1024)} KB{uploadStatus[composerKey]?.[`file:${index}`] && <small role="status">{uploadStatus[composerKey][`file:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={15} aria-hidden="true" /></button></span>)}</div>}
             {suggestions}
+            {chat?.running && !desktop && <button type="button" className="m-steer-toggle" aria-label="Steer this turn" aria-pressed={steerNext} onClick={() => setSteerNext(value => !value)}>Steer this turn</button>}
             <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
               <input hidden ref={fileInput} type="file" multiple onChange={e => { chooseFiles(e.target.files); e.target.value = ""; }} />
               <DropdownMenu.Root><DropdownMenu.Trigger className="m-add-photo" aria-label="Attach photo or file" disabled={busy || sendingHere || connection !== "open"}><Plus size={20} aria-hidden="true" /></DropdownMenu.Trigger>
@@ -1424,7 +1484,12 @@ export default function MobileApp() {
                   <DropdownMenu.Item onSelect={() => fileInput.current?.click()}><FileUp size={17} aria-hidden="true" />File</DropdownMenu.Item>
                 </DropdownMenu.Content></DropdownMenu.Portal>
               </DropdownMenu.Root>
-              <Textarea ref={composerInput} aria-label="Message" name="message" autoComplete="off" value={text} onChange={e => { setText(e.target.value); setCursor(e.target.selectionStart); }} onSelect={e => setCursor(e.currentTarget.selectionStart)} onPaste={e => { const attachments = Array.from(e.clipboardData.files); if (attachments.length) { e.preventDefault(); addAttachments(attachments); } }} onKeyDown={e => {
+              <SkillEditor ref={composerInput} scope={composerKey} value={text} picked={pickedSkills} placeholder={`Message ${name}…`} onChange={(value, position, skills) => {
+                updateDraft(composerKey, previous => previous.text === value && previous.cursor === position && previous.skills.join("|") === skills.join("|") ? previous : { ...previous, text: value, cursor: position, skills });
+              }} onFiles={addAttachments} onKeyDown={e => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                  e.preventDefault(); void send(null, undefined, true); return;
+                }
                 if (onSuggestionKeyDown(e)) return;
                 if (e.key === "Escape" && chat?.running && chat.runtimeId) {
                   e.preventDefault();
@@ -1438,11 +1503,11 @@ export default function MobileApp() {
                 }
                 if (desktop && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !suggestionsOpen) {
                   e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
+                  composerForm.current?.requestSubmit();
                 }
-              }} placeholder={`Message ${name}…`} rows={1} />
-              {chat?.running ? <Button type="button" variant="secondary" size="icon" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></Button>
-                : voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
+              }} />
+              {chat?.running && <button type="button" className="m-stop" aria-label="Stop" onClick={() => { void client.current?.request("session.interrupt", { profile, session_id: chat.runtimeId }).catch(e => setError(errorText(e))); }}><Square size={16} fill="currentColor" /></button>}
+              {voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
                 : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || sendingHere || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
                 : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open"}><ArrowUp size={20} /></Button>}

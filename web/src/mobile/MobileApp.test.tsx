@@ -74,6 +74,14 @@ beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (ke
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+const typeComposer = (element: HTMLElement, value: string) => {
+  element.textContent = value;
+  const range = document.createRange();
+  range.selectNodeContents(element); range.collapse(false);
+  const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('select', { bubbles: true }));
+};
 
 const openDestination = async (label: string) => {
   await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
@@ -179,8 +187,8 @@ it("sends on Enter but keeps Shift+Enter as a newline only on desktop", async ()
   vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
-  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Hello desktop'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  const textarea = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(textarea, 'Hello desktop'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
   const shifted = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
   await act(async () => textarea.dispatchEvent(shifted));
   expect(shifted.defaultPrevented).toBe(false);
@@ -194,7 +202,7 @@ it("sends on Enter but keeps Shift+Enter as a newline only on desktop", async ()
 it("leaves Enter as a newline on the phone", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
-  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  const textarea = host.querySelector('.m-skill-editor') as HTMLElement;
   const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
   await act(async () => textarea.dispatchEvent(enter));
   expect(enter.defaultPrevented).toBe(false);
@@ -228,8 +236,8 @@ it.each(["chat", "board", "board task", "screen"])("swipes back from %s in stand
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
   expect((host.querySelector('.m-detail') as HTMLElement).style.transform).toBe(duringGesture);
   await act(async () => { touch("touchend", 190); await vi.waitFor(() => expect(window.location.pathname).toBe(target === "board task" ? "/m/board" : "/m")); });
-  expect(back).toHaveBeenCalledTimes(1);
-  expect(window.history.state.idx).toBe(index - 1);
+  expect(back).toHaveBeenCalledTimes(target === "board task" ? 0 : 1);
+  expect(window.history.state.idx).toBe(target === "board task" ? index + 1 : index - 1);
   if (target !== "board task") {
     expect((host.querySelector('.m-home') as HTMLElement).style.transform).toBe("");
     expect(host.querySelector('.m-swipe-preview')).toBeNull();
@@ -384,8 +392,8 @@ it("re-pins a manually scrolled thread when sending and follows streamed output"
   Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 200 });
   await act(async () => { log.dispatchEvent(new Event('wheel')); log.scrollTop = 100; log.dispatchEvent(new Event('scroll', { bubbles: true })); });
   expect(host.querySelector('.m-jump-row')).not.toBeNull();
-  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Check scroll'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Check scroll'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
   expect(log.scrollTop).toBe(1000);
   expect(host.querySelector('.m-jump-row')).toBeNull();
@@ -569,8 +577,8 @@ it("timestamps a just-sent message before a reload", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  const input = host.querySelector('[aria-label="Message"]') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Fresh send'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const input = host.querySelector('[aria-label="Message"]') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Fresh send'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
   expect(host.querySelector('.m-message.m-user:last-of-type time')?.getAttribute('datetime')).toBeTruthy();
 });
@@ -688,7 +696,7 @@ it("stages pasted photos and dropped files in the same composer", async () => {
   const photo = new File(["png"], "pasted.png", { type: "image/png" });
   const paste = new Event('paste', { bubbles: true, cancelable: true });
   Object.defineProperty(paste, 'clipboardData', { value: { files: [photo] } });
-  await act(async () => (host.querySelector('.m-composer textarea') as HTMLTextAreaElement).dispatchEvent(paste));
+  await act(async () => (host.querySelector('.m-skill-editor') as HTMLElement).dispatchEvent(paste));
   expect(paste.defaultPrevented).toBe(true);
   expect(host.querySelector('.m-photo-preview img')?.getAttribute('alt')).toBe('pasted.png');
   const dropped = new Event('drop', { bubbles: true, cancelable: true });
@@ -783,7 +791,7 @@ it("dictates into the draft without submitting the bot turn", async () => {
   await act(async () => (host.querySelector('[aria-label="Dictate message"]') as HTMLButtonElement).click());
   expect(host.querySelector('[aria-label="Stop recording"]')).not.toBeNull();
   await act(async () => (host.querySelector('[aria-label="Stop recording"]') as HTMLButtonElement).click());
-  await vi.waitFor(() => expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Dictated words'));
+  await vi.waitFor(() => expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Dictated words'));
   expect(mocks.transcribeAudio).toHaveBeenCalledWith(expect.stringMatching(/^data:audio\/webm;base64,/), 'audio/webm', 'frodo');
   expect(stopTrack).toHaveBeenCalled();
   expect(mocks.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
@@ -950,42 +958,36 @@ it.each([{ modifier: 'ctrlKey', label: 'Ctrl' }, { modifier: 'metaKey', label: '
 it("offers slash catalog and bot mentions with keyboard selection", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
-  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
   const type = async (value: string) => act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
-    input.setSelectionRange(value.length, value.length);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('select', { bubbles: true }));
+    typeComposer(input, value);
   });
   await type('/');
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
-  expect(input.value).toBe('/');
+  expect(input.textContent).toBe('/');
   expect(host.querySelector('.m-suggestions')?.textContent).toContain('/my-skill');
   expect(mocks.request).toHaveBeenCalledWith('commands.catalog', { session_id: 'runtime' });
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })));
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
-  expect(input.value).toBe('/my-skill ');
+  expect(input.textContent).toBe('/my-skill ');
   await type('Hello @gan');
   expect(host.querySelector('.m-suggestions')?.textContent).toContain('gandalf');
   await act(async () => (host.querySelector('.m-suggestions button') as HTMLButtonElement).click());
-  expect(input.value).toBe('Hello @gandalf ');
+  expect(input.textContent).toBe('Hello @gandalf ');
 });
 
 it("uses complete.slash for typed commands, Tab selects and Escape dismisses", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
-  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
   const type = async (value: string) => act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
-    input.setSelectionRange(value.length, value.length);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('select', { bubbles: true }));
+    typeComposer(input, value);
   });
   await type('/he');
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 140)); });
   expect(mocks.request).toHaveBeenCalledWith('complete.slash', { text: '/he', session_id: 'runtime' });
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
-  expect(input.value).toBe('/help ');
+  expect(input.textContent).toBe('/help ');
   await type('/');
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
   expect(host.querySelector('.m-suggestions')).not.toBeNull();
@@ -1005,21 +1007,21 @@ it("focuses the desktop composer on bot switch without forcing synchronous heigh
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 900px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
-  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
   expect(document.activeElement).toBe(input);
   Object.defineProperty(input, 'scrollHeight', { configurable: true, get: () => { throw new Error('layout read on input'); } });
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Long message that should grow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { typeComposer(input, 'Long message that should grow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   expect(input.style.height).toBe('');
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'short'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { typeComposer(input, 'short'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   expect(input.style.height).toBe('');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
-  expect(document.activeElement).toBe(host.querySelector('.m-composer textarea'));
+  expect(document.activeElement).toBe(host.querySelector('.m-skill-editor'));
 });
 
 it("does not focus the composer when opening a bot at phone width", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
-  expect(document.activeElement).not.toBe(host.querySelector('.m-composer textarea'));
+  expect(document.activeElement).not.toBe(host.querySelector('.m-skill-editor'));
 });
 
 it("keeps drafts and attachments scoped to each bot and restores on switch", async () => {
@@ -1028,19 +1030,19 @@ it("keeps drafts and attachments scoped to each bot and restores on switch", asy
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click());
   const type = async (value: string) => {
-    const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    const input = host.querySelector('.m-skill-editor') as HTMLElement;
+    await act(async () => { typeComposer(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
   };
   await type('Frodo draft');
   const photo = host.querySelector('.m-composer input[type="file"]') as HTMLInputElement;
   Object.defineProperty(photo, 'files', { configurable: true, value: [new File(['photo'], 'frodo.png', { type: 'image/png' })] });
   await act(async () => photo.dispatchEvent(new Event('change', { bubbles: true })));
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
-  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('');
+  expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('');
   expect(host.querySelector('.m-photo-previews')).toBeNull();
   await type('Gandalf only');
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
-  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Frodo draft');
+  expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Frodo draft');
   expect(host.querySelector('.m-photo-previews')?.textContent).toContain('frodo.png');
   expect((host.querySelector('.m-photo-preview img') as HTMLImageElement).alt).toBe('frodo.png');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
@@ -1048,7 +1050,7 @@ it("keeps drafts and attachments scoped to each bot and restores on switch", asy
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'gandalf', text: 'Gandalf only' });
   expect(mocks.uploadChatImage).not.toHaveBeenCalled();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
-  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Frodo draft');
+  expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Frodo draft');
   expect((host.querySelector('.m-photo-preview img') as HTMLImageElement).alt).toBe('frodo.png');
 });
 
@@ -1066,8 +1068,8 @@ it("keeps a pending photo upload in its original chat after switching bots", asy
   expect(host.querySelector('.m-photo-label')?.textContent).toContain('Uploading 1 of 1');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
   expect(host.querySelector('.m-photo-previews')).toBeNull();
-  const input = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Gandalf only'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Gandalf only'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'gandalf', text: 'Gandalf only' });
   await act(async () => { finishUpload({ path: '/frodo/image.png', name: 'image.png', bytes: 5, mime_type: 'image/png' }); });
@@ -1242,12 +1244,12 @@ it("creates a project worktree on first send, shows failure and retries without 
   await act(async () => { const select = host.querySelector('#m-new-project') as HTMLSelectElement; select.value = 'p_qa'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => (Array.from(host.querySelectorAll('.m-new-mode button')).find(button => button.textContent === 'New worktree') as HTMLButtonElement).click());
   await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'feat/qa-flow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
-  const textarea = host.querySelector('.m-composer textarea') as HTMLTextAreaElement;
-  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  const textarea = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-composer .m-send') as HTMLButtonElement).click());
   expect(host.querySelector('.m-creation-progress [data-state="failed"]')?.textContent).toContain('Creating worktree');
   expect(host.textContent).toContain('Branch already exists');
-  expect((host.querySelector('.m-composer textarea') as HTMLTextAreaElement).value).toBe('Test first send');
+  expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Test first send');
   expect(mocks.request).not.toHaveBeenCalledWith('session.create', expect.anything());
   await act(async () => (host.querySelector('.m-creation-error button') as HTMLButtonElement).click());
   expect(mocks.request).toHaveBeenCalledWith('session.create', { profile: 'frodo', source: 'mobile', close_on_disconnect: false, cwd: '/qa/repo/.worktrees/feat-qa-flow' });

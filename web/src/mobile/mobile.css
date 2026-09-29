@@ -106,10 +106,10 @@
 
 .m-shell .m-chat-identity { display: flex; align-items: center; gap: 8px; margin-right: auto; min-width: 0; height: 46px; background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 4px 12px 4px 5px; color: var(--foreground); font-size: 14px; font-weight: 600; box-shadow: 0 3px 14px var(--shadow); }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .m-shell .m-icon-button, .m-shell .m-composer textarea { background: color-mix(in srgb, var(--card) 70%, transparent); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
+  .m-shell .m-icon-button, .m-shell .m-composer :is(textarea, .m-skill-editor) { background: color-mix(in srgb, var(--card) 70%, transparent); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .m-shell .m-icon-button, .m-shell .m-chat-identity, .m-shell .m-composer textarea { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .m-shell .m-icon-button, .m-shell .m-chat-identity, .m-shell .m-composer :is(textarea, .m-skill-editor) { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 .m-chat-identity .m-avatar, .m-chat-identity .m-avatar-fallback { width: 34px; height: 34px; font-size: 16px; }
 .m-shell .m-screen-identity { margin-inline: auto; max-width: calc(100% - 52px); }
@@ -117,7 +117,7 @@
 .m-screen-identity small::before { content: "·"; margin-right: 8px; }
 .m-chat-identity > span:not(.m-avatar, .m-avatar-fallback, .sr-only) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .m-chat-identity .m-avatar-skeleton { width: 34px; height: 34px; }
-.m-shell .m-composer textarea { box-shadow: 0 3px 14px var(--shadow); }
+.m-shell .m-composer :is(textarea, .m-skill-editor) { box-shadow: 0 3px 14px var(--shadow); }
 .m-shell :is(.m-icon-button, .m-chat-identity, .m-pinned-bot, .m-bot-main):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .m-list-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 64px; background: none; border: 0; text-align: left; padding: 0; }
 .m-list-row::after { content: ""; position: absolute; bottom: 0; left: 56px; right: 0; border-bottom: 1px solid var(--border); }
@@ -199,12 +199,12 @@
 .m-voice-loading svg { animation: m-voice-spin 1s linear infinite; }
 @keyframes m-voice-spin { to { transform: rotate(360deg); } }
 .m-shell[data-keyboard="true"] .m-composer { padding-bottom: 10px; }
-.m-shell .m-composer textarea { flex: 1; width: auto; min-width: 0; height: auto; field-sizing: content; max-height: 40dvh; min-height: 46px; overflow-y: auto; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); font-size: 16px; }
+.m-shell .m-composer :is(textarea, .m-skill-editor) { flex: 1; width: auto; min-width: 0; height: auto; field-sizing: content; max-height: 40dvh; min-height: 46px; overflow-y: auto; resize: none; border-radius: 24px; padding: 11px 16px; background: var(--card); font-size: 16px; }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .m-shell .m-composer textarea { background: color-mix(in srgb, var(--card) 70%, transparent); }
+  .m-shell .m-composer :is(textarea, .m-skill-editor) { background: color-mix(in srgb, var(--card) 70%, transparent); }
 }
 .m-shell .m-file-link { padding: 0; border: 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
-@media (prefers-reduced-transparency: reduce) { .m-shell .m-composer textarea { background: var(--card); } }
+@media (prefers-reduced-transparency: reduce) { .m-shell .m-composer :is(textarea, .m-skill-editor) { background: var(--card); } }
 .m-shell .m-composer button { flex: none; border-radius: 50%; width: 44px; height: 44px; display: grid; place-items: center; border: 0; }
 .m-shell .m-composer :is(.m-add-photo, .m-voice-start, .m-voice-loading) { border: 1px solid var(--border); background: var(--secondary); color: var(--foreground); box-shadow: 0 2px 8px var(--shadow); }
 .m-shell .m-send { background: var(--primary); color: var(--primary-foreground); }
@@ -456,6 +456,17 @@
 .m-computer-activity li { margin: 10px 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 
 /* Selected bot: a quiet tint on its container, stronger than hover. */
+.m-shell .m-composer .m-skill-editor { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; height: auto; line-height: 24px; outline: none; cursor: text; }
+.m-skill-editor:empty::before { content: attr(data-placeholder); color: var(--muted-foreground); pointer-events: none; }
+.m-skill-pill { display: inline-block; padding: 0 7px; margin: 0 2px; border-radius: 6px; background: var(--secondary); border: 1px solid var(--border); color: var(--foreground); font-weight: 600; white-space: nowrap; user-select: all; }
+.m-queued { width: min(100%, 768px); margin-inline: auto; padding: 4px 16px; max-height: 160px; overflow-y: auto; }
+.m-queued-entry { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-foreground); padding: 5px 0; }
+.m-queued-entry span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-queued-entry button { border: 0; background: none; color: var(--foreground); padding: 6px; }
+.m-shell .m-composer .m-steer-toggle { width: max-content; height: 32px; margin: 0 0 6px auto; padding: 0 12px; border-radius: 8px; background: var(--secondary); font-size: 12px; }
+.m-shell .m-composer .m-steer-toggle[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
+.m-shell .m-composer .m-stop { background: var(--secondary); color: var(--foreground); }
+
 .m-shell :is(.m-pinned-bot, .m-bot-main)[aria-current="page"] { background: var(--secondary); opacity: 1; }
 .m-shell .m-bot-main[aria-current="page"] { border-radius: 10px; }
 .m-shell .m-pinned-bot[aria-current="page"] { border-radius: 12px; }
