@@ -3,7 +3,10 @@
 .m-terminal-resize { height: 8px; flex: none; cursor: row-resize; touch-action: none; background: var(--border); }
 .m-terminal-resize:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .m-terminal-bar { min-height: 42px; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-bottom: 1px solid #34363b; }
-.m-terminal-title { font-size: 12px; white-space: nowrap; color: #bec2c9; }
+.m-terminal-title { font-size: 12px; white-space: nowrap; color: #bec2c9; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.m-terminal-folder { unicode-bidi: plaintext; }
+.m-terminal-folder-short { display: none; }
+@media (max-width: 600px) { .m-terminal-folder-full { display: none; } .m-terminal-folder-short { display: inline; } }
 .m-terminal-tabs { min-width: 0; flex: 1; display: flex; gap: 4px; overflow-x: auto; }
 .m-terminal-tab { display: flex; align-items: center; border-radius: 6px; background: #2a2d32; flex: none; }
 .m-terminal-tab:has([aria-pressed="true"]) { background: #454a52; }

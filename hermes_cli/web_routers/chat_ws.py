@@ -452,6 +452,25 @@ async def bot_terminal_capabilities(request: Request) -> dict:
             "profiles": await run_in_threadpool(read)}
 
 
+@router.get("/api/bot-terminal/folder")
+async def bot_terminal_folder(request: Request, profile: str, session: str = "") -> dict:
+    """Display only the server-resolved folder, matching the shell launch rules."""
+    from starlette.concurrency import run_in_threadpool
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, stored_session_folder, terminal_config
+    from hermes_cli.web_server_profiles import _resolve_profile_dir
+
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or
+            any(key in request.query_params for key in ("cwd", "path", "workdir"))):
+        raise HTTPException(status_code=400, detail="Invalid terminal request")
+    _resolve_profile_dir(profile)
+    try:
+        def read() -> str:
+            return resolve_terminal_folder(terminal_config(profile), stored_session_folder(profile, session))
+        return {"folder": await run_in_threadpool(read)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Conversation unavailable") from exc
+
+
 _bot_terminal_active = 0
 _BOT_TERMINAL_LIMIT = 16
 
@@ -460,7 +479,7 @@ _BOT_TERMINAL_LIMIT = 16
 async def bot_terminal_ws(ws: WebSocket) -> None:
     """Authenticated raw shell PTY, local or the profile's configured SSH host."""
     global _bot_terminal_active
-    from hermes_cli.web_bot_terminal import shell_argv, terminal_config
+    from hermes_cli.web_bot_terminal import resolve_terminal_folder, shell_argv, stored_session_folder, terminal_config
     from hermes_cli.web_server_chat import PtyBridge, _PTY_BRIDGE_AVAILABLE
     from tools.environments.local import build_subprocess_env
 
@@ -475,14 +494,18 @@ async def bot_terminal_ws(ws: WebSocket) -> None:
         await ws.close(code=4403, reason="Signed-in dashboard session required")
         return
     profile = ws.query_params.get("profile", "")
-    if not _VALID_CHANNEL_RE.fullmatch(profile):
-        await ws.close(code=4403, reason="Invalid bot profile")
+    session_id = ws.query_params.get("session", "")
+    if (not _VALID_CHANNEL_RE.fullmatch(profile) or
+            any(key in ws.query_params for key in ("cwd", "path", "workdir"))):
+        await ws.close(code=4403, reason="Invalid terminal request")
         return
     try:
         from hermes_cli.web_server_profiles import _resolve_profile_dir
-        _resolve_profile_dir(profile)  # no arbitrary profile/path supplied by client
+        _resolve_profile_dir(profile)
         config = await asyncio.to_thread(terminal_config, profile)
-        argv, cwd = shell_argv(config)
+        stored = await asyncio.to_thread(stored_session_folder, profile, session_id)
+        folder = resolve_terminal_folder(config, stored)
+        argv, cwd = shell_argv({**config, "cwd": folder})
     except (HTTPException, ValueError, OSError) as exc:
         _log.warning("bot terminal configuration refused profile=%s reason=%s", profile, type(exc).__name__)
         await ws.close(code=4403, reason="Bot terminal unavailable; check its backend settings")

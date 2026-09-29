@@ -99,8 +99,9 @@ export default function MobileApp() {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState(() => route.profile || "");
   const [terminalCapabilities, setTerminalCapabilities] = useState<BotTerminalCapabilities | null>(null);
-  const [terminalOpenByBot, setTerminalOpenByBot] = useState<Record<string, boolean>>({});
+  const [terminalOpenByChat, setTerminalOpenByChat] = useState<Record<string, boolean>>({});
   const [terminalHeight, setTerminalHeight] = useState(() => Number(localStorage.getItem("hermes:bot-terminal-height")) || 310);
+  const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   useEffect(() => {
     let active = true;
     void fetchJSON<BotTerminalCapabilities>("/api/bot-terminal/capabilities")
@@ -114,17 +115,17 @@ export default function MobileApp() {
       if (event.key.toLowerCase() !== "j" || event.shiftKey || event.altKey ||
           !(navigator.platform.includes("Mac") ? event.metaKey : event.ctrlKey)) return;
       event.preventDefault();
-      setTerminalOpenByBot(previous => ({ ...previous, [profile]: !previous[profile] }));
+      setTerminalOpenByChat(previous => ({ ...previous, [chatKey(profile, selected)]: !previous[chatKey(profile, selected)] }));
     };
     window.addEventListener("keydown", toggle);
     return () => window.removeEventListener("keydown", toggle);
-  }, [desktop, view, profile]);
+  }, [desktop, view, profile, selected]);
   const terminalProfile = view === "terminal" ? route.profile || "" : profile;
-  const terminalVisible = view === "terminal" || (view === "chat" && desktop && !!terminalOpenByBot[profile]);
+  const terminalSession = view === "terminal" ? route.session || "" : selected;
+  const terminalVisible = view === "terminal" || (view === "chat" && desktop && !!terminalOpenByChat[chatKey(profile, selected)]);
   const screenVisible = showBotScreen(terminalCapabilities, profile, !desktop, window.hermetic?.hostName);
   const [sessions, setSessions] = useState<Conversation[]>([]);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
-  const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [chat, setChat] = useState<MobileChat | null>(null);
   const composerKey = chatKey(profile, selected);
   const [composerDrafts, setComposerDrafts] = useState<Record<string, ComposerDraft>>({});
@@ -1321,9 +1322,9 @@ export default function MobileApp() {
     </>
       </motion.div>}
     </AnimatePresence>
-    <BotTerminalDock profile={terminalProfile} open={terminalVisible} fullScreen={view === "terminal"}
+    <BotTerminalDock profile={terminalProfile} session={terminalSession} open={terminalVisible} fullScreen={view === "terminal"}
       height={terminalHeight} onHeightChange={setTerminalHeight}
-      onClose={() => { if (view === "terminal") goBack(); else setTerminalOpenByBot(previous => ({ ...previous, [profile]: false })); }} />
+      onClose={() => { if (view === "terminal") goBack(); else setTerminalOpenByChat(previous => ({ ...previous, [chatKey(profile, selected)]: false })); }} />
     </div>
     {newChatOpen && <Sheet open={newChatOpen} onClose={() => setNewChatOpen(false)} label="Choose a bot">
       <div className="m-activity-head"><h2>New conversation</h2><button type="button" className="m-icon-button" aria-label="Close bot picker" onClick={() => setNewChatOpen(false)}><X size={20} aria-hidden="true" /></button></div>
@@ -1334,7 +1335,7 @@ export default function MobileApp() {
       <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinned.some(p => p.name === pinMenu)
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
         : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
-      <button type="button" className="m-pin-choice" onClick={() => { routerNavigate(`/m/terminal/${encodeURIComponent(pinMenu)}`); setPinMenu(""); }}>Terminal</button>
+      <button type="button" className="m-pin-choice" onClick={() => { routerNavigate(`/m/terminal/${encodeURIComponent(pinMenu)}${pinMenu === profile && selected ? `/${encodeURIComponent(selected)}` : ""}`); setPinMenu(""); }}>Terminal</button>
     </Sheet>}
     {messageAction?.scope === composerKey && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
       <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction(null)}><X size={20} aria-hidden="true" /></button></div>
@@ -1364,7 +1365,7 @@ export default function MobileApp() {
     {activityOpen && <Sheet open={activityOpen} onClose={() => setActivityOpen(false)} label={`${name} activity`}>
       <div className="m-activity-head"><h2>Activity</h2><Tooltip label="Close activity"><Button type="button" variant="ghost" size="icon" aria-label="Close activity" onClick={() => setActivityOpen(false)}><X size={21} /></Button></Tooltip></div>
       <p className="m-activity-now"><i className="m-status-dot" />{status}</p>
-      <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); routerNavigate(`/m/terminal/${encodeURIComponent(profile)}`); }}><span>Terminal</span></button>
+      <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); routerNavigate(`/m/terminal/${encodeURIComponent(profile)}${selected ? `/${encodeURIComponent(selected)}` : ""}`); }}><span>Terminal</span></button>
       <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); setConversationsOpen(true); }}><MessageSquare size={18} aria-hidden="true" />Conversations</button>
       {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">No activity yet.</p>}
     </Sheet>}
