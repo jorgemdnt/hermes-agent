@@ -274,10 +274,10 @@ def _ws_auth_reason(ws: "WebSocket") -> tuple[Optional[str], str]:
 
         try:
             info = consume_ticket(ticket)
-            if info.get("provider") == "bot-desktop":
-                # A display ticket admits one RFB bridge on /api/display/ws (a watch-only
-                # capability handed to a screen viewer); it must not double as a login here.
-                raise TicketInvalid("display ticket presented as a gateway login")
+            if info.get("provider") in {"bot-desktop", "terminal-bridge"}:
+                # Screen and raw-shell capabilities are scoped to their own WS
+                # routes; neither grants a generic gateway login.
+                raise TicketInvalid("scoped ticket presented as a gateway login")
             _stamp_identity(info)
             if protocol_ticket:
                 # Select only the stable public protocol during accept. The
