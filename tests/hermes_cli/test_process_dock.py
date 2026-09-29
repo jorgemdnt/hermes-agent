@@ -2,6 +2,7 @@
 import time
 from types import SimpleNamespace
 
+import pytest
 from prompt_toolkit.utils import get_cwidth
 
 
@@ -53,6 +54,7 @@ def test_dock_paints_processes_under_agents_and_retires_finished_rows(monkeypatc
         process_registry.kill_process(slow_id)
 
 
+@pytest.mark.live_system_guard_bypass  # Stops a real shell and its child.
 def test_monitor_controls_stop_processes_and_never_steer_them():
     from hermes_cli.cli_subagent_monitor import SubagentMonitor
     from tools.process_registry import process_registry
@@ -66,7 +68,8 @@ def test_monitor_controls_stop_processes_and_never_steer_them():
         assert dock.selected_process is not None
         assert 'error' in dock.control('steer', 'nope')
         assert process_registry.get(slow_id).exited is False
-        assert dock.control('stop')['status'] == 'killed'
+        result = dock.control('stop')
+        assert result['status'] == 'killed', result
         _wait(lambda: process_registry.get(slow_id).exited)
         dock.refresh()
         assert any(r['id'] == slow_id and r['status'] == 'killed' for r in dock.processes)

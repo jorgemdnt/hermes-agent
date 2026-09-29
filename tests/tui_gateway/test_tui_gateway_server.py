@@ -4548,7 +4548,7 @@ def test_make_agent_forwards_agent_disabled_toolsets(monkeypatch):
 
     server._make_agent("sid", "session-key")
 
-    assert captured["disabled_toolsets"] == ["browser"]
+    assert captured["disabled_toolsets"] == ["browser", "mobile_secrets"]
 
 
 def test_make_agent_disabled_toolsets_none_by_default(monkeypatch):
@@ -4558,7 +4558,7 @@ def test_make_agent_disabled_toolsets_none_by_default(monkeypatch):
 
     server._make_agent("sid", "session-key")
 
-    assert captured["disabled_toolsets"] is None
+    assert captured["disabled_toolsets"] == ["mobile_secrets"]
 
 
 def _capture_make_agent_kwargs(monkeypatch) -> dict:
