@@ -1290,8 +1290,16 @@ export const api = {
     ),
 
   // Subscription inventory and provider quota (60-second server cache).
-  getSubscriptions: (fresh = false) =>
-    fetchJSON<SubscriptionsResponse>(`/api/subscriptions${fresh ? "?fresh=true" : ""}`),
+  getSubscriptions: (fresh = false, sessionId?: string) =>
+    fetchJSON<SubscriptionsResponse>(`/api/subscriptions${fresh || sessionId ? `?${new URLSearchParams({ ...(fresh ? { fresh: "true" } : {}), ...(sessionId ? { session_id: sessionId } : {}) })}` : ""}`),
+  startClaudeSubscriptionLogin: () =>
+    fetchJSON<{ session_id: string; status: string }>("/api/subscriptions/claude/login", { method: "POST" }),
+  pollClaudeSubscriptionLogin: (session: string) =>
+    fetchJSON<{ status: string }>(`/api/subscriptions/claude/login/${encodeURIComponent(session)}`),
+  cancelClaudeSubscriptionLogin: (session: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/subscriptions/claude/login/${encodeURIComponent(session)}`, { method: "DELETE" }),
+  removeClaudeSubscription: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/subscriptions/claude/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   setCredentialPoolStrategy: (provider: string, strategy: string) =>
     fetchJSON<{ ok: boolean }>(`/api/credentials/pool/${encodeURIComponent(provider)}/strategy`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }),
@@ -1829,6 +1837,7 @@ export interface SubscriptionEntry {
   status: "active" | "rate-limited" | "needs re-login";
   windows: { five_hour?: SubscriptionWindow; weekly?: SubscriptionWindow };
   in_use: boolean;
+  last_used?: boolean;
 }
 
 export interface SubscriptionProvider {

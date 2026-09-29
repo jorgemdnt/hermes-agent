@@ -1216,7 +1216,7 @@ export default function MobileApp() {
           <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul>
           {!activity.length && <p className="m-muted">{activityByBot[profile]?.preview || "Waiting for the next activity."}</p>}
         </section>)}
-        {view === "subscriptions" && <MobileSubscriptions />}
+        {view === "subscriptions" && <MobileSubscriptions sessionId={chat?.runtimeId || selected || undefined} />}
         {view === "settings" && <section className="m-settings">
           <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
           <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>

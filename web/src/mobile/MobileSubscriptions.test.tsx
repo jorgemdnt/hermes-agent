@@ -6,6 +6,8 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getSubscriptions: vi.fn(), startOAuthLogin: vi.fn(), pollOAuthSession: vi.fn(),
   removeCredentialPoolEntry: vi.fn(), cancelOAuthSession: vi.fn(), setCredentialPoolStrategy: vi.fn(),
+  startClaudeSubscriptionLogin: vi.fn(), pollClaudeSubscriptionLogin: vi.fn(),
+  cancelClaudeSubscriptionLogin: vi.fn(), removeClaudeSubscription: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api: mocks }));
 import MobileSubscriptions from "./MobileSubscriptions";
@@ -15,7 +17,9 @@ const fixture = () => ({ providers: [
     { id: "one", index: 1, account: "first@example.com", plan: "Pro", status: "active", in_use: true, windows: { weekly: { used_percent: 24, reset_at: "2026-10-03T00:00:00Z" } } },
     { id: "two", index: 2, account: "second@example.com", plan: "Pro", status: "active", in_use: false, windows: {} },
   ] },
-  { provider: "anthropic", strategy: "fill_first", rotation_supported: false, entries: [] },
+  { provider: "anthropic", strategy: "fill_first", rotation_supported: true, entries: [
+    { id: "claude-cli", index: 1, account: "claude@example.com", plan: "Claude Max", status: "active", in_use: false, windows: { five_hour: { used_percent: 12, reset_at: "2026-10-03T00:00:00Z" } } },
+  ] },
   { provider: "xai-oauth", strategy: "fill_first", rotation_supported: true, entries: [] },
 ] });
 let host: HTMLDivElement;
@@ -35,7 +39,9 @@ it("renders provider-supplied windows per account, never an invented 5-hour numb
   expect(host.textContent).toContain("first@example.com");
   expect(host.textContent).toContain("24% used");
   expect(host.textContent).toContain("Not reported");
-  expect(host.textContent).toContain("Claude runs through your official Claude Code login");
+  expect(host.textContent).toContain("Claude Max");
+  expect(host.textContent).toContain("12% used");
+  expect(host.textContent).toContain("In use now");
 });
 
 it("starts append, opens the provider page and refreshes the list on approval", async () => {
@@ -55,6 +61,26 @@ it("removes only the chosen row and refreshes without disconnect", async () => {
   await act(async () => (host.querySelector('[aria-label="Remove second@example.com from Codex"]') as HTMLButtonElement).click());
   expect(mocks.removeCredentialPoolEntry).toHaveBeenCalledWith("openai-codex", 2);
   expect(mocks.getSubscriptions).toHaveBeenCalledWith(true);
+});
+
+it("starts the official Claude CLI login without routing through Hermes OAuth", async () => {
+  mocks.startClaudeSubscriptionLogin.mockResolvedValue({ session_id: "cli-session", status: "pending" });
+  await act(async () => root.render(<MobileSubscriptions />));
+  const claude = host.querySelector('section[aria-label="Claude"]')!;
+  await act(async () => (claude.querySelector("button") as HTMLButtonElement).click());
+  expect(mocks.startClaudeSubscriptionLogin).toHaveBeenCalledOnce();
+  expect(mocks.startOAuthLogin).not.toHaveBeenCalled();
+  expect(host.textContent).toContain("Mac’s default browser");
+  expect(host.textContent).not.toContain("Open login page");
+});
+
+it("removes one Claude account through the CLI registry, not the API-key pool", async () => {
+  vi.stubGlobal("confirm", () => true);
+  mocks.removeClaudeSubscription.mockResolvedValue({ ok: true });
+  await act(async () => root.render(<MobileSubscriptions />));
+  await act(async () => (host.querySelector('[aria-label="Remove claude@example.com from Claude"]') as HTMLButtonElement).click());
+  expect(mocks.removeClaudeSubscription).toHaveBeenCalledWith("claude-cli");
+  expect(mocks.removeCredentialPoolEntry).not.toHaveBeenCalled();
 });
 
 it("updates Codex rotation through the pool strategy endpoint", async () => {

@@ -60,31 +60,37 @@ def test_subscription_route_uses_sanitized_snapshot_and_cache_bypass(_isolate_he
     from starlette.testclient import TestClient
     from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
     calls = []
-    def snapshot(*, fresh=False):
-        calls.append(fresh)
+    def snapshot(*, fresh=False, session_id=None):
+        calls.append((fresh, session_id))
         return {"providers": [{"provider": "openai-codex", "entries": [{"account": "account@example.com", "windows": {}}]}]}
     monkeypatch.setattr("hermes_cli.subscriptions.subscription_snapshot", snapshot)
     client = TestClient(app)
     headers = {_SESSION_HEADER_NAME: _SESSION_TOKEN}
-    assert client.get("/api/subscriptions?fresh=true", headers=headers).json() == snapshot(fresh=True)
-    assert calls == [True, True]
+    assert client.get("/api/subscriptions?fresh=true&session_id=chat-1", headers=headers).json() == snapshot(fresh=True, session_id="chat-1")
+    assert calls == [(True, "chat-1"), (True, "chat-1")]
 
 
 def test_claude_status_follows_plugin_config_without_misattributing_other_login(monkeypatch):
-    import json
+    from types import SimpleNamespace
     from hermes_cli.subscriptions import _claude_status
-    monkeypatch.setenv("CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR", "/isolated/claude")
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr("providers.get_provider_profile", lambda _: SimpleNamespace(subscription_accounts=lambda: [
+        {"id": "isolated", "dir": "/isolated/claude", "auth": {"email": "separate@example.com", "subscriptionType": "max"}}]))
     monkeypatch.setattr("agent.anthropic_credentials.read_claude_code_credentials", lambda: (_ for _ in ()).throw(AssertionError("ordinary login read")))
-    def fake_run(argv, **kwargs):
-        assert argv == ["claude", "auth", "status"]
-        assert kwargs["env"]["CLAUDE_CONFIG_DIR"] == "/isolated/claude"
-        assert "CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR" not in kwargs["env"]
-        from types import SimpleNamespace
-        return SimpleNamespace(stdout=json.dumps({"loggedIn": True, "email": "separate@example.com", "subscriptionType": "max"}))
-    monkeypatch.setattr("subprocess.run", fake_run)
-    assert _claude_status() == [{"id": "claude-cli", "index": None, "account": "separate@example.com", "plan": "Claude Max",
-                                  "status": "active", "windows": {}, "in_use": True}]
+    assert _claude_status() == [{"id": "isolated", "index": 1, "account": "separate@example.com", "plan": "Claude Max",
+                                  "status": "active", "windows": {}, "in_use": False}]
+
+
+def test_existing_claude_cli_login_shows_as_first_active_subscription(monkeypatch):
+    from types import SimpleNamespace
+    from hermes_cli.subscriptions import _claude_status
+    monkeypatch.setattr("providers.get_provider_profile", lambda _: SimpleNamespace(subscription_accounts=lambda: [
+        {"id": "claude-cli", "dir": None, "auth": {"email": "existing@example.com", "subscriptionType": "max", "authMethod": "claude.ai"}}]))
+    monkeypatch.setattr("agent.anthropic_credentials.read_claude_code_credentials", lambda: {"accessToken": "fixture"})
+    monkeypatch.setattr("hermes_cli.subscriptions._cached_limits", lambda *args, **kwargs: {"windows": {"five_hour": {"used_percent": 12, "reset_at": None}}})
+    rows = _claude_status()
+    assert [(row["id"], row["account"], row["plan"], row["status"]) for row in rows] == [
+        ("claude-cli", "existing@example.com", "Claude Max", "active")]
+    assert rows[0]["windows"]["five_hour"]["used_percent"] == 12
 
 
 def test_failed_usage_probe_exposes_no_provider_exception(monkeypatch):

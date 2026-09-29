@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import math
 import os
-import subprocess
 import time
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any
+from typing import Any, cast
 
 from agent.account_usage import _codex_backend_urls, _codex_headers, _codex_pool_route_base_url, _get_json
 from agent.credential_pool import label_from_token, load_pool
@@ -72,7 +71,10 @@ def claude_windows(payload: dict) -> dict:
     windows = {}
     for name, key in (("five_hour", "five_hour"), ("weekly", "seven_day")):
         row = payload.get(key) or {}
-        parsed = _window(row.get("utilization"), row.get("resets_at"))
+        value = row.get("utilization")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1:
+            value *= 100  # Anthropic reports fractional utilization for these windows.
+        parsed = _window(value, row.get("resets_at"))
         if parsed:
             windows[name] = parsed
     return windows
@@ -119,23 +121,13 @@ def _limits(provider: str, entry) -> dict:
             pass
         return {"plan": plan if isinstance(plan, str) else None, "windows": grok_windows(payload)}
     if provider == "anthropic":
-        from agent.anthropic_credentials import read_claude_code_credentials, resolve_anthropic_token
-        from agent.account_usage import fetch_account_usage
-        cli = read_claude_code_credentials() or {}
-        # The usage resolver can pick a different Hermes account. Never attach its
-        # numbers to the Claude CLI identity unless both resolve the same token.
-        token = cli.get("accessToken")
-        if not token or token != resolve_anthropic_token():
+        token = entry.runtime_api_key
+        if not token:
             return {"plan": None, "windows": {}}
-        usage = fetch_account_usage("anthropic")
-        windows = {}
-        for window in usage.windows if usage else ():
-            name = {"Current session": "five_hour", "Current week": "weekly"}.get(window.label)
-            if name:
-                parsed = _window(window.used_percent, window.reset_at.isoformat() if window.reset_at else None)
-                if parsed:
-                    windows[name] = parsed
-        return {"plan": None, "windows": windows}
+        payload = _get_json("https://api.anthropic.com/api/oauth/usage",
+                            {"Authorization": f"Bearer {token}", "Accept": "application/json",
+                             "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.1.0"}, timeout=10.0)
+        return {"plan": None, "windows": claude_windows(payload)}
     return {"plan": None, "windows": {}}
 
 
@@ -155,38 +147,45 @@ def _cached_limits(provider: str, entry, fresh: bool) -> dict:
 
 
 def _claude_status(*, fresh: bool = False) -> list[dict]:
-    """The configured DirectSDK delegates to ONE official Claude Code login, not this pool."""
-    try:
-        import json
-        env = os.environ.copy()
-        config_dir = env.pop("CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR", None)
-        if config_dir:
-            env["CLAUDE_CONFIG_DIR"] = config_dir
-        command = env.get("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND") or "claude"
-        result = subprocess.run([command, "auth", "status"], env=env, capture_output=True, text=True, timeout=5)
-        auth = json.loads(result.stdout) if result.stdout.strip().startswith("{") else {}
-        if auth.get("loggedIn") is True:
-            from agent.anthropic_credentials import read_claude_code_credentials
-            from hashlib import sha256
-            from types import SimpleNamespace
-            plan = auth.get("subscriptionType")
-            email = auth.get("email")
-            # The resolver reads the ordinary Claude config. A plugin-specific
-            # directory may be a different account: omit usage rather than
-            # attribute the ordinary login's quota to it.
-            ordinary_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-            same_config = not config_dir or config_dir == ordinary_dir
-            token = (read_claude_code_credentials() or {}).get("accessToken") if same_config else None
-            cached = _cached_limits("anthropic", SimpleNamespace(id=sha256(token.encode()).hexdigest(), runtime_api_key=token), fresh=fresh) if token else {"windows": {}}
-            return [{"id": "claude-cli", "index": None, "account": email if isinstance(email, str) else "Claude Code login",
-                     "plan": "Claude " + plan.title() if isinstance(plan, str) and plan else None,
-                     "status": "active", "windows": cached["windows"], "in_use": True}]
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        pass
-    return []
+    """The DirectSDK account list comes from the CLI plugin, not the API-key pool."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from providers import get_provider_profile
+    from agent.anthropic_credentials import read_claude_code_credentials
+
+    profile = get_provider_profile("claude-subscription-directsdk-experimental")
+    list_accounts = getattr(profile, "subscription_accounts", None)
+    if not callable(list_accounts):
+        return []
+    entries = []
+    for index, row in enumerate(cast(list[dict], list_accounts()), 1):
+        auth = row["auth"]
+        directory = row["dir"]
+        token = None
+        if auth:
+            if directory is None and not os.environ.get("CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR"):
+                token = (read_claude_code_credentials() or {}).get("accessToken")
+            else:
+                # Isolated CLI accounts may live in a separate Keychain item. Never
+                # substitute the ordinary account's token for a missing file credential.
+                path = Path(directory or os.environ["CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR"]) / ".credentials.json"
+                try:
+                    import json
+                    token = (json.loads(path.read_text()).get("claudeAiOauth") or {}).get("accessToken")
+                except (OSError, ValueError):
+                    pass
+        cached = _cached_limits("anthropic", SimpleNamespace(id=row["id"], runtime_api_key=token), fresh) if token else {"windows": {}}
+        plan = auth.get("subscriptionType")
+        entries.append({"id": row["id"], "index": index, "account": auth.get("email") or "Claude Code login",
+                        "plan": "Claude " + plan.title() if isinstance(plan, str) and plan else None,
+                        "status": "rate-limited" if row.get("limited") else "active" if auth else "needs re-login", "windows": cached["windows"],
+                        "in_use": False})
+    return entries
 
 
-def subscription_snapshot(*, fresh: bool = False) -> dict:
+def subscription_snapshot(*, fresh: bool = False, session_id: str | None = None) -> dict:
+    from agent.subscription_activity import latest
+
     config = load_config()
     strategies = config.get("credential_pool_strategies") or {}
     stored = read_credential_pool()
@@ -197,13 +196,17 @@ def subscription_snapshot(*, fresh: bool = False) -> dict:
             entries = _claude_status(fresh=fresh)
         else:
             pool = load_pool(provider) if provider in stored else None
-            current = pool.peek() if pool else None
             for index, entry in enumerate(pool.entries() if pool else [], 1):
                 limits = _cached_limits(provider, entry, fresh) if provider != "anthropic" else {"plan": None, "windows": {}}
                 status = "needs re-login" if entry.last_status == "dead" else "rate-limited" if entry.last_status == "exhausted" else "active"
                 entries.append({"id": entry.id, "index": index, "account": label_from_token(entry.access_token, entry.label),
                                 "plan": limits["plan"], "status": status, "windows": limits["windows"],
-                                "in_use": bool(current and current.id == entry.id)})
+                                "in_use": False})
+        activity = latest(provider, session_id)
+        for entry in entries:
+            if activity and entry["id"] == activity["account_id"] and activity["phase"] != "failed":
+                entry["in_use"] = activity["phase"] == "in_flight"
+                entry["last_used"] = activity["phase"] == "finished"
         result.append({"provider": provider, "strategy": strategies.get(provider, "fill_first"), "entries": entries,
-                       "rotation_supported": provider != "anthropic"})
+                       "rotation_supported": provider != "anthropic" or bool(config.get("model", {}).get("provider") == "claude-subscription-directsdk-experimental")})
     return {"providers": result}

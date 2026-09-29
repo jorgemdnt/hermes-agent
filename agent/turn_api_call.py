@@ -87,37 +87,62 @@ def perform_api_call(
     _use_streaming = _should_stream(agent)
 
     def _perform_api_call(next_api_kwargs):
-        if agent.api_mode == "codex_responses":
-            next_api_kwargs = agent._get_transport().preflight_kwargs(
-                next_api_kwargs, allow_stream=False, is_github_responses=agent._is_copilot_url(),
-                sanitize_harmony_tokens=agent._is_codex_backend(),
-            )
-        if _use_streaming:
-            return agent._interruptible_streaming_api_call(
-                next_api_kwargs, on_first_delta=_stop_spinner
-            )
-        from agent import relay_llm
+        from agent.subscription_activity import mark
 
-        return relay_llm.execute(
-            next_api_kwargs,
-            agent._interruptible_api_call,
-            session_id=str(agent.session_id or ""),
-            name=str(agent.provider or "provider"),
-            model_name=str(agent.model or ""),
-            metadata={
-                "api_mode": agent.api_mode,
-                "api_request_id": api_request_id,
-                "call_role": (
-                    "delegated"
-                    if getattr(agent, "is_subagent", False)
-                    else "fallback"
-                    if int(getattr(agent, "_fallback_index", 0) or 0) > 0
-                    else "primary"
-                ),
-                "retry_count": retry_count,
-            },
-            defer_logical_completion=True,
-        )
+        provider = str(getattr(agent, "provider", "") or "")
+        activity_provider = "anthropic" if provider == "claude-subscription-directsdk-experimental" else provider
+        pool = getattr(agent, "_credential_pool", None)
+        # The pool cursor is not the dispatched key. Resolve against this agent's actual key.
+        entry_id = (pool.entry_id_for_api_key(getattr(agent, "api_key", None))
+                    if pool is not None and activity_provider in ("openai-codex", "xai-oauth") else None)
+        session = str(getattr(agent, "session_id", "") or "")
+        request = str(api_request_id)
+        if activity_provider == "anthropic":
+            # The plugin selects at native-process launch, not at pool peek time.
+            # This private kwarg is consumed by DirectSDK before request serialization.
+            next_api_kwargs = dict(next_api_kwargs, _hermes_subscription_activity=(session, request))
+        elif entry_id:
+            mark(activity_provider, entry_id, session, request, "in_flight")
+        try:
+            if agent.api_mode == "codex_responses":
+                next_api_kwargs = agent._get_transport().preflight_kwargs(
+                    next_api_kwargs, allow_stream=False, is_github_responses=agent._is_copilot_url(),
+                    sanitize_harmony_tokens=agent._is_codex_backend(),
+                )
+            if _use_streaming:
+                response = agent._interruptible_streaming_api_call(
+                    next_api_kwargs, on_first_delta=_stop_spinner
+                )
+            else:
+                from agent import relay_llm
+
+                response = relay_llm.execute(
+                    next_api_kwargs,
+                    agent._interruptible_api_call,
+                    session_id=session,
+                    name=str(agent.provider or "provider"),
+                    model_name=str(agent.model or ""),
+                    metadata={
+                        "api_mode": agent.api_mode,
+                        "api_request_id": api_request_id,
+                        "call_role": (
+                            "delegated"
+                            if getattr(agent, "is_subagent", False)
+                            else "fallback"
+                            if int(getattr(agent, "_fallback_index", 0) or 0) > 0
+                            else "primary"
+                        ),
+                        "retry_count": retry_count,
+                    },
+                    defer_logical_completion=True,
+                )
+        except BaseException:
+            if entry_id:
+                mark(activity_provider, entry_id, session, request, "failed")
+            raise
+        if entry_id:
+            mark(activity_provider, entry_id, session, request, "finished")
+        return response
 
     from hermes_cli.middleware import run_llm_execution_middleware
 
