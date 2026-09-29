@@ -44,7 +44,7 @@ def health(port, path="/api/health"):
     try:
         with urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
             return response.status
-    except URLError:
+    except (URLError, OSError):
         return None
 
 

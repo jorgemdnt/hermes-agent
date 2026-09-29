@@ -30,7 +30,7 @@ export function transcriptRows(messages: Array<{ role: string; text?: string | n
 
 export function applyChatEvent(chat: MobileChat, event: GatewayEvent): MobileChat {
   if (event.session_id !== chat.runtimeId) return chat;
-  const payload = event.payload as { text?: unknown; status?: string } | undefined;
+  const payload = event.payload as { text?: unknown; status?: string; error?: string } | undefined;
   switch (event.type) {
     case "message.start":
       return { ...chat, running: true, draft: "" };
@@ -42,7 +42,8 @@ export function applyChatEvent(chat: MobileChat, event: GatewayEvent): MobileCha
         : chat;
     case "message.complete": {
       const text = typeof payload?.text === "string" ? payload.text : chat.draft;
-      return { ...chat, running: false, draft: "", rows: text ? [...chat.rows, { role: "assistant", text }] : chat.rows };
+      const duplicateError = payload?.status === "error" && !!payload.error && text.trim() === payload.error.trim();
+      return { ...chat, running: false, draft: "", rows: text && !duplicateError ? [...chat.rows, { role: "assistant", text }] : chat.rows };
     }
     default:
       return chat;

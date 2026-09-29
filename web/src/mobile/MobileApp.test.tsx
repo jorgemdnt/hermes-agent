@@ -583,6 +583,17 @@ it("timestamps a just-sent message before a reload", async () => {
   expect(host.querySelector('.m-message.m-user:last-of-type time')?.getAttribute('datetime')).toBeTruthy();
 });
 
+it("shows an explanatory provider failure as one assistant row, not a second banner", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
+  await settle();
+  const explanation = "The provider rejected this request. Provider said: HTTP 401: unavailable";
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.complete', session_id: 'runtime', payload: { status: 'error', error: 'HTTP 401: unavailable', text: explanation } }); });
+  expect(host.querySelectorAll('.m-assistant .m-bubble')).toHaveLength(1);
+  expect(host.querySelector('.m-assistant .m-bubble')?.textContent).toBe(explanation);
+  expect(host.querySelector('.m-detail > .m-error')).toBeNull();
+});
+
 it("shows compaction and a failed turn with an edit-and-retry action instead of spinning", async () => {
   mocks.running = true;
   await renderApp(); await settle(); await settle();
@@ -1228,6 +1239,10 @@ it("creates a project worktree on first send, shows failure and retries without 
   let attempts = 0;
   mocks.fetchJSON.mockImplementation(async (url, init) => {
     if (url.startsWith("/api/mobile/projects")) return { projects: [{ id: "p_qa", label: "QA repo", path: "/qa/repo" }], supported: true };
+    if (url === "/api/mobile/branch-check") {
+      if (JSON.parse(String(init?.body)).branch === "../../bad") throw new Error("Invalid Git branch name. Choose another name.");
+      return { valid: true };
+    }
     if (url === "/api/mobile/workspace") {
       attempts++;
       if (attempts === 1) throw new Error("Branch already exists");
@@ -1240,12 +1255,21 @@ it("creates a project worktree on first send, shows failure and retries without 
   await act(async () => (host.querySelector('.m-home [aria-label="New conversation"]') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('.m-bot-picker button') as HTMLButtonElement).click());
   await settle();
-  expect(host.querySelector('.m-new-chat')?.textContent).toContain('New conversation with Frodo');
-  await act(async () => { const select = host.querySelector('#m-new-project') as HTMLSelectElement; select.value = 'p_qa'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-  await act(async () => (Array.from(host.querySelectorAll('.m-new-mode button')).find(button => button.textContent === 'New worktree') as HTMLButtonElement).click());
+  expect(host.querySelector('.m-new-chat')?.textContent).toContain('What should we build in QA repo?');
+  expect(host.querySelector('.m-new-project-picker')).not.toBeNull();
+  await act(async () => (host.querySelector('.m-context-picker[aria-label="Workspace"]') as HTMLButtonElement).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' })));
+  await act(async () => (Array.from(document.querySelectorAll('[role="menuitemradio"]')).find(item => item.textContent?.includes('New worktree')) as HTMLElement).click());
+  await act(async () => { typeComposer(host.querySelector('.m-skill-editor') as HTMLElement, 'Test first send'); });
+  expect((host.querySelector('#m-new-branch') as HTMLInputElement).value).toBe('feat/test-first-send');
+  await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '../../bad'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+  expect(host.querySelector('.m-new-validation')?.textContent).toContain('Invalid Git branch name');
+  expect((host.querySelector('.m-composer .m-send') as HTMLButtonElement).disabled).toBe(true);
+  expect(attempts).toBe(0);
   await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'feat/qa-flow'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   const textarea = host.querySelector('.m-skill-editor') as HTMLElement;
-  await act(async () => { typeComposer(textarea, 'Test first send'); textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { typeComposer(textarea, 'Test first send'); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
   await act(async () => (host.querySelector('.m-composer .m-send') as HTMLButtonElement).click());
   expect(host.querySelector('.m-creation-progress [data-state="failed"]')?.textContent).toContain('Creating worktree');
   expect(host.textContent).toContain('Branch already exists');

@@ -38,7 +38,7 @@ import { showBotScreen, type BotTerminalCapabilities } from "./bot-terminal-rule
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { HomeSwitch, type HomeTab } from "./HomeSwitch";
 import { ChatsPanel, ChatsToolbar } from "./ChatsPanel";
-import { NewChatSetup, type CreationProgress, type ProjectChoice, type WorkspaceMode } from "./NewChatSetup";
+import { CreationStatus, NewChatHero, NewChatToolbar, type CreationProgress, type ProjectChoice, type WorkspaceMode } from "./NewChatSetup";
 import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
@@ -159,6 +159,21 @@ export default function MobileApp() {
   const terminalVisible = view === "terminal" || (view === "chat" && desktop && !!terminalOpenByChat[chatKey(profile, selected)]);
   const screenVisible = showBotScreen(terminalCapabilities, profile, !desktop, window.hermetic?.hostName);
   const [sessions, setSessions] = useState<Conversation[]>([]);
+  const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  const projectProfiles = [...new Set(sessions.map(row => row.profile))].sort().join(",");
+  useEffect(() => {
+    if (!projectProfiles) return;
+    let active = true;
+    void Promise.all(projectProfiles.split(",").map(async bot => {
+      try {
+        const data = await fetchJSON<{ projects: ProjectChoice[] }>(`/api/mobile/projects?profile=${encodeURIComponent(bot)}`);
+        return data.projects;
+      } catch { return []; }
+    })).then(groups => {
+      if (active) setProjectNames(Object.fromEntries(groups.flat().map(project => [project.path, project.label])));
+    });
+    return () => { active = false; };
+  }, [projectProfiles]);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [chat, setChat] = useState<MobileChat | null>(null);
   const composerKey = chatKey(profile, selected);
@@ -240,7 +255,24 @@ export default function MobileApp() {
   const [projectId, setProjectId] = useState("");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
   const [branchName, setBranchName] = useState("");
+  const [branchCheck, setBranchCheck] = useState<{ name: string; error: string } | null>(null);
   const [creation, setCreation] = useState<CreationProgress | null>(null);
+  const effectiveBranch = branchName || branchForMessage(text.trim() || (photos.length ? "What do you see in this photo?" : files.length ? "Please read the attached file." : "chat"));
+  const needsBranchCheck = view === "chat" && !selected && !!projectId && workspaceMode === "worktree";
+  useEffect(() => {
+    if (!needsBranchCheck) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetchJSON<{ valid: boolean }>("/api/mobile/branch-check", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch: effectiveBranch }),
+      }).then(() => { if (active) setBranchCheck({ name: effectiveBranch, error: "" }); })
+        .catch(cause => { if (active) setBranchCheck({ name: effectiveBranch, error: errorText(cause) }); });
+    }, 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [effectiveBranch, needsBranchCheck]);
+  const branchReady = !needsBranchCheck || branchCheck?.name === effectiveBranch && !branchCheck.error;
+  const branchError = needsBranchCheck && branchCheck?.name === effectiveBranch ? branchCheck.error : "";
   const preparedWorkspace = useRef("");
   const desiredProjectPath = useRef("");
   useEffect(() => {
@@ -251,7 +283,7 @@ export default function MobileApp() {
       .then(result => {
         if (!active) return;
         setProjects(result.projects); setProjectSupported(result.supported); setProjectReason(result.reason || "");
-        setProjectId(result.projects.find(project => project.path === desiredProjectPath.current)?.id || "");
+        setProjectId(result.projects.find(project => project.path === desiredProjectPath.current)?.id || result.projects[0]?.id || "");
         desiredProjectPath.current = "";
       }).catch(e => { if (active) setProjectReason(`Projects unavailable: ${errorText(e)}`); });
     return () => { active = false; };
@@ -628,9 +660,10 @@ export default function MobileApp() {
         }
         if (ev.type === "message.complete") {
           setCreation(null);
-          const outcome = ev.payload as { status?: string; error?: string } | undefined;
+          const outcome = ev.payload as { status?: string; error?: string; text?: string } | undefined;
           if (outcome?.status === "error" || outcome?.status === "interrupted") {
-            setError(outcome.error || (outcome.status === "interrupted" ? "The turn was interrupted." : "The turn failed."));
+            const replyExplainsFailure = outcome.status === "error" && !!outcome.text?.trim() && outcome.text.trim() !== outcome.error?.trim();
+            setError(replyExplainsFailure ? "" : outcome.error || (outcome.status === "interrupted" ? "The turn was interrupted." : "The turn failed."));
           } else setError("");
         }
       }
@@ -974,7 +1007,7 @@ export default function MobileApp() {
     const messageFiles = fromQueue ? [] : files;
     const message = (fromQueue?.text ?? text).trim() || (messagePhotos.length ? "What do you see in this photo?" : messageFiles.length ? "Please read the attached file." : "");
     const gw = client.current;
-    if (!message || !gw || connection !== "open" || busy || sendingHere || voice.phase !== "idle") return;
+    if (!message || !gw || connection !== "open" || busy || sendingHere || voice.phase !== "idle" || !branchReady) return;
     if ((chat?.running || queued.length) && !fromQueue) {
       if (steer && chat?.running && chat.runtimeId && !photos.length && !files.length && !/^\/[\w.-]+(?:\s|$)/.test(message)) {
         try {
@@ -1007,7 +1040,7 @@ export default function MobileApp() {
           setCreation({ step: creationStep });
           const prepared = await fetchJSON<{ cwd: string; branch: string | null }>("/api/mobile/workspace", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ profile, project_id: projectId, mode: workspaceMode, branch: workspaceMode === "worktree" ? (branchName.trim() || branchForMessage(message)) : null }),
+            body: JSON.stringify({ profile, project_id: projectId, mode: workspaceMode, branch: workspaceMode === "worktree" ? effectiveBranch : null }),
           });
           cwd = prepared.cwd;
           preparedWorkspace.current = cwd;
@@ -1118,8 +1151,8 @@ export default function MobileApp() {
         if (cached) cache.current.set(targetKey, revert(cached));
         setChat(prev => prev?.runtimeId === runtimeId && prev.storedId === target?.storedId && mobileRoute(window.location.pathname).profile === profile ? revert(prev) : prev);
       }
-      if (mobileRoute(window.location.pathname).profile === profile) setError(errorText(e));
-      toast.error(errorText(e));
+      if (mobileRoute(window.location.pathname).profile === profile && (chat || !creationStep)) setError(errorText(e));
+      if (view !== "chat") toast.error(errorText(e));
     }
     finally { setSending(current => ({ ...current, [composerKey]: false })); }
   };
@@ -1211,7 +1244,7 @@ export default function MobileApp() {
   });
   const botLabelFor = (name: string) => { const bot = profiles.find(p => p.name === name); return bot ? botName(bot) : name; };
   const chatsShown = filterChats(sessions, homeTab === "chats" && searchOpen ? searchQuery : "", botLabelFor);
-  const chatView = chatLayout(chatsShown, { sort: chatSort, grouped: chatsGrouped, collapsed: collapsedGroups });
+  const chatView = chatLayout(chatsShown, { sort: chatSort, grouped: chatsGrouped, collapsed: collapsedGroups, projectNames });
   const writeUnread = async (row: Conversation, unread: boolean) => {
     setSessions(current => current.map(item => item.profile === row.profile && item.id === row.id ? { ...item, unread } : item));
     try { await api.setSessionUnread(row.id, unread, row.profile); }
@@ -1252,6 +1285,7 @@ export default function MobileApp() {
   };
   const runShortcut = (action: ShortcutAction) => {
     switch (action.kind) {
+      case "tab": chooseHomeTab(action.tab); return;
       case "nth": {
         if (homeTab === "chats") { const target = chatView.visible[action.index]; if (target) openChat(target); }
         else { const target = [...pinned, ...others][action.index]; if (target) void selectProfile(target.name); }
@@ -1320,11 +1354,14 @@ export default function MobileApp() {
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
     name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} desktop={desktop} />;
-  const setup = (compact = false) => <NewChatSetup bot={name} projects={projects} supported={projectSupported} reason={projectReason}
+  const newChatHero = <NewChatHero projects={projects} projectId={projectId} disabled={!!creation && !creation.error}
+    onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }} />;
+  const newChatToolbar = <NewChatToolbar projects={projects} supported={projectSupported} reason={projectReason}
     projectId={projectId} onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }}
     mode={workspaceMode} onMode={mode => { setWorkspaceMode(mode); preparedWorkspace.current = ""; setCreation(null); }}
-    branch={branchName} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
-    progress={creation} onRetry={() => composerForm.current?.requestSubmit()} compact={compact} />;
+    branch={effectiveBranch} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
+    branchError={branchError} disabled={!!creation && !creation.error} />;
+  const creationStatus = creation && <CreationStatus progress={creation} mode={workspaceMode} onRetry={() => composerForm.current?.requestSubmit()} />;
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
@@ -1336,7 +1373,7 @@ export default function MobileApp() {
       </div>
     </header>
     {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder={homeTab === "chats" ? "Search conversations…" : "Search bots & conversations…"} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
-    {error && <p role="alert" className="m-error">{error}</p>}
+    {error && view === "bots" && <p role="alert" className="m-error">{error}</p>}
     <HomeScroller className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
       {homeTab === "chats" ? <>
         <ChatsToolbar sort={chatSort} onSort={chooseSort} grouped={chatsGrouped} onGrouped={chooseGrouped} />
@@ -1449,8 +1486,8 @@ export default function MobileApp() {
               {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
               {paging.key === chatKey(profile, selected) && paging.error && <p role="alert" className="m-error">History unavailable: {paging.error}</p>}
               {selected && !error && (!chat || !chat.rows.length && paging.loading) && <div className="m-loading" role="status" aria-label="Loading conversation"><Skeleton /><Skeleton /><Skeleton /></div>}
-              {!chat && !selected && setup()}
-              {!!selected && !!creation && setup(true)}
+              {!chat && !selected && <>{newChatHero}{creationStatus}</>}
+              {!!selected && !!creation && creationStatus}
               {chat && groupNoticeRows(chat.rows).map((group, index, groups) => {
                 const previous = groups[index - 1]?.at(-1);
                 if (group.length > 1) return <details className="m-notice-group" key={index}>
@@ -1510,8 +1547,9 @@ export default function MobileApp() {
               {voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
                 : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || sendingHere || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
-                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open"}><ArrowUp size={20} /></Button>}
+                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open" || !branchReady}><ArrowUp size={20} /></Button>}
             </div>
+            {!chat && !selected && newChatToolbar}
           </form>
         </>}
         {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
