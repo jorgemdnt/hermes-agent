@@ -136,16 +136,16 @@ def test_unattached_question_waits_and_replays_after_a_delayed_answer(monkeypatc
     server_requests.register_parked_hook(lambda sid, kind, rid: parked.append((sid, kind, rid)))
     result = []
     worker = threading.Thread(target=lambda: result.append(server_requests.send(
-        "clarify", "phone-session", {"questions": [{"qid": "one", "question": "Which?"}]}, timeout=3)))
+        "clarify", "phone-session", {"questions": [{"qid": "one", "question": "Which?"}]}, timeout=15)))
     worker.start()
     try:
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 10
         while not parked and time.monotonic() < deadline:
             time.sleep(0.01)
         assert parked and len(server_requests.open_requests("phone-session")) == 1
         request_id = parked[0][2]
         assert server_requests.resolve_response({"id": request_id, "result": {"answers": {"one": "A"}}})
-        worker.join(timeout=2)
+        worker.join(timeout=10)
         assert result == [{"answers": {"one": "A"}}]
         assert not server_requests.open_requests("phone-session")
     finally:

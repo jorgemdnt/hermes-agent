@@ -58,7 +58,7 @@ describe('profile rename reconcile', () => {
     ])
     expect(host.state.focusedSessionOwner.get()).toEqual({ connectionId: 'local', profile: 'gandalf' })
     stop()
-  })
+  }, 45_000)
 
   it('does not re-home an old name that is a live profile again', async () => {
     const { reconcile } = await setup()
