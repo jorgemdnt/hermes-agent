@@ -96,7 +96,7 @@ export default function MobileSubscriptions({ sessionId }: { sessionId?: string 
       {section.rotation_supported ? <><p className="m-sub-note">Use a different account. Signing into the same one again signs the first one out.</p>
         <label className="m-sub-strategy">Rotation <select aria-label={`${names[section.provider]} rotation`} value={section.strategy} disabled={busy} onChange={event => void strategy(section.provider, event.target.value)}>
           {strategies.map(item => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select></label>
-        <p className="m-sub-note">In use now marks an active model call; Last model call is the most recent completed call across chats. No marker means the runtime has not reported a selection yet.</p></>
+        <p className="m-sub-note">In use now marks an active model call; Last model call is the most recent completed call for your selected chat (or across chats when none is selected). No marker means the runtime has not reported a selection yet.</p></>
         : <p className="m-sub-note">Claude CLI account management is unavailable for this provider.</p>}
       {section.entries.length ? section.entries.map(entry => <Account key={entry.id} entry={entry} provider={section.provider} busy={busy} remove={(index, id) => void remove(section.provider, index, id)} />)
         : <p className="m-sub-empty">No subscription connected.</p>}

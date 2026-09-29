@@ -93,6 +93,16 @@ def test_existing_claude_cli_login_shows_as_first_active_subscription(monkeypatc
     assert rows[0]["windows"]["five_hour"]["used_percent"] == 12
 
 
+def test_claude_rate_limit_status_does_not_hide_a_lost_login(monkeypatch):
+    from types import SimpleNamespace
+    from hermes_cli.subscriptions import _claude_status
+    rows = [{"id": "claude-cli", "dir": None, "auth": {"subscriptionType": "max"}, "limited": True},
+            {"id": "second", "dir": "/isolated/second", "auth": {}, "limited": True}]
+    monkeypatch.setattr("providers.get_provider_profile", lambda _: SimpleNamespace(subscription_accounts=lambda: rows))
+    monkeypatch.setattr("agent.anthropic_credentials.read_claude_code_credentials", lambda: {})
+    assert [row["status"] for row in _claude_status()] == ["rate-limited", "needs re-login"]
+
+
 def test_failed_usage_probe_exposes_no_provider_exception(monkeypatch):
     from types import SimpleNamespace
     from hermes_cli.subscriptions import _cached_limits

@@ -178,7 +178,7 @@ def _claude_status(*, fresh: bool = False) -> list[dict]:
         plan = auth.get("subscriptionType")
         entries.append({"id": row["id"], "index": index, "account": auth.get("email") or "Claude Code login",
                         "plan": "Claude " + plan.title() if isinstance(plan, str) and plan else None,
-                        "status": "rate-limited" if row.get("limited") else "active" if auth else "needs re-login", "windows": cached["windows"],
+                        "status": "needs re-login" if not auth else "rate-limited" if row.get("limited") else "active", "windows": cached["windows"],
                         "in_use": False})
     return entries
 
