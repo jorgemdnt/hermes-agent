@@ -43,14 +43,17 @@ def test_append_and_remove_one_keep_other_account(_isolate_hermes_home, monkeypa
     from hermes_cli.web_routers.ops import remove_credential_pool_entry
     from agent.credential_pool import load_pool
     monkeypatch.setattr(auth_mod, "_save_codex_tokens", lambda *_: (_ for _ in ()).throw(AssertionError("singleton overwritten")))
-    for access, refresh in (("first-access", "first-refresh"), ("second-access", "second-refresh")):
-        _append_device_oauth("openai-codex", access_token=access, refresh_token=refresh,
-                             base_url="https://chatgpt.com/backend-api", last_refresh="2026-09-28T00:00:00Z")
-    assert [(row.access_token, row.refresh_token) for row in load_pool("openai-codex").entries()] == [
-        ("first-access", "first-refresh"), ("second-access", "second-refresh")]
-    asyncio.run(remove_credential_pool_entry("openai-codex", 2))
-    assert [(row.access_token, row.refresh_token) for row in load_pool("openai-codex").entries()] == [
-        ("first-access", "first-refresh")]
+    monkeypatch.setattr(auth_mod, "_save_xai_oauth_tokens", lambda *_: (_ for _ in ()).throw(AssertionError("singleton overwritten")))
+    for provider, base_url in (("openai-codex", "https://chatgpt.com/backend-api"),
+                               ("xai-oauth", "https://api.x.ai/v1")):
+        for access, refresh in (("first-access", "first-refresh"), ("second-access", "second-refresh")):
+            _append_device_oauth(provider, access_token=access, refresh_token=refresh,
+                                 base_url=base_url, last_refresh="2026-09-28T00:00:00Z")
+        assert [(row.access_token, row.refresh_token) for row in load_pool(provider).entries()] == [
+            ("first-access", "first-refresh"), ("second-access", "second-refresh")]
+        asyncio.run(remove_credential_pool_entry(provider, 2))
+        assert [(row.access_token, row.refresh_token) for row in load_pool(provider).entries()] == [
+            ("first-access", "first-refresh")]
 
 
 def test_subscription_route_uses_sanitized_snapshot_and_cache_bypass(_isolate_hermes_home, monkeypatch):
