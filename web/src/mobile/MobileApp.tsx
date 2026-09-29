@@ -33,6 +33,11 @@ import MobileSubscriptions from "./MobileSubscriptions";
 import BotTerminalDock from "./BotTerminalDock";
 import { showBotScreen, type BotTerminalCapabilities } from "./bot-terminal-rule";
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
+import { HomeSwitch, type HomeTab } from "./HomeSwitch";
+import { ChatsPanel, ChatsToolbar } from "./ChatsPanel";
+import { ShortcutHelp } from "./ShortcutHelp";
+import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
+import { parseShortcut, type ShortcutAction } from "./shortcuts";
 import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
 import "./mobile.css";
@@ -50,6 +55,10 @@ interface SessionSnapshot {
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const profileFromUrl = () => new URLSearchParams(window.location.search).get("profile") || "";
 const chatKey = (profile: string, session: string) => `${profile}/${session}`;
+const HOME_TAB_KEY = "hermes-mobile-home-tab";
+const CHAT_SORT_KEY = "hermes-mobile-chat-sort";
+const CHAT_GROUP_KEY = "hermes-mobile-chat-group";
+const CHAT_COLLAPSED_KEY = "hermes-mobile-chat-collapsed";
 type ComposerDraft = { text: string; cursor: number; photos: Array<{ file: File; preview: string }>; files: File[] };
 const emptyDraft = (): ComposerDraft => ({ text: "", cursor: 0, photos: [], files: [] });
 const draftStorageKey = (key: string) => `hermes-mobile-draft:${key}`;
@@ -175,6 +184,12 @@ export default function MobileApp() {
   const [waitingByBot, setWaitingByBot] = useState<Record<string, LiveSession>>({});
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [homeTab, setHomeTab] = useState<HomeTab>(() => localStorage.getItem(HOME_TAB_KEY) === "chats" ? "chats" : "bots");
+  const [chatSort, setChatSort] = useState<ChatSort>(() => localStorage.getItem(CHAT_SORT_KEY) === "created" ? "created" : "recent");
+  const [chatsGrouped, setChatsGrouped] = useState(() => localStorage.getItem(CHAT_GROUP_KEY) === "1");
+  const [collapsedGroups, setCollapsedGroups] = useState(() => loadStringSet(localStorage, CHAT_COLLAPSED_KEY));
+  const [helpOpen, setHelpOpen] = useState(false);
+  const forcedUnread = useRef("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [messageAction, setMessageAction] = useState<{ text: string; key: string; scope: string } | null>(null);
   const [reactions, setReactions] = useState<Record<string, boolean>>(() => {
@@ -1017,19 +1032,92 @@ export default function MobileApp() {
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
   const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profiles, input: composerInput });
-  // Browser tabs own ⌘1–9; Ctrl+1–9 also works here. Electron may capture ⌘.
+  const chooseHomeTab = (tab: HomeTab) => { setHomeTab(tab); localStorage.setItem(HOME_TAB_KEY, tab); };
+  const chooseSort = (sort: ChatSort) => { setChatSort(sort); localStorage.setItem(CHAT_SORT_KEY, sort); };
+  const chooseGrouped = (grouped: boolean) => { setChatsGrouped(grouped); localStorage.setItem(CHAT_GROUP_KEY, grouped ? "1" : "0"); };
+  const toggleGroup = (key: string) => setCollapsedGroups(current => {
+    const next = new Set(current);
+    if (!next.delete(key)) next.add(key);
+    localStorage.setItem(CHAT_COLLAPSED_KEY, JSON.stringify([...next]));
+    return next;
+  });
+  const botLabelFor = (name: string) => { const bot = profiles.find(p => p.name === name); return bot ? botName(bot) : name; };
+  const chatsShown = filterChats(sessions, homeTab === "chats" && searchOpen ? searchQuery : "", botLabelFor);
+  const chatView = chatLayout(chatsShown, { sort: chatSort, grouped: chatsGrouped, collapsed: collapsedGroups });
+  const writeUnread = async (row: Conversation, unread: boolean) => {
+    setSessions(current => current.map(item => item.profile === row.profile && item.id === row.id ? { ...item, unread } : item));
+    try { await api.setSessionUnread(row.id, unread, row.profile); }
+    catch (e) {
+      setSessions(current => current.map(item => item.profile === row.profile && item.id === row.id ? { ...item, unread: row.unread } : item));
+      toast.error(errorText(e));
+    }
+  };
+  // Opening a conversation reads it; a reply that lands while it is open stays read.
+  useEffect(() => {
+    if (view !== "chat" || !selected) return;
+    const key = chatKey(profile, selected);
+    if (forcedUnread.current && forcedUnread.current !== key) forcedUnread.current = "";
+    if (forcedUnread.current === key) return;
+    const row = sessions.find(item => item.profile === profile && item.id === selected);
+    if (row?.unread) void writeUnread(row, false);
+  }, [view, profile, selected, sessions]);
+  const openChat = (chat: Conversation) => { void selectProfile(chat.profile, chat.id); };
+  const archiveOpenChat = async () => {
+    const row = sessions.find(item => item.profile === profile && item.id === selected);
+    if (view !== "chat" || !row) { toast.message("Only side conversations can be archived"); return; }
+    const neighbour = adjacentChat(chatView.visible, chatKeyOf(row), 1) ?? adjacentChat(chatView.visible, chatKeyOf(row), -1);
+    try {
+      await api.setSessionArchived(row.id, true, row.profile);
+      setSessions(current => current.filter(item => !(item.profile === row.profile && item.id === row.id)));
+      if (neighbour) void selectProfile(neighbour.profile, neighbour.id); else navigate("bots");
+      toast("Conversation archived", { action: { label: "Undo", onClick: () => {
+        void api.setSessionArchived(row.id, false, row.profile).then(() => refreshConversations()).catch(e => toast.error(errorText(e)));
+      } } });
+    } catch (e) { toast.error(errorText(e)); }
+  };
+  const focusSearch = () => {
+    setSearchOpen(true);
+    requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".m-search input")?.focus());
+  };
+  const runShortcut = (action: ShortcutAction) => {
+    switch (action.kind) {
+      case "nth": {
+        if (homeTab === "chats") { const target = chatView.visible[action.index]; if (target) openChat(target); }
+        else { const target = [...pinned, ...others][action.index]; if (target) void selectProfile(target.name); }
+        return;
+      }
+      case "previous": case "next": {
+        const target = adjacentChat(chatView.visible, chatKey(profile, selected), action.kind === "next" ? 1 : -1);
+        if (target) openChat(target);
+        return;
+      }
+      case "new": if (profile) void selectProfile(profile, ""); else setNewChatOpen(true); return;
+      case "search": focusSearch(); return;
+      case "archive": void archiveOpenChat(); return;
+      case "unread": {
+        const row = sessions.find(item => item.profile === profile && item.id === selected);
+        if (view !== "chat" || !row) return;
+        forcedUnread.current = chatKey(profile, selected);
+        void writeUnread(row, !row.unread);
+        return;
+      }
+      case "help": setHelpOpen(open => !open);
+    }
+  };
+  const runShortcutRef = useRef(runShortcut);
+  runShortcutRef.current = runShortcut;
+  // Browser tabs own some ⌘ chords; Ctrl works too. hermetic's menu forwards Ctrl.
   useEffect(() => {
     if (!desktop) return;
     const onShortcut = (event: KeyboardEvent) => {
-      if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || !/^[1-9]$/.test(event.key)) return;
-      const target = [...pinned, ...others][Number(event.key) - 1];
-      if (!target) return;
+      const action = parseShortcut(event);
+      if (!action) return;
       event.preventDefault();
-      void selectProfile(target.name);
+      runShortcutRef.current(action);
     };
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [desktop, pinned, others]);
+  }, [desktop]);
   const matching = (p: ProfileInfo) => !searchOpen || !searchQuery.trim() || `${botName(p)} ${botPreview(p)}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
   const botPreview = (p: ProfileInfo) => {
     const pending = p.name === profile ? activePrompts[0] : undefined;
@@ -1058,16 +1146,21 @@ export default function MobileApp() {
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
-      <h1 className="sr-only">Bots</h1>
-      {!desktop && accountMenu}
+      <h1 className="sr-only">{homeTab === "chats" ? "Chats" : "Bots"}</h1>
+      {!desktop && <div className="m-list-header-left">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></div>}
       <div className="m-top-actions">
         <button type="button" className="m-icon-button" aria-label="Search" onClick={() => setSearchOpen(open => !open)}><Search size={21} aria-hidden="true" /></button>
         <button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => setNewChatOpen(true)}><Plus size={23} aria-hidden="true" /></button>
       </div>
     </header>
-    {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder="Search bots & conversations…" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
+    {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder={homeTab === "chats" ? "Search conversations…" : "Search bots & conversations…"} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
     {error && <p role="alert" className="m-error">{error}</p>}
     <HomeScroller className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
+      {homeTab === "chats" ? <>
+        <ChatsToolbar sort={chatSort} onSort={chooseSort} grouped={chatsGrouped} onGrouped={chooseGrouped} />
+        <ChatsPanel groups={chatView.groups} grouped={chatsGrouped} collapsed={collapsedGroups} onToggleGroup={toggleGroup} currentKey={view === "chat" ? chatKey(profile, selected) : ""} onOpen={openChat}
+          bots={{ label: botLabelFor, avatar: name => avatars[name] }} empty={searchOpen && searchQuery.trim() ? "No matching conversations." : "No conversations yet."} />
+      </> : <>
       {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
         <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
           {avatar(p)}<span>{botName(p)}</span>
@@ -1084,6 +1177,7 @@ export default function MobileApp() {
         {searchResults.map(result => <button type="button" className="m-search-result" key={`${result.profile}/${result.session}`} onClick={() => { void selectProfile(result.profile, result.session); }}><MessageSquare size={19} aria-hidden="true" /><span><strong>{result.title}</strong><small>{profiles.find(p => p.name === result.profile)?.display_name || result.profile} · {result.preview}</small></span></button>)}
         {!searchResults.length && !searchError && <p className="m-muted">No matching conversations.</p>}
       </section>}
+      </>}
       {!!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2 className="sr-only">Requests</h2>{activePrompts.map(p => {
         const sid = p.request.params.session_id;
         const owner = liveSessions.find(s => s.id === sid);
@@ -1094,7 +1188,7 @@ export default function MobileApp() {
         </div>;
       })}</section>}
     </HomeScroller>
-    {desktop && <footer className="m-sidebar-footer">{accountMenu}</footer>}
+    {desktop && <footer className="m-sidebar-footer">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></footer>}
     </>;
 
   const skipExit = skipBackAnimation.current && (view === "bots" || view !== swipeSource.current);
@@ -1247,6 +1341,7 @@ export default function MobileApp() {
       <button type="button" className="m-pin-choice" onClick={() => { void copyTextToClipboard(messageAction.text).then(copied => { if (copied) { setMessageAction(null); toast.success("Copied message"); } else toast.error("Could not copy message"); }); }}><Copy size={18} aria-hidden="true" />Copy text</button>
       <button type="button" className="m-pin-choice" onClick={() => { toggleReaction(messageAction.key); setMessageAction(null); }}><ThumbsUp size={18} aria-hidden="true" />{reactions[messageAction.key] ? "Remove thumbs up" : "React thumbs up"}</button>
     </Sheet>}
+    <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     {conversationsOpen && <Sheet open={conversationsOpen} onClose={() => { setConversationsOpen(false); setConversationAction(null); }} label="Conversations">
       <div className="m-activity-head"><h2>{conversationAction ? "Manage conversation" : "Conversations"}</h2><Button type="button" variant="ghost" size="icon" aria-label={conversationAction ? "Back to conversations" : "Close conversations"} onClick={() => { if (conversationAction) setConversationAction(null); else setConversationsOpen(false); }}><X size={21} aria-hidden="true" /></Button></div>
       {conversationError && <p role="alert" className="m-error">{conversationError}</p>}

@@ -462,3 +462,41 @@
 .m-bubble .m-table-scroll table { min-width: 0; table-layout: auto; }
 .m-bubble .m-table-scroll th { background: color-mix(in srgb, currentColor 6%, transparent); }
 .m-bubble .m-table-scroll :is(th, td) { max-width: none; border-color: color-mix(in srgb, currentColor 12%, transparent); vertical-align: top; }
+
+/* Bots | Chats switch, conversation list, shortcut help. */
+.m-home-switch { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 999px; background: var(--secondary); border: 1px solid var(--border); flex: none; }
+.m-home-switch-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 1px 4px var(--shadow); transition: transform .2s ease-out; }
+.m-home-switch[data-value="chats"] .m-home-switch-thumb { transform: translateX(100%); }
+.m-shell .m-home-switch button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 64px; height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; font-size: 14px; font-weight: 500; color: var(--muted-foreground); }
+.m-shell .m-home-switch button[aria-checked="true"] { color: var(--foreground); font-weight: 600; }
+.m-home-switch-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--primary); color: var(--primary-foreground); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.m-list-header .m-home-switch { margin-left: 10px; }
+.m-list-header-left { display: flex; align-items: center; min-width: 0; }
+.m-chats-toolbar { display: flex; gap: 8px; padding: 4px 0 10px; flex-wrap: wrap; }
+.m-shell .m-chats-tool { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); font-size: 13px; }
+.m-shell .m-chats-tool[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.m-dropdown .m-check { visibility: hidden; }
+.m-dropdown [data-state="checked"] .m-check { visibility: visible; }
+.m-chat-group-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding: 0 4px; border: 0; background: transparent; color: var(--muted-foreground); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; text-align: left; }
+.m-chat-group-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-chat-group-head svg { transition: transform .2s ease-out; }
+.m-chat-group-head[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.m-shell .m-chat-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; text-align: left; }
+.m-chat-row .m-bot-copy small { -webkit-line-clamp: 1; }
+.m-chat-row[data-unread] .m-bot-heading strong { font-weight: 800; }
+.m-chat-row[data-unread] .m-bot-heading time { color: var(--foreground); }
+.m-unread-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--foreground); }
+.m-unread-none { visibility: hidden; }
+@media (hover: hover) { .m-shell .m-chat-row:hover { background: color-mix(in srgb, var(--accent) 8%, var(--background)); } }
+.m-shell .m-chat-row[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, var(--background)); box-shadow: inset 3px 0 var(--ring); }
+.m-shell .m-chat-row:focus-visible, .m-shell .m-chat-group-head:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.m-chats-empty { padding: 32px 8px; text-align: center; color: var(--muted-foreground); }
+.m-shortcuts { display: grid; gap: 4px; margin: 16px 0; }
+.m-shortcuts > div { display: flex; align-items: center; gap: 16px; min-height: 40px; }
+.m-shortcuts dt { flex: none; min-width: 84px; } .m-shortcuts dd { margin: 0; }
+.m-shortcuts kbd { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--secondary); }
+@media (min-width: 900px) {
+  .m-sidebar-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .m-shell .m-sidebar-footer .m-profile-button { width: auto; flex: none; padding: 6px; }
+  .m-sidebar-footer .m-profile-name { display: none; }
+}

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   ] }; }),
   renameSession: vi.fn(async (_id: string, title: string, _profile: string) => { void _profile; return { ok: true, title }; }),
   setSessionArchived: vi.fn(async (_id: string, archived: boolean, _profile: string) => { void _profile; return { ok: true, archived }; }),
+  setSessionUnread: vi.fn(async (_id: string, unread: boolean, _profile: string) => { void _profile; return { ok: true, unread }; }),
   setSessionPinned: vi.fn(async (_id: string, pinned: boolean, _profile: string) => { void _profile; return { ok: true, pinned }; }),
   uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
   transcribeAudio: vi.fn(async (_dataUrl: string, _mimeType: string, _profile: string) => { void _dataUrl; void _mimeType; void _profile; return { ok: true, transcript: "Dictated words" }; }),
@@ -43,7 +44,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: vi.fn(async () => ({ server_host: "testhost", client_on_server_host: false, profiles: {} })), api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: vi.fn(async () => ({ server_host: "testhost", client_on_server_host: false, profiles: {} })), api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionUnread: mocks.setSessionUnread, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -1137,4 +1138,24 @@ it("submits Continue to the same chat when a running turn finishes before steer"
     profile: "samwise", session_id: "runtime", text: "I handed back the screen; continue from the current state.",
   });
   expect(host.textContent).toContain("Earlier");
+});
+
+it("switches to Chats, shows unread, opens with Ctrl+1 and marks the row read", async () => {
+  mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
+    { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier", last_active: 20, message_count: 2, unread: true },
+    { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match", last_active: 10, message_count: 2 },
+  ] }));
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 900px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  const chats = Array.from(host.querySelectorAll('.m-home-switch button')).find(b => b.textContent?.startsWith("Chats")) as HTMLButtonElement;
+  expect(chats.textContent).toContain("1");
+  await act(async () => chats.click());
+  expect(Array.from(host.querySelectorAll('.m-chat-row strong')).map(n => n.textContent)).toEqual(["Prior chat", "Found chat"]);
+  expect(host.querySelector('.m-chat-row[data-unread]')).not.toBeNull();
+  expect(localStorage.getItem("hermes-mobile-home-tab")).toBe("chats");
+  await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", ctrlKey: true })); });
+  expect(document.body.textContent).toContain("Keyboard shortcuts");
+  await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", ctrlKey: true })); });
+  await settle();
+  expect(mocks.setSessionUnread).toHaveBeenCalledWith("side-frodo", false, "frodo");
 });

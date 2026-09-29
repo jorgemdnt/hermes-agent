@@ -545,6 +545,15 @@ export const api = {
         body: JSON.stringify({ archived, profile }),
       },
     ),
+  setSessionUnread: (id: string, unread: boolean, profile: string) =>
+    fetchJSON<{ ok: boolean; unread: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unread, profile }),
+      },
+    ),
   setSessionPinned: (id: string, pinned: boolean, profile: string) =>
     fetchJSON<{ ok: boolean; pinned: boolean }>(
       `/api/sessions/${encodeURIComponent(id)}`,
@@ -2187,6 +2196,10 @@ export interface SessionInfo {
   output_tokens: number;
   preview: string | null;
   parent_session_id?: string | null;
+  /** Derived read state (last_read_at watermark vs last_active). */
+  unread?: boolean;
+  cwd?: string | null;
+  git_repo_root?: string | null;
   /** Owning profile stamped by the list/detail endpoints (the store the row
    * was read from). Absent on search-endpoint rows, which carry no stamp. */
   profile?: string;
