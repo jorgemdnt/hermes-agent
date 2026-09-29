@@ -31,7 +31,9 @@ def shell_argv(config: dict) -> tuple[list[str], str | None]:
     """Use local PtyBridge for both hosts; on SSH it owns the interactive ssh client."""
     backend, cwd = config["backend"], config["cwd"]
     if backend == "local":
-        resolved = Path(cwd).expanduser().resolve()
+        # An unset or "." cwd would resolve against the dashboard process's own folder;
+        # a person's terminal starts at home instead.
+        resolved = Path.home() if cwd in ("", ".") else Path(cwd).expanduser().resolve()
         if not resolved.is_dir():
             raise ValueError("Bot terminal working directory is unavailable")
         return [os.environ.get("SHELL") or "/bin/bash", "-l"], str(resolved)
