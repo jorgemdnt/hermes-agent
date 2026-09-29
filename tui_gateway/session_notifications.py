@@ -146,9 +146,11 @@ def _notif_release_turn(session: dict) -> None:
 
 
 def _notif_claim_turn(session: dict) -> bool:
-    """Claim the idle session (running=True) under history_lock; False if a turn is live."""
+    """Claim the idle session (running=True) under history_lock; False if a turn is live.
+    After the user's Stop no automatic turn starts: the cancel latch holds notifications
+    (requeued by the callers) until the next user prompt clears it."""
     with _session_turn_admission(session) as admitted:
-        if not admitted or session.get("running"):
+        if not admitted or session.get("running") or session.get("_turn_cancel_requested"):
             return False
         session["running"] = True
         return True
@@ -633,6 +635,8 @@ def _poll_bot_live_delivery_once(sid: str, session: dict) -> bool:
         return False
     running = bool(session.get("running"))
     with _session_turn_admission(session) as admitted:
+        # Delivery is a person's message, not an auto-turn: do not gate on
+        # _turn_cancel_requested. A running turn may still be steered/interrupted.
         if not admitted or session.get("_closing") or session.get("_finalized") or session.get("agent") is None:
             return False
         if not running and any(session.get(key) for key in (
@@ -859,7 +863,13 @@ def _hud_surface_note(session: dict) -> str:
     surface = session.get("client_surface")
     if surface == "hud":
         from agent.prompt_builder import hud_surface_note
-        return hud_surface_note(getattr(session.get("agent"), "valid_tool_names", None))
+        from tools.tool_search_catalog import TOOL_CALL_NAME
+        agent = session.get("agent")
+        direct = getattr(agent, "valid_tool_names", None) or set()
+        if TOOL_CALL_NAME not in direct:
+            return hud_surface_note(direct)
+        from agent.tool_executor import _tool_search_scoped_names
+        return hud_surface_note(direct, _tool_search_scoped_names(agent))
     if surface == "voice-live":
         from tools.voice_live import voice_live_turn_note
         return voice_live_turn_note(session.get("voice_live_context") or "")
