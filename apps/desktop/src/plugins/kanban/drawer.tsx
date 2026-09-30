@@ -26,6 +26,7 @@ import {
   Loader,
   LogView,
   MessageTextContent,
+  NavigationButtons,
   SegmentedControl,
   Textarea,
   Tip,
@@ -975,6 +976,7 @@ export function TaskDrawer({
       >
         <header className="flex flex-col gap-2 px-5 pt-4 pb-3">
           <div className="flex items-center gap-2">
+            <NavigationButtons />
             {task ? (
               <StatusMenu columns={columns} onMove={move} status={task.status} />
             ) : (

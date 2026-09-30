@@ -1,6 +1,6 @@
 import type { PluginRestOptions } from '@hermes/plugin-sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Test harness drives the host's request scope, as a connection switch does.
@@ -12,6 +12,9 @@ import { registerPluginLocales } from '@/i18n/plugin-i18n'
 // Test harness reads the host's toast stack.
 // eslint-disable-next-line no-restricted-imports
 import { $notifications, clearNotifications } from '@/store/notifications'
+// Test harness drives the app history, not a private dialog stack.
+// eslint-disable-next-line no-restricted-imports
+import { bindNavigationReplay, recordNavigation, resetNavigationHistory } from '@/store/navigation-history'
 
 import { bindApi, taskKey } from './api'
 import { TaskDrawer } from './drawer'
@@ -92,6 +95,37 @@ function openDrawer() {
     </QueryClientProvider>
   )
 }
+
+it('keeps app back and forward controls inside the modal card header', async () => {
+  detail = { ...legacyDetail, attachments: [] }
+  resetNavigationHistory()
+  const chat = {
+    route: '/chat',
+    pane: null,
+    session: 'chat',
+    profile: 'default',
+    mode: 'bots' as const,
+    owner: 'default',
+    newSessionTarget: null,
+    browserOpen: false
+  }
+  const card = { ...chat, route: '/kanban?task=t_example' }
+  recordNavigation(chat)
+  recordNavigation(card)
+  const replay = vi.fn()
+  const unbind = bindNavigationReplay(replay)
+  try {
+    openDrawer()
+    const dialog = await screen.findByRole('dialog', { name: legacyDetail.task.title })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Go back' }))
+    expect(replay).toHaveBeenLastCalledWith(chat)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Go forward' }))
+    expect(replay).toHaveBeenLastCalledWith(card)
+  } finally {
+    unbind()
+    resetNavigationHistory()
+  }
+})
 
 describe('task attachment compatibility', () => {
   it('downloads the persisted attachment through its original remote owner', async () => {

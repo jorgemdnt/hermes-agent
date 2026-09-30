@@ -1788,6 +1788,7 @@ export type { FloatingAnchor } from '@/components/pane-shell/tree/renderer/float
 export { StatusDot, type StatusTone } from '@/components/status-dot'
 export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'
+export { NavigationButtons } from '@/components/ui/navigation-buttons'
 export { Checkbox } from '@/components/ui/checkbox'
 export { Codicon } from '@/components/ui/codicon'
 /** THE color picker — swatch grid plus a clear row that means "back to the
