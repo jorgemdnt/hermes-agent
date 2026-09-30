@@ -1,5 +1,14 @@
 import type { NavigationEntry } from '@/store/navigation-history'
 
+const RESTORE_EVENT = 'hermes:navigation-scroll-restore'
+
+export function subscribeNavigationScrollRestore(element: HTMLElement, restore: (top: number) => void): () => void {
+  const onRestore = (event: Event) => restore((event as CustomEvent<number>).detail)
+  element.addEventListener(RESTORE_EVENT, onRestore)
+
+  return () => element.removeEventListener(RESTORE_EVENT, onRestore)
+}
+
 function viewport(entry: NavigationEntry): HTMLElement | null {
   const anchors = entry.pane?.startsWith('session-tile:')
     ? [entry.pane]
@@ -38,7 +47,7 @@ export function restoreNavigationScroll(entry: NavigationEntry, onSettled: () =>
 
     if (element && element.clientHeight > 0) {
       const height = element.scrollHeight
-      element.scrollTop = top
+      element.dispatchEvent(new CustomEvent<number>(RESTORE_EVENT, { detail: top }))
       stableFrames = height === lastHeight && element.scrollTop === top ? stableFrames + 1 : 0
       lastHeight = height
     }

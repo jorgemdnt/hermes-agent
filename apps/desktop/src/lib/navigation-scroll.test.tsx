@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import type { NavigationEntry } from '@/store/navigation-history'
 
-import { captureNavigationScroll, restoreNavigationScroll } from './navigation-scroll'
+import { captureNavigationScroll, restoreNavigationScroll, subscribeNavigationScrollRestore } from './navigation-scroll'
 
 afterEach(() => {
   cleanup()
@@ -45,12 +45,18 @@ it('restores the selected chat offset after browser relayout, not another mounte
   const cancel = vi.fn()
   vi.stubGlobal('cancelAnimationFrame', cancel)
   const settled = vi.fn()
+  const restoreOwner = vi.fn((top: number) => {
+    selected.scrollTop = top
+  })
+  const unsubscribe = subscribeNavigationScrollRestore(selected, restoreOwner)
   const stop = restoreNavigationScroll(entry, settled)
   selected.scrollTop = 500
   while (frames.length) frames.shift()!(0)
   expect(selected.scrollTop).toBe(123)
   expect(viewports[0].scrollTop).toBe(0)
   expect(settled).toHaveBeenCalledOnce()
+  expect(restoreOwner).toHaveBeenCalledWith(123)
+  unsubscribe()
   stop()
   expect(cancel).toHaveBeenCalledOnce()
 })

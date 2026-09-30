@@ -22,6 +22,7 @@ import { type PaneLifecycle } from '@/components/pane-shell/pane-lifecycle'
 import { usePaneLifecycle, usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
 import { messagePaintWeight } from '@/lib/render-weight'
+import { useNavigationScrollRestore } from '@/lib/use-navigation-scroll-restore'
 import { cn } from '@/lib/utils'
 import {
   COMPOSER_CLEARANCE_SLOT,
@@ -648,7 +649,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   const [restoreGrowTick, setRestoreGrowTick] = useState(0)
   const windowRequestRef = useRef<object | null>(null)
   const windowCommitRef = useRef<string | null>(null)
-  const jumpRestoreRef = useRef<(() => void) | null>(null)
+  const jumpRestoreRef = useRef<((target?: ThreadScrollState) => void) | null>(null)
   const isRunning = useAuiState(s => s.thread.isRunning)
   // Read by the resize-pin callback so a turn boundary doesn't rebuild its
   // scroll listener and ResizeObserver.
@@ -790,6 +791,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
   const surfaceId = useComposerSurfaceId()
   const scrollSessionId = sessionId ?? surfaceId
+  useNavigationScrollRestore(scrollRef, jumpRestoreRef, paneVisible)
   useEffect(
     () => publishThreadAtBottom(isAtBottom && !isHistorical, { paneVisible, sessionId: scrollSessionId }),
     [isAtBottom, isHistorical, paneVisible, scrollSessionId]
@@ -1253,11 +1255,14 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
       cancelRestore()
     }
 
-    jumpRestoreRef.current = () => {
+    jumpRestoreRef.current = (requested = THREAD_SCROLL_BOTTOM) => {
       cancelRestore()
-      // A jump replaces reading intent, including an in-flight prepend anchor.
+      stopScroll()
+      // A jump or navigation replaces intent, including an in-flight prepend anchor.
       // Re-arm resize protection: deferred markdown may grow after this click.
-      target = THREAD_SCROLL_BOTTOM
+      target = requested
+      loadTargetRef.current = target
+      cancelRestoreRef.current = target.kind === 'offset' ? cancelRestore : () => resizeObserver.disconnect()
       restoreFromBottomRef.current = null
       liveScrollStateRef.current = target
 
@@ -1272,7 +1277,9 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
         resizeObserver.observe(contentRef.current)
       }
 
-      void scrollToBottomUnlessSelecting('instant')
+      if (target.kind === 'bottom') {
+        void scrollToBottomUnlessSelecting('instant')
+      }
     }
 
     el.addEventListener('wheel', onWheel, { passive: true })
