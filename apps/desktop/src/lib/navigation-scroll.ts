@@ -9,7 +9,9 @@ function viewport(entry: NavigationEntry): HTMLElement | null {
     .map(anchor => surfaces.find(element => element.dataset.sessionAnchor === anchor))
     .find(element => element && !element.closest('[data-pane-hidden]'))
 
-  return surface?.querySelector<HTMLElement>('[data-slot="aui_thread-viewport"]') ?? null
+  const element = surface?.querySelector<HTMLElement>('[data-slot="aui_thread-viewport"]')
+
+  return element?.checkVisibility({ opacityProperty: true, visibilityProperty: true }) ? element : null
 }
 
 export function captureNavigationScroll(entry: NavigationEntry): number | undefined {

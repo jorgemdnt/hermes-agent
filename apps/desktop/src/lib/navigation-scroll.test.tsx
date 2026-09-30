@@ -33,6 +33,7 @@ it('restores the selected chat offset after browser relayout, not another mounte
   )
   const viewports = container.querySelectorAll<HTMLElement>('[data-slot="aui_thread-viewport"]')
   const selected = viewports[1]
+  Object.defineProperty(selected, 'checkVisibility', { value: () => true })
   Object.defineProperty(selected, 'clientHeight', { value: 200 })
   Object.defineProperty(selected, 'scrollHeight', { value: 1000 })
   selected.scrollTop = 123

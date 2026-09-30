@@ -66,6 +66,16 @@ export function useNavigationHistory() {
       if (!entry || restoring || navigationReplayKey !== null || isWorkspacePageRoute(entry.route.split('?')[0])) {
         return
       }
+      // A layout commit precedes recordNavigation's effect. Its resize events
+      // belong to the destination, never the chat entry we just left.
+      if (
+        entry.route !== (window.location.hash.slice(1) || '/') ||
+        entry.profile !== $activeProfile.get() ||
+        entry.session !== $focusedStoredSessionId.get() ||
+        entry.browserOpen !== $fileBrowserOpen.get()
+      ) {
+        return
+      }
       const scrollTop = captureNavigationScroll(entry)
 
       if (scrollTop !== undefined) {
