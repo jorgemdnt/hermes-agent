@@ -671,6 +671,24 @@ class SessionCompressionMixin:
                 (conversation_id, holder))
         self._execute_write(_do)
 
+    def get_session_turn_lease(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Read the conversation's turn owner without acquiring or renewing its lease.
+
+        Use the same lineage key and dead-owner rule as admission. An idle open
+        surface is not a running turn; a killed writer is not alive until TTL expiry.
+        """
+        from hermes_state import _compression_lock_holder_process_is_dead
+
+        with self._read_ctx() as conn:
+            key = self._session_turn_lease_key_on_conn(conn, session_id)
+            row = conn.execute(
+                "SELECT holder, acquired_at, expires_at FROM session_turn_leases "
+                "WHERE conversation_id = ? AND expires_at > ?", (key, time.time()),
+            ).fetchone()
+        if row is None or _compression_lock_holder_process_is_dead(row["holder"]):
+            return None
+        return dict(row)
+
     def get_compression_lock_holder(self, session_id: str) -> Optional[str]:
         """Current (non-expired) holder for ``session_id``, or None. Diagnostic only."""
         if not session_id:

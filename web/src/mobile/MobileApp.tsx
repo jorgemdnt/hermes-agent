@@ -27,7 +27,7 @@ import MobileKanban from "./MobileKanban";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
 import { loadComposerAttachments, saveComposerAttachments } from "./composer-attachments";
-import { groupNoticeRows } from "./message-kind";
+import { classifyUserText, groupNoticeRows } from "./message-kind";
 import { uploadChatImage } from "@/lib/chatImagePaste";
 import { applyChatEvent, PROMPT_METHODS, transcriptRows, type ChatRow, type MobileChat, type PendingPrompt } from "./mobile-state";
 import { pushAvailable, registerMobileWorker, signOutMobile, subscribePush, unsubscribePush } from "./mobile-push";
@@ -45,6 +45,7 @@ import { parseShortcut, type ShortcutAction } from "./shortcuts";
 import { RightSplit, type SplitTab } from "./RightSplit";
 import { conversationLocalLinks, fileLinkPath, localPreviewLink } from "./preview-links";
 import { activityTime, movePin, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
+import { unansweredTurn } from "./turn-status";
 import "./mobile-theme.css";
 import "./mobile.css";
 
@@ -56,6 +57,7 @@ interface SessionSnapshot {
   stored_session_id?: string;
   messages: Array<{ role: string; text?: string | null; display_kind?: string | null; timestamp?: number }>;
   running?: boolean;
+  external_turn?: boolean;
   inflight?: { assistant?: string; user?: string; streaming?: boolean } | null;
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -765,39 +767,43 @@ export default function MobileApp() {
   }, [selected]);
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => {
-    if (!chat?.running || !selected || connection !== "open") return;
+    if (!selected || connection !== "open" || view !== "chat") return;
     const key = chatKey(profile, selected);
     const check = async () => {
-      if (checkingTurn.current || Date.now() - lastTurnSignal.current < 30000 || document.visibilityState === "hidden") return;
+      const current = chatRef.current;
+      if (!current || checkingTurn.current || (current.running && !current.externalTurn && Date.now() - lastTurnSignal.current < 30000) || document.visibilityState === "hidden") return;
       const gw = client.current;
       if (!gw) return;
       checkingTurn.current = true;
       try {
-        const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
-        if (chatKey(profile, selectedRef.current) !== key || !chatRef.current?.running) return;
-        const live = active.sessions.find(s => s.id === chatRef.current?.runtimeId || s.session_key === selected);
-        if (live && ["working", "waiting", "starting", "running"].includes(live.status)) return;
+        if (current.running && !current.externalTurn) {
+          const active = await gw.request<{ sessions: LiveSession[] }>("session.active_list", { profile });
+          if (chatKey(profile, selectedRef.current) !== key) return;
+          const live = active.sessions.find(s => s.id === current.runtimeId || s.session_key === selected);
+          if (live && ["working", "waiting", "starting", "running"].includes(live.status)) return;
+        }
         const snapshot = await gw.request<SessionSnapshot>("session.resume", { profile, session_id: selected, source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
+        if (!snapshot.external_turn && !current.externalTurn && !current.running && !snapshot.running) return;
         const page = await api.getSessionMessages(selected, profile, historyPage());
-        if (chatKey(profile, selectedRef.current) !== key) return;
+        if (chatKey(profile, selectedRef.current) !== key || chatRef.current !== current) return;
         const rows = displayRows(page.messages);
         const running = !!snapshot.running || !!snapshot.inflight?.streaming;
         setChat(prev => {
           if (!prev || prev.storedId !== selected) return prev;
-          const next = { ...prev, runtimeId: snapshot.session_id, running, draft: snapshot.inflight?.assistant || "", rows: prependOlder(prev.rows, rows) };
+          const next = { ...prev, runtimeId: snapshot.session_id, running, externalTurn: !!snapshot.external_turn, draft: snapshot.inflight?.assistant || "", rows: appendLive(prev.rows, rows) };
           cache.current.set(key, next);
           return next;
         });
         if (!running) {
           setWorking("");
-          if (rows.at(-1)?.role === "user") setError("The turn stopped without a reply. Edit and retry your message.");
-        }
+          setError(unansweredTurn(page.messages) ? "The turn stopped without a reply." : "");
+        } else setError("");
       } catch (e) { if (chatKey(profile, selectedRef.current) === key) setError(`Could not check this turn: ${errorText(e)}`); }
       finally { lastTurnSignal.current = Date.now(); checkingTurn.current = false; }
     };
-    const timer = window.setInterval(() => void check(), 10000);
+    const timer = window.setInterval(() => void check(), 2000);
     return () => window.clearInterval(timer);
-  }, [chat?.running, selected, profile, connection]);
+  }, [selected, profile, connection, view]);
   useEffect(() => {
     if (connection !== "open" || !profiles.length) return;
     let alive = true;
@@ -828,7 +834,7 @@ export default function MobileApp() {
       const baseRows = cached?.rows ?? [];
       lastTurnSignal.current = Date.now();
       const next: MobileChat = { runtimeId: snapshot.session_id, storedId: snapshot.stored_session_id || selected,
-        rows: baseRows, draft: snapshot.inflight?.assistant || "", running: !!snapshot.running || !!snapshot.inflight?.streaming };
+        rows: baseRows, draft: snapshot.inflight?.assistant || "", running: !!snapshot.running || !!snapshot.inflight?.streaming, externalTurn: !!snapshot.external_turn };
       cache.current.set(key, next);
       setChat(next);
       try {
@@ -845,7 +851,7 @@ export default function MobileApp() {
           cache.current.set(key, updated);
           return updated;
         });
-        if (!next.running && tail.at(-1)?.role === "user") setError("The turn stopped without a reply. Edit and retry your message.");
+        if (!next.running && !chatRef.current?.running && unansweredTurn(page.messages)) setError("The turn stopped without a reply.");
       } catch (e) {
         if (alive) setPaging(prev => ({ ...prev, loading: false, error: errorText(e) }));
       }
@@ -1189,8 +1195,12 @@ export default function MobileApp() {
     const p = profiles.find(x => x.name === handle || (x.is_default && handle === "hermes") || botName(x).toLowerCase() === handle);
     return p ? avatars[p.name] : undefined;
   };
+  const triggeringMessage = [...(chat?.rows || [])].reverse().find(row => row.role === "user");
+  const triggerKind = triggeringMessage ? classifyUserText(triggeringMessage.text) : null;
+  const retryMessage = triggerKind?.kind === "human" ? triggeringMessage : null;
+  const externalTurnLabel = triggerKind?.kind === "agent" ? `Working, replying to ${triggerKind.sender}…` : "Working in another window…";
   const status = connection !== "open" ? "Reconnecting…" : chatPrompts.length ? "Needs your input"
-    : working || (chat?.running ? (chat.draft ? "Writing…" : "Thinking…") : "Ready to talk");
+    : working || (chat?.running ? (chat.externalTurn ? externalTurnLabel : chat.draft ? "Writing…" : "Thinking…") : "Ready to talk");
 
   const togglePush = async () => {
     setBusy(true); setError("");
@@ -1493,9 +1503,8 @@ export default function MobileApp() {
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
-      {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
-        const last = [...chat.rows].reverse().find(row => row.role === "user");
-        if (last) { setText(last.text); composerInput.current?.focus(); setError(""); }
+      {error && <div role="alert" className="m-error m-turn-error"><span>{error}</span>{view === "chat" && !chat?.running && retryMessage && <button type="button" aria-label="Edit and retry message" onClick={() => {
+        setText(retryMessage.text); composerInput.current?.focus(); setError("");
       }}>Edit and retry</button>}</div>}
       <main className="m-main" onDragOver={view === "chat" ? event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); } : undefined}
         onDrop={view === "chat" ? event => { if (event.dataTransfer.files.length) { event.preventDefault(); addAttachments(event.dataTransfer.files); } } : undefined}>
@@ -1524,7 +1533,7 @@ export default function MobileApp() {
                 return renderMessage(group[0], previous, String(index));
               })}
               {chat?.draft && <article className="m-message m-assistant m-streaming"><div className="m-bubble"><Markdown content={chat.draft} streaming /></div></article>}
-              {chat?.running && !chatPrompts.length && <div className="m-turn-status" role="status" aria-live="polite"><div className="m-typing" aria-label="Bot is typing"><span /><span /><span /></div><p className="m-thinking">{working || (chat.draft ? "Writing…" : "Thinking…")}</p></div>}
+              {chat?.running && !chatPrompts.length && <div className="m-turn-status" role="status" aria-live="polite"><div className="m-typing" aria-label="Bot is typing"><span /><span /><span /></div><p className="m-thinking">{working || (chat.externalTurn ? externalTurnLabel : chat.draft ? "Writing…" : "Thinking…")}</p></div>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
                 exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
               {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}

@@ -50,6 +50,10 @@
 .m-shell label :is(input, select, textarea) { display: block; margin-top: 8px; }
 .m-shell textarea { resize: vertical; }
 .m-shell .m-muted { color: var(--muted-foreground); font-size: 13px; }
+.m-shell .m-turn-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.m-shell .m-turn-error > span { flex: 1 1 240px; }
+.m-shell .m-turn-error > button { flex: none; min-height: 36px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); font-weight: 500; }
+.m-shell .m-turn-error > button:hover { background: var(--accent); }
 .m-shell .m-error { color: var(--foreground); margin: 0; padding: 12px 16px; border-left: 3px solid var(--destructive); background: var(--card); font-size: 13px; }
 .m-shell .m-preserve { white-space: pre-wrap; overflow-wrap: anywhere; }
 .m-shell .m-status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-right: 8px; vertical-align: 1px; }
