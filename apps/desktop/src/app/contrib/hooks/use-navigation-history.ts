@@ -13,9 +13,12 @@ import {
   setWorkspaceScope
 } from '@/components/pane-shell/workspace-scope'
 import { $activeConnectionId } from '@/store/connections'
+import { captureNavigationScroll, restoreNavigationScroll } from '@/lib/navigation-scroll'
 import { $fileBrowserOpen, $rightRailActiveTabId, selectRightRailTab, setFileBrowserOpen } from '@/store/layout'
 import {
   bindNavigationReplay,
+  navigationHistory,
+  navigationReplayKey,
   recordNavigation,
   resetNavigationHistory,
   travelNavigation
@@ -53,39 +56,77 @@ export function useNavigationHistory() {
   useEffect(() => {
     resetNavigationHistory()
   }, [connection])
-  useEffect(
-    () =>
-      bindNavigationReplay(entry => {
-        void (async () => {
-          if (entry.profile !== $activeProfile.get()) {
-            await switchProfile(entry.profile)
-          }
-          setWorkspaceScope(entry.mode, entry.owner, entry.newSessionTarget)
-          navigate(entry.route, { replace: true })
+  useEffect(() => {
+    let cancelScroll = () => {}
+    let restoring = false
+    let generation = 0
+    const capture = () => {
+      const entry = navigationHistory.current
 
-          if (entry.session && !isWorkspacePageRoute(entry.route.split('?')[0])) {
-            openSession(entry.session, navigate, 'in-place', {
-              workspaceMode: entry.mode,
-              workspaceOwnerKey: entry.owner ?? undefined
-            })
-          }
+      if (!entry || restoring || navigationReplayKey !== null || isWorkspacePageRoute(entry.route.split('?')[0])) {
+        return
+      }
+      const scrollTop = captureNavigationScroll(entry)
 
-          if (entry.browser) {
-            commitBrowserTabLocation(entry.browser.tabId, entry.browser.url)
-            selectRightRailTab(entry.browser.tabId)
-            setFileBrowserOpen(true)
-            revealTreePane(`preview-tile:${entry.browser.tabId}`)
-          } else {
-            setFileBrowserOpen(entry.browserOpen)
+      if (scrollTop !== undefined) {
+        navigationHistory.update({ ...entry, scrollTop })
+      }
+    }
+    const stopRestore = () => {
+      cancelScroll()
+      restoring = false
+    }
+    const unbind = bindNavigationReplay(entry => {
+      stopRestore()
+      restoring = true
+      const token = ++generation
+      void (async () => {
+        if (entry.profile !== $activeProfile.get()) {
+          await switchProfile(entry.profile)
+        }
+        if (token !== generation) {
+          return
+        }
+        setWorkspaceScope(entry.mode, entry.owner, entry.newSessionTarget)
+        navigate(entry.route, { replace: true })
 
-            if (entry.pane) {
-              revealTreePane(entry.pane)
-            }
+        if (entry.session && !isWorkspacePageRoute(entry.route.split('?')[0])) {
+          openSession(entry.session, navigate, 'in-place', {
+            workspaceMode: entry.mode,
+            workspaceOwnerKey: entry.owner ?? undefined
+          })
+        }
+
+        if (entry.browser) {
+          commitBrowserTabLocation(entry.browser.tabId, entry.browser.url)
+          selectRightRailTab(entry.browser.tabId)
+          setFileBrowserOpen(true)
+          revealTreePane(`preview-tile:${entry.browser.tabId}`)
+        } else {
+          setFileBrowserOpen(entry.browserOpen)
+
+          if (entry.pane) {
+            revealTreePane(entry.pane)
           }
-        })()
-      }),
-    [navigate]
-  )
+        }
+        cancelScroll = restoreNavigationScroll(entry, () => {
+          restoring = false
+        })
+      })()
+    })
+    document.addEventListener('scroll', capture, true)
+    document.addEventListener('pointerdown', capture, true)
+    document.addEventListener('wheel', stopRestore, true)
+
+    return () => {
+      generation += 1
+      stopRestore()
+      unbind()
+      document.removeEventListener('scroll', capture, true)
+      document.removeEventListener('pointerdown', capture, true)
+      document.removeEventListener('wheel', stopRestore, true)
+    }
+  }, [navigate])
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const browser = browserTabId ? { tabId: browserTabId, url: browserUrl } : undefined

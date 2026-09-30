@@ -23,6 +23,14 @@ const entry = (route: string, browser?: NavigationEntry['browser']): NavigationE
 
 beforeEach(resetNavigationHistory)
 
+it('retains the reading offset when the same view is re-recorded before visiting a browser page', () => {
+  const chat = { ...entry('/bots'), scrollTop: 123 }
+  recordNavigation(chat)
+  recordNavigation(entry('/bots'))
+  recordNavigation(entry('/bots', { tabId: 'url:qa-pr', url: 'https://github.com/org/repo/pull/12' }))
+  expect(navigationHistory.move(-1)).toEqual(chat)
+})
+
 it('replays exact bot/card/browser destinations without adding the replay to history', () => {
   const replay = vi.fn()
   const unbind = bindNavigationReplay(replay)

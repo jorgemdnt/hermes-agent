@@ -5,6 +5,7 @@ import type { WorkspaceMode, WorkspaceNewSessionTarget } from '@/components/pane
 import type { RightRailTabId } from '@/store/layout'
 
 export interface NavigationEntry {
+  scrollTop?: number
   browserOpen: boolean
   route: string
   pane: string | null
@@ -66,6 +67,11 @@ export function recordNavigation(entry: NavigationEntry): void {
     return
   }
 
+  const current = navigationHistory.current
+
+  if (current && navigationEntryKey(current) === navigationEntryKey(entry)) {
+    entry = { ...entry, scrollTop: entry.scrollTop ?? current.scrollTop }
+  }
   navigationHistory.record(entry)
   publishNavigationAvailability()
 }
