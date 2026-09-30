@@ -1,4 +1,4 @@
-import { historyKeyDirection } from '@hermes/shared'
+import { bindHistoryMouseNavigation, historyKeyDirection } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { useEffect, useEffectEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -185,23 +185,12 @@ export function useNavigationHistory() {
       travelNavigation(direction)
     }
 
-    const mouse = (event: MouseEvent) => {
-      if (event.button !== 3 && event.button !== 4) {
-        return
-      }
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      travelNavigation(event.button === 3 ? -1 : 1)
-    }
-
     window.addEventListener('keydown', key, true)
-    // Consume these before pane pointerdown can focus the surface under the
-    // cursor and branch the history while a forward destination is applied.
-    window.addEventListener('pointerdown', mouse, true)
+    const unbindMouse = bindHistoryMouseNavigation(window, travelNavigation)
 
     return () => {
       window.removeEventListener('keydown', key, true)
-      window.removeEventListener('pointerdown', mouse, true)
+      unbindMouse()
     }
   }, [])
 }

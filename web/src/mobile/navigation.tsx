@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useNavigationType } from "react-router";
-import { historyKeyDirection } from "@hermes/shared";
+import { bindHistoryMouseNavigation, historyKeyDirection } from "@hermes/shared";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import "./navigation.css";
 
@@ -27,16 +27,11 @@ export function useMobileNavigation() {
       event.preventDefault(); event.stopImmediatePropagation();
       if (direction === -1) back(); else forward();
     };
-    const mouse = (event: MouseEvent) => {
-      if (event.button !== 3 && event.button !== 4) return;
-      event.preventDefault(); event.stopImmediatePropagation();
-      if (event.button === 3) back(); else forward();
-    };
     const pop = () => redraw(value => value + 1);
     window.addEventListener("keydown", key, true);
-    window.addEventListener("pointerdown", mouse, true);
+    const unbindMouse = bindHistoryMouseNavigation(window, direction => { if (direction === -1) back(); else forward(); });
     window.addEventListener("popstate", pop);
-    return () => { window.removeEventListener("keydown", key, true); window.removeEventListener("pointerdown", mouse, true); window.removeEventListener("popstate", pop); };
+    return () => { window.removeEventListener("keydown", key, true); unbindMouse(); window.removeEventListener("popstate", pop); };
   }, [back, forward]);
   return { back, forward, canGoBack: index > 0, canGoForward: index < ceiling.current };
 }

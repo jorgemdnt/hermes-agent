@@ -32,3 +32,24 @@ export function historyKeyDirection(event: Pick<KeyboardEvent, 'key' | 'code' | 
   if (event.key === ']' || event.code === 'BracketRight') return 1
   return null
 }
+
+/** The new destination mounts before release: don't let auxclick then walk
+ * the host browser history or dismiss the card we just opened. */
+export function bindHistoryMouseNavigation(target: Window, travel: (direction: -1 | 1) => void): () => void {
+  const consume = (event: MouseEvent) => {
+    if (event.button !== 3 && event.button !== 4) return false
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    return true
+  }
+  const down = (event: PointerEvent) => {
+    if (consume(event)) travel(event.button === 3 ? -1 : 1)
+  }
+  const releaseEvents = ['pointerup', 'mouseup', 'auxclick'] as const
+  target.addEventListener('pointerdown', down, true)
+  for (const type of releaseEvents) target.addEventListener(type, consume, true)
+  return () => {
+    target.removeEventListener('pointerdown', down, true)
+    for (const type of releaseEvents) target.removeEventListener(type, consume, true)
+  }
+}

@@ -123,6 +123,12 @@ it('keeps the pending restore alive when HashRouter changes navigate identity du
     expect(focusPane).not.toHaveBeenCalled()
     expect(forward.defaultPrevented).toBe(true)
     expect(window.location.hash).toContain('/kanban')
+    for (const type of ['pointerup', 'mouseup', 'auxclick']) {
+      const release = new MouseEvent(type, { button: 4, bubbles: true, cancelable: true })
+      await act(() => element.dispatchEvent(release))
+      expect(release.defaultPrevented).toBe(true)
+    }
+    expect(window.location.hash).toContain('/kanban')
   } finally {
     unsubscribe()
     surface.remove()

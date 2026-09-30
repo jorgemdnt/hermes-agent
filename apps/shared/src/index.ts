@@ -1,4 +1,4 @@
-export { NavigationHistory, historyKeyDirection } from './navigation-history'
+export { NavigationHistory, historyKeyDirection, bindHistoryMouseNavigation } from './navigation-history'
 export { hasAnsi, sanitizeAnsiForRender, stripAnsi } from './ansi'
 export { backendScopeKey, backendScopePrefix, LOCAL_CONNECTION_ID, registryBackendScopeKey } from './backend-scope'
 export {
