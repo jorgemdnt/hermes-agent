@@ -109,6 +109,43 @@ def test_bot_terminal_rejects_anonymous_and_loopback_token(monkeypatch):
     assert not spawned
 
 
+def test_bot_terminal_ticket_is_scoped_single_use_and_never_accepts_a_bare_token(monkeypatch, tmp_path):
+    from hermes_cli.web_server import _SESSION_TOKEN
+    import hermes_cli.web_bot_terminal as bot_terminal
+    import hermes_cli.web_server_profiles as profiles
+
+    class FakeBridge:
+        def read(self, _timeout):
+            return b""
+        def close(self):
+            pass
+
+    launched = []
+    monkeypatch.delenv("HERMES_BOT_TERMINAL_LOOPBACK", raising=False)
+    monkeypatch.setattr(profiles, "_resolve_profile_dir", lambda _profile: tmp_path)
+    monkeypatch.setattr(bot_terminal, "terminal_config", lambda _profile: {"backend": "local", "cwd": str(tmp_path)})
+    monkeypatch.setattr(chat_bridge.PtyBridge, "spawn", lambda argv, **kw: (launched.append(kw["cwd"]) or FakeBridge()))
+    client = TestClient(web_server.app)
+    path = "/api/bot-terminal/ticket?profile=default&session=new"
+    assert client.post(path).status_code == 401
+    response = client.post(path, headers={"x-hermes-session-token": _SESSION_TOKEN})
+    assert response.status_code == 200
+    ticket = response.json()["terminal_ticket"]
+    with pytest.raises(WebSocketDisconnect) as mismatched:
+        with client.websocket_connect(f"/api/bot-terminal?profile=other&session=new&terminal_ticket={ticket}") as ws:
+            ws.receive_text()
+    assert mismatched.value.code == 4401
+    assert not launched
+    ticket = client.post(path, headers={"x-hermes-session-token": _SESSION_TOKEN}).json()["terminal_ticket"]
+    with client.websocket_connect(f"/api/bot-terminal?profile=default&session=new&terminal_ticket={ticket}"):
+        pass
+    assert launched == [str(tmp_path)]
+    with pytest.raises(WebSocketDisconnect) as replay:
+        with client.websocket_connect(f"/api/bot-terminal?profile=default&session=new&terminal_ticket={ticket}") as ws:
+            ws.receive_text()
+    assert replay.value.code == 4401
+
+
 def test_bot_terminal_loopback_requires_explicit_owner_opt_in(monkeypatch, tmp_path):
     from hermes_cli.web_server import _SESSION_TOKEN
     import hermes_cli.web_bot_terminal as bot_terminal

@@ -498,6 +498,28 @@ async def bot_file_preview(request: Request, profile: str, session: str = "", pa
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/api/bot-terminal/ticket")
+async def bot_terminal_ticket(request: Request, profile: str, session: str = ""):
+    """Mint a one-use terminal capability for a trusted loopback HTTP client."""
+    from hermes_cli.web_server import _require_token
+    from hermes_cli.web_server_profiles import _resolve_profile_dir
+    from hermes_cli.web_bot_terminal import stored_session_folder
+    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
+
+    _require_token(request)
+    if _ws_auth_mode() != "loopback" or not _VALID_CHANNEL_RE.fullmatch(profile):
+        raise HTTPException(status_code=403, detail="Terminal ticket unavailable")
+    _resolve_profile_dir(profile)
+    try:
+        await asyncio.to_thread(stored_session_folder, profile, session)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Conversation unavailable") from exc
+    ticket = mint_ticket(user_id="local-owner", provider="terminal-bridge",
+                         extra={"purpose": "bot-terminal", "profile": profile, "session": session})
+    return Response(content=json.dumps({"terminal_ticket": ticket}), media_type="application/json",
+                    headers={"Cache-Control": "no-store"})
+
+
 @router.get("/api/bot-terminal/folder")
 async def bot_terminal_folder(request: Request, profile: str, session: str = "", scope: str = "conversation") -> dict:
     """Resolve the conversation folder for previews, or the profile's shell folder."""
@@ -530,14 +552,33 @@ async def bot_terminal_ws(ws: WebSocket) -> None:
     from hermes_cli.web_server_chat import PtyBridge, _PTY_BRIDGE_AVAILABLE
     from tools.environments.local import build_subprocess_env
 
-    gate = await _ws_gate(ws, "bot-terminal")
-    if gate is None:
-        return
-    # An explicitly opted-in loopback dashboard can use its per-process SPA
-    # token: the WS gate has already checked token, Host, Origin and peer IP.
-    # Keep the normal dashboard's raw shell behind a signed-in identity.
-    local_owner = (_ws_auth_mode() == "loopback" and gate[2] == "token" and
-                   os.environ.get("HERMES_BOT_TERMINAL_LOOPBACK") == "1")
+    terminal_ticket = ws.query_params.get("terminal_ticket", "")
+    if terminal_ticket:
+        from hermes_cli.dashboard_auth.ws_tickets import TicketInvalid, consume_ticket
+        if (not _DASHBOARD_EMBEDDED_CHAT_ENABLED or _ws_auth_mode() != "loopback" or
+                not _ws_request_is_allowed(ws) or
+                any(key not in {"profile", "session", "terminal_ticket"} for key in ws.query_params)):
+            await ws.close(code=4403, reason="Terminal ticket not allowed")
+            return
+        try:
+            info = consume_ticket(terminal_ticket)
+        except TicketInvalid:
+            info = {}
+        if (info.get("purpose") != "bot-terminal" or info.get("provider") != "terminal-bridge" or
+                info.get("profile") != ws.query_params.get("profile") or
+                info.get("session") != ws.query_params.get("session", "")):
+            await ws.close(code=4401, reason="Terminal ticket invalid")
+            return
+        gate = (ws.client.host if ws.client else "?", "loopback", "terminal-ticket")
+    else:
+        gate = await _ws_gate(ws, "bot-terminal")
+        if gate is None:
+            return
+    # The one-use capability grants a single local shell without putting the
+    # Hermes session bearer in the browser's WebSocket URL.
+    local_owner = gate[2] == "terminal-ticket" or (
+        _ws_auth_mode() == "loopback" and gate[2] == "token" and
+        os.environ.get("HERMES_BOT_TERMINAL_LOOPBACK") == "1")
     identity = getattr(ws, "_hermes_auth_identity", {}) or {}
     signed_in = (_ws_auth_mode() == "gated" and gate[2] != "internal" and
                  identity.get("user_id") and identity.get("provider") not in {"bot-desktop", "internal"})
