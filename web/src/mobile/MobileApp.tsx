@@ -44,7 +44,7 @@ import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unread
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
 import { RightSplit, type SplitTab } from "./RightSplit";
 import { conversationLocalLinks, fileLinkPath, localPreviewLink } from "./preview-links";
-import { activityTime, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
+import { activityTime, movePin, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
 import "./mobile.css";
 
@@ -1214,6 +1214,27 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
+  const pinRail = useRef<HTMLDivElement>(null);
+  const [pinEdges, setPinEdges] = useState({ left: false, right: false });
+  const measurePins = useCallback(() => {
+    const rail = pinRail.current;
+    if (!rail) return;
+    const left = rail.scrollLeft > 1;
+    const right = rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 1;
+    setPinEdges(previous => previous.left === left && previous.right === right ? previous : { left, right });
+  }, []);
+  useLayoutEffect(() => {
+    const rail = pinRail.current;
+    if (!rail) return;
+    measurePins();
+    window.addEventListener("resize", measurePins);
+    return () => window.removeEventListener("resize", measurePins);
+  }, [pinned.length, searchOpen, searchQuery, homeTab, measurePins]);
+  const pinIndex = pinned.findIndex(p => p.name === pinMenu);
+  const reorderPin = (direction: -1 | 1) => {
+    const neighbour = pinned[pinIndex + direction];
+    if (neighbour) setPins(current => movePin(current, pinMenu, neighbour.name, profiles.find(p => p.is_default)?.name || "default"));
+  };
   const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profile, profiles, input: composerInput, onPickSkill: (start, end, name) => composerInput.current?.insertSkill(start, end, name) });
   const chooseHomeTab = (tab: HomeTab) => {
     if (tab === homeTab) return;
@@ -1392,15 +1413,21 @@ export default function MobileApp() {
           })(); }}
           bots={{ label: botLabelFor, avatar: name => avatars[name] }} empty={searchOpen && searchQuery.trim() ? "No matching conversations." : "No conversations yet."} />
       </> : <>
-      {!!pinned.filter(matching).length && <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
-        <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
-          {avatar(p)}<span>{botName(p)}</span>
-        </button>
-      </div>)}</div>}
+      {!!pinned.filter(matching).length && <div className="m-pinned-wrap">
+        <div className="m-pinned" aria-label="Pinned bots" ref={pinRail} onScroll={measurePins}>{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
+          <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
+            {avatar(p)}<span title={botName(p)}>{botName(p)}</span>
+          </button>
+          <button type="button" className="m-pinned-more" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><MoreHorizontal size={17} aria-hidden="true" /></button>
+        </div>)}</div>
+        {pinEdges.left && <button type="button" className="m-pinned-scroll m-pinned-scroll-left" aria-label="Scroll pinned bots left" onClick={() => pinRail.current?.scrollBy({ left: -184, behavior: "smooth" })}><ChevronRight size={18} aria-hidden="true" /></button>}
+        {pinEdges.right && <button type="button" className="m-pinned-scroll m-pinned-scroll-right" aria-label="Scroll pinned bots right" onClick={() => pinRail.current?.scrollBy({ left: 184, behavior: "smooth" })}><ChevronRight size={18} aria-hidden="true" /></button>}
+      </div>}
       <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
         <button type="button" className="m-bot-main" aria-current={view === "chat" && p.name === profile ? "page" : undefined} {...botGesture(p.name)}>
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
         </button>
+        <button type="button" className="m-bot-more" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><MoreHorizontal size={19} aria-hidden="true" /></button>
       </div>)}</div>
       {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
       {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
@@ -1583,9 +1610,11 @@ export default function MobileApp() {
     </Sheet>}
     {!!pinMenu && <Sheet open={!!pinMenu} onClose={() => setPinMenu("")} label="Bot options">
       <div className="m-activity-head"><h2>{profiles.find(p => p.name === pinMenu)?.display_name || pinMenu}</h2><button type="button" className="m-icon-button" aria-label="Close bot options" onClick={() => setPinMenu("")}><X size={20} aria-hidden="true" /></button></div>
-      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinned.some(p => p.name === pinMenu)
+      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinIndex >= 0
         ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
-        : [...current, pinMenu]); setPinMenu(""); }}>{pinned.some(p => p.name === pinMenu) ? "Unpin bot" : "Pin bot"}</button>
+        : [...current, pinMenu]); setPinMenu(""); }}>{pinIndex >= 0 ? "Unpin bot" : "Pin bot"}</button>
+      {pinIndex > 0 && <button type="button" className="m-pin-choice" onClick={() => reorderPin(-1)}>Move pin left</button>}
+      {pinIndex >= 0 && pinIndex < pinned.length - 1 && <button type="button" className="m-pin-choice" onClick={() => reorderPin(1)}>Move pin right</button>}
       <button type="button" className="m-pin-choice" onClick={() => { routerNavigate(`/m/terminal/${encodeURIComponent(pinMenu)}${pinMenu === profile && selected ? `/${encodeURIComponent(selected)}` : ""}`); setPinMenu(""); }}>Terminal</button>
     </Sheet>}
     {messageAction?.scope === composerKey && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">

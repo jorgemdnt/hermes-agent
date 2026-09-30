@@ -27,6 +27,16 @@ export function orderedBots(profiles: ProfileInfo[], pins: string[], activity: R
   return { pinned, others };
 }
 
+export function movePin(pins: string[], name: string, neighbour: string, defaultName: string): string[] {
+  const resolvesTo = (pin: string) => pin === "default" ? defaultName : pin;
+  const from = pins.findIndex(pin => resolvesTo(pin) === name);
+  const to = pins.findIndex(pin => resolvesTo(pin) === neighbour);
+  if (from < 0 || to < 0) return pins;
+  const next = [...pins];
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
 export function activityTime(timestamp: number, now = Date.now(), locale?: string): string {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
   const date = new Date(timestamp * 1000);

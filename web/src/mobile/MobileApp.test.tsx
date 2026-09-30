@@ -901,13 +901,42 @@ it("filters bots and searches stored conversation messages across profiles", asy
   expect(window.location.pathname).toBe('/m/chat/gandalf/gandalf-found');
 });
 
+it.each([0, 1, 2, 3, 5])("shows %i pinned bots without an empty row", async count => {
+  const names = ["frodo", "gandalf", "samwise", "gimli", "author"];
+  storage.set(PIN_STORAGE_KEY, JSON.stringify(names.slice(0, count)));
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: names.map((name, i) => ({ name, is_default: i === 0 })) });
+  await renderApp(); await settle();
+  expect(host.querySelectorAll(".m-pinned-bot")).toHaveLength(count);
+  expect(!!host.querySelector(".m-pinned")).toBe(count > 0);
+  expect(host.querySelectorAll(".m-bot-row")).toHaveLength(names.length - count);
+});
+
+it("reorders pinned bots from their options and persists that order across mounts", async () => {
+  const names = ["frodo", "gandalf", "samwise", "gimli", "author"];
+  storage.set(PIN_STORAGE_KEY, JSON.stringify(names));
+  mocks.getProfiles.mockResolvedValue({ profiles: names.map((name, i) => ({ name, is_default: i === 0 })) });
+  await renderApp(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Options for Gandalf"]') as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll(".m-pin-choice")).find(button => button.textContent === "Move pin left") as HTMLButtonElement).click());
+  expect(Array.from(host.querySelectorAll(".m-pinned-bot > span:last-of-type")).map(label => label.textContent)).toEqual(["Gandalf", "Frodo", "Samwise", "Gimli", "Author"]);
+  expect(JSON.parse(storage.get(PIN_STORAGE_KEY)!)).toEqual(["gandalf", "frodo", "samwise", "gimli", "author"]);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await renderApp(); await settle();
+  expect(host.querySelector(".m-pinned-bot > span:last-of-type")?.textContent).toBe("Gandalf");
+  await act(async () => (host.querySelector('[aria-label="Options for Gandalf"]') as HTMLButtonElement).click());
+  await act(async () => (Array.from(host.querySelectorAll(".m-pin-choice")).find(button => button.textContent === "Unpin bot") as HTMLButtonElement).click());
+  expect(host.querySelectorAll(".m-pinned-bot")).toHaveLength(4);
+  expect(storage.get(PIN_STORAGE_KEY)).not.toContain("gandalf");
+});
+
 it("persists a pin action and moves a bot out of the unpinned list", async () => {
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } });
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: 'frodo', is_default: true }, { name: 'gandalf', is_default: false }, { name: 'author', is_default: false }] });
   await renderApp(); await settle();
   expect(host.querySelector('.m-bot-row')?.textContent).toContain('Author');
-  await act(async () => (host.querySelector('.m-bot-main') as HTMLButtonElement).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await act(async () => (host.querySelector('.m-bot-more') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
   expect(host.querySelector('.m-bot-row')).toBeNull();
   expect(values.get(PIN_STORAGE_KEY)).toContain('author');
