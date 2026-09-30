@@ -219,3 +219,87 @@ def test_ps_marker_probe_classifies_missing_process_vs_other_ps_failures(monkeyp
     with pytest.raises(OSError) as excinfo:
         web_server_lifecycle._process_start_marker(4242)
     assert not isinstance(excinfo.value, ProcessLookupError)
+
+
+def test_parent_watchdog_shuts_down_through_the_signal_path_not_os_exit(monkeypatch):
+    """#96095's flush-on-kill handlers only persist transcripts if a signal is raised.
+
+    ``os._exit`` skips signal handlers and ``atexit``, so an unclean desktop exit used
+    to drop exactly the in-memory state a SIGTERM from a live desktop would have saved.
+    """
+    import signal
+    import threading
+
+    from hermes_cli import web_server_lifecycle
+
+    monkeypatch.setenv("HERMES_PARENT_PID", "4242")
+    monkeypatch.delenv("HERMES_PARENT_START_MARKER", raising=False)
+    monkeypatch.delenv("HERMES_PARENT_NONCE", raising=False)
+    monkeypatch.setattr(web_server_lifecycle, "_is_serve_orphaned", lambda *_args: True)
+
+    hard_exits = []
+    monkeypatch.setattr(web_server_lifecycle.os, "_exit", lambda code: hard_exits.append(code))
+
+    timers = []
+
+    class _FakeThreading:
+        """Run the watchdog loop inline and keep its ceiling timer cancellable."""
+
+        @staticmethod
+        def Thread(target, **_kw):
+            class _Inline:
+                def start(self):
+                    target()
+
+            return _Inline()
+
+        @staticmethod
+        def Timer(*args, **kwargs):
+            timer = threading.Timer(*args, **kwargs)
+            timers.append(timer)
+            return timer
+
+    monkeypatch.setattr(web_server_lifecycle, "threading", _FakeThreading)
+
+    handled = []
+    previous = signal.signal(signal.SIGTERM, lambda *_a: handled.append("sigterm"))
+    try:
+        web_server_lifecycle._start_parent_death_watchdog()
+    finally:
+        for timer in timers:
+            timer.cancel()
+        signal.signal(signal.SIGTERM, previous)
+
+    assert handled == ["sigterm"], "parent loss must run this process's shutdown handlers"
+    assert hard_exits == [], "the watchdog must not bypass those handlers with os._exit"
+
+
+def test_parent_watchdog_arms_a_daemon_hard_exit_ceiling(monkeypatch):
+    """A stalled unwind must still reap the orphan, and the timer must outlive teardown joins."""
+    import signal
+
+    from hermes_cli import web_server_lifecycle
+    from hermes_cli.observability import shared_metrics_process
+    from tools.environments import base
+    from tui_gateway import exit_telemetry
+
+    raised = []
+    cleanup = []
+    monkeypatch.setattr(web_server_lifecycle.signal, "raise_signal", raised.append)
+    monkeypatch.setattr(shared_metrics_process, "stamp_exit", lambda reason: cleanup.append(("stamp", reason)))
+    monkeypatch.setattr(base, "kill_live_foreground_processes", lambda **kw: cleanup.append(("reap", kw)))
+    monkeypatch.setattr(exit_telemetry, "drain_before_hard_exit", lambda: cleanup.append(("drain",)))
+    monkeypatch.setattr(web_server_lifecycle.os, "_exit", lambda code: cleanup.append(("exit", code)))
+
+    ceiling = web_server_lifecycle._request_orphan_shutdown()
+    try:
+        assert raised == [signal.SIGTERM]
+        assert cleanup == []
+        assert ceiling.daemon is True
+        assert ceiling.is_alive()
+        assert 0 < ceiling.interval <= 30
+        ceiling.cancel()
+        ceiling.function(*ceiling.args, **ceiling.kwargs)
+        assert cleanup == [("stamp", "clean"), ("reap", {"now": True}), ("drain",), ("exit", 0)]
+    finally:
+        ceiling.cancel()
