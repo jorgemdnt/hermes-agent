@@ -117,6 +117,7 @@ try {
     await shot(page,`${name}-settings`);
     await page.goto(`${base}/m`); await page.locator('.m-pinned-bot').first().click();
     const ed=page.getByRole('textbox',{name:'Message'}); await ed.waitFor(); await ed.fill('/architect');
+    await page.getByRole('option').filter({hasText:'/architect'}).first().waitFor();
     const suggestionStyles = await colors(page, [['.m-suggestions button[aria-selected="true"]','backgroundColor','--accent-subtle'],['.m-suggestions button[aria-selected="true"]','color','--accent-text']], 'live-suggestions');
     row.styles.push(...suggestionStyles);
     await page.getByRole('option').filter({hasText:'/architect'}).first().click(); await ed.press('End'); await ed.type('Accent preview');
