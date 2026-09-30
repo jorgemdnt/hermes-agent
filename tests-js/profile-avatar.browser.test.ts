@@ -37,7 +37,7 @@ test.runIf(Boolean(endpoint && url))('account trigger stays circular at rest, ho
         await expect.poll(async () => trigger.locator('.m-avatar').first().evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThan(0)
         const identity = await (await page.request.get(new URL('/api/auth/me', url!).href)).json()
         if (identity.picture) {
-          await expect.poll(async () => trigger.locator('img').count() ? trigger.locator('img').evaluate(el => el.naturalWidth) : 0).toBeGreaterThan(0)
+          await expect.poll(() => trigger.evaluate(el => el.querySelector('img')?.naturalWidth ?? 0)).toBeGreaterThan(0)
         }
         const capture = async (state: string) => {
           const geometry = await trigger.evaluate(el => {
