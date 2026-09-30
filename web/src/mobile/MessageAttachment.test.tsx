@@ -33,7 +33,7 @@ it("authenticates image bytes instead of putting a token in the URL, and release
 
 it("fetches files lazily using cookie auth, downloads their name, and reports a failed image without a broken preview", async () => {
   delete window.__HERMES_SESSION_TOKEN__;
-  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () {
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
     expect(this.download).toBe("report.pdf");
     expect(this.getAttribute("href")).toBe("blob:attachment");
   });
