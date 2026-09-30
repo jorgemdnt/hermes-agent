@@ -84,6 +84,7 @@ class LiveSessionSnapshot(Result):
     messages_omitted: bool | None = None
     hydrating: bool | None = None
     running: bool | None = None
+    external_turn: bool | None = None  # another process owns the shared durable turn lease
     turn_started_at: float | None = None
     started_at: float | None = None
     status: str | None = None  # a LiveSessionStatus value

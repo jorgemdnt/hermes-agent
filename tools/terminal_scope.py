@@ -193,6 +193,30 @@ def _resolve_scope_cwd_placeholder(scope: Dict[str, str]) -> None:
         scope["TERMINAL_CWD"] = resolved
 
 
+def session_uses_local_cwd(hermes_home: Any = None) -> bool:
+    """Whether session cwd metadata may name a directory on this host.
+
+    An explicit home is the store owner, not necessarily the active/launch profile.
+    Before the CLI bridge runs, read its policy from disk; within a routed turn, use
+    the bound policy. Remote workdirs belong to the terminal backend, not sessions.cwd.
+    """
+    from hermes_constants import get_hermes_home
+
+    active_home = get_hermes_home().resolve()
+    home = Path(hermes_home).resolve() if hermes_home is not None else active_home
+    overlay = None
+    try:
+        if home == active_home:
+            if get_terminal_scope() is not None:
+                return terminal_env("TERMINAL_ENV", "local").strip().lower() in {"", "local"}
+            overlay = {"TERMINAL_ENV": os.environ["TERMINAL_ENV"]} if "TERMINAL_ENV" in os.environ else None
+        policy = build_profile_terminal_scope(home, env_overlay=overlay)
+        return policy.get("TERMINAL_ENV", "local").strip().lower() in {"", "local"}
+    except TerminalPolicyUnavailable as exc:
+        logger.debug("session cwd unavailable for %s: %s", home, exc)
+        return False
+
+
 def install_profile_terminal_scope(
     hermes_home: "Any", *, env_overlay: Optional[Dict[str, str]] = None) -> Token:
     """Build AND install a profile's policy; on failure install the refusal scope. Never raises."""

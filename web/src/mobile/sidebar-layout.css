@@ -6,7 +6,7 @@
   .m-shell .m-detail { left: var(--m-sidebar-offset); width: calc(100% - var(--m-sidebar-offset)); transition: left .18s ease, width .18s ease; }
   .m-shell .m-desktop-empty { left: var(--m-sidebar-offset); transition: left .18s ease; }
   .m-shell .m-terminal-dock:not(.m-terminal-full) { left: var(--m-sidebar-offset); transition: left .18s ease, right .18s ease; }
-  .m-desktop-empty > .m-sidebar-toggle { position: absolute; top: 12px; left: 24px; }
+  .m-desktop-empty > .m-header { position: absolute; top: 0; left: 0; right: 0; padding: 12px 24px; }
 }
 @media (min-width: 1360px) {
   .m-shell .m-detail.m-with-split { width: calc(100% - var(--m-sidebar-offset) - var(--m-split-width)); }
