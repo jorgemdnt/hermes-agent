@@ -7,8 +7,8 @@ import { reachablePreviewUrl } from '@/lib/preview-reach'
 import {
   $previewTabs,
   beginPreviewServerRestart,
+  closeDockedPreviewsForSession,
   closePreviewMatchingForSession,
-  closeRightRail,
   completePreviewServerRestart,
   openPreview,
   progressPreviewServerRestart,
@@ -28,14 +28,6 @@ interface PreviewRoutingOptions {
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
-}
-
-function sessionIsOnScreen(sessionId: string): boolean {
-  return (
-    sessionId === $focusedRuntimeId.get() ||
-    sessionId === $activeSessionId.get() ||
-    $sessionTiles.get().some(tile => tile.runtimeId === sessionId)
-  )
 }
 
 /** Hide-on-leave, don't close. Per-session buckets already isolate the rail. */
@@ -130,14 +122,8 @@ export function usePreviewRouting({ baseHandleGatewayEvent, currentCwd, requestG
         const target = typeof url === 'string' ? url.trim() : ''
 
         if (!target) {
-          if (!event.session_id || sessionIsOnScreen(event.session_id)) {
-            closeRightRail()
-          }
+          closeDockedPreviewsForSession(event.session_id)
 
-          return
-        }
-
-        if (closePreviewMatchingForSession(event.session_id, target)) {
           return
         }
 

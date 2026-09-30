@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { $fileBrowserOpen, $rightRailActiveTabId, selectRightRailTab } from './layout'
 import {
+  $browserPages,
   $previewServerRestart,
   $previewServerRestartStatus,
   $previewTabs,
   $previewTabsBySession,
   $previewTarget,
   beginPreviewServerRestart,
+  closeBrowserPreviewMatchingLiveUrl,
   closePreviewForSource,
   closePreviewMatching,
   closeRightRail,
   closeRightRailTab,
   commitBrowserTabLocation,
   newBrowserTab,
+  noteBrowserPage,
   openPreview,
   previewTabId,
   previewTabTarget,
@@ -39,6 +42,7 @@ function artifactTarget(id: string): PreviewTarget {
 
 describe('preview store', () => {
   beforeEach(() => {
+    $browserPages.set({})
     $previewServerRestart.set(null)
     $selectedStoredSessionId.set(null)
     $previewTabsBySession.set({ activeBySession: {}, tabs: {} })
@@ -48,6 +52,7 @@ describe('preview store', () => {
   })
 
   afterEach(() => {
+    $browserPages.set({})
     $previewServerRestart.set(null)
     $selectedStoredSessionId.set(null)
     closeRightRail()
@@ -269,6 +274,36 @@ describe('preview store', () => {
 
     expect(closePreviewMatching('Demo')).toBe(true)
     expect($previewTabs.get()).toHaveLength(0)
+  })
+
+  it('closes a Browser tab by its live navigated URL and removes it from persistence', () => {
+    openPreview(urlTarget('https://example.com'))
+    const tabId = $previewTabs.get()[0].id
+
+    noteBrowserPage(tabId, {
+      title: 'Dashboard',
+      url: 'https://example.com/dashboard'
+    })
+
+    expect(closeBrowserPreviewMatchingLiveUrl('https://example.com/dashboard')).toBe(true)
+    expect($previewTabs.get()).toHaveLength(0)
+    expect($browserPages.get()[tabId]).toBeUndefined()
+    expect(window.localStorage.getItem('hermes.desktop.previewTabs.v2')).toBeNull()
+  })
+
+  it('prefers the tab currently showing a URL over one that navigated away from it', () => {
+    openPreview(urlTarget('https://example.com'))
+    const first = $previewTabs.get()[0].id
+    noteBrowserPage(first, { title: 'Elsewhere', url: 'https://elsewhere.example/' })
+
+    newBrowserTab()
+    openPreview(urlTarget('https://example.com'))
+    const second = $previewTabs.get()[1].id
+    noteBrowserPage(second, { title: 'Example', url: 'https://example.com/' })
+
+    expect(closeBrowserPreviewMatchingLiveUrl('https://example.com')).toBe(true)
+    expect($previewTabs.get().map(tab => tab.id)).toEqual([first])
+    expect($browserPages.get()[first]?.url).toBe('https://elsewhere.example/')
   })
 
   it('does not wipe the rail on an empty or unknown close query', () => {

@@ -21,7 +21,7 @@ function mount() {
 
 afterEach(cleanup)
 
-it('paints one streaming turn when the sealed answer and its tools are replayed', () => {
+it('paints one streaming turn when the sealed answer and tool results are replayed', () => {
   const { stream, send } = mount()
 
   send('message.start')
@@ -34,11 +34,11 @@ it('paints one streaming turn when the sealed answer and its tools are replayed'
   send('message.delta', { text: ANSWER })
   send('message.interim', { already_streamed: true, text: ANSWER })
 
-  // Still streaming. A replay of the same calls and the same answer must not
-  // paint a second copy under the sealed one.
+  // Still streaming. Identical results may refresh finished rows; a new
+  // tool.start is a new invocation even when the provider reuses its id.
   send('message.delta', { text: ANSWER })
-  send('tool.start', { args: { name: 'how' }, name: 'skill_view', tool_id: 'call-skill' })
-  send('tool.start', { args: { path: 'kanban.md' }, name: 'read_file', tool_id: 'call-read' })
+  send('tool.complete', { name: 'skill_view', result: 'docs', tool_id: 'call-skill' })
+  send('tool.complete', { name: 'read_file', result: 'board', tool_id: 'call-read' })
 
   const messages = stream.state(SID).messages
   const painted = messages
@@ -54,4 +54,25 @@ it('paints one streaming turn when the sealed answer and its tools are replayed'
 
   expect(toolIds.filter(id => id === 'call-skill')).toHaveLength(1)
   expect(toolIds.filter(id => id === 'call-read')).toHaveLength(1)
+})
+
+it('keeps reused ids as separate calls after an interim, even with identical args', () => {
+  const { stream, send } = mount()
+  const call = { args: { command: 'status' }, name: 'terminal', tool_id: 'call-constant' }
+
+  send('message.start')
+  send('tool.start', call)
+  send('tool.complete', { ...call, result: 'first status' })
+  send('message.interim', { text: 'Checking again.' })
+  send('tool.start', call)
+  send('tool.complete', { ...call, result: 'second status' })
+
+  const calls = stream.state(SID).messages.flatMap(message =>
+    message.parts.filter(part => part.type === 'tool-call' && part.toolCallId === call.tool_id)
+  )
+
+  expect(calls).toEqual([
+    expect.objectContaining({ result: 'first status' }),
+    expect.objectContaining({ result: 'second status' })
+  ])
 })

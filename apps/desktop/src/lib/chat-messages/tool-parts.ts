@@ -171,10 +171,26 @@ function findToolPartIndex(
   const overlaps = (index: number) => hasToolMatchOverlap(matchValues, toolPartMatchValues(parts[index]))
 
   if (stableId) {
-    const stableIndex = parts.findIndex(part => part.type === 'tool-call' && part.toolCallId === stableId)
+    const stableIndex = parts.findIndex(
+      part => part.type === 'tool-call' && part.toolCallId === stableId && !Object.hasOwn(part, 'result')
+    )
 
     if (stableIndex >= 0) {
       return stableIndex
+    }
+
+    const repeatedIndex =
+      phase === 'complete'
+        ? parts.findLastIndex(
+            part =>
+              part.type === 'tool-call' &&
+              part.toolCallId === stableId &&
+              (payload?.result === undefined || JSON.stringify(payload.result) === JSON.stringify(part.result))
+          )
+        : -1
+
+    if (repeatedIndex >= 0) {
+      return repeatedIndex
     }
 
     // Some live streams start without an id, then complete with one. Fall
@@ -409,13 +425,15 @@ export interface SettledClarifyProjection {
  * from an earlier turn, not the owner of the new one. Routing to it would
  * draw the new call over the old row and leave the live turn empty.
  *
- * Newest-first among unresolved parts: interim boundaries append bubbles, so
- * the owner of an in-flight call is the most recent message that carries the
- * id without a result.
+ * An identical completion may also refresh an interim row from this turn;
+ * it never claims a finished call for a new start. Newest-first among
+ * unresolved parts: interim boundaries append bubbles, so the owner of an
+ * in-flight call is the most recent message that carries the id without a result.
  */
 export function toolCallOwnerMessageId(
   messages: ChatMessage[],
-  payload: GatewayEventPayload | undefined
+  payload: GatewayEventPayload | undefined,
+  phase: 'running' | 'complete' = 'running'
 ): string | null {
   const stableId = toolId(payload)
 
@@ -433,9 +451,12 @@ export function toolCallOwnerMessageId(
     }
   }
 
-  // A replay of a call this turn already finished must not seed a second row
-  // under the sealed answer. Only an interim row can own that replay — a
-  // completed turn's call stays free for the next turn, which may reuse the id.
+  // Only a repeated completion may claim a finished call. A start with the
+  // same id (even identical args) is a new invocation, not a replay.
+  if (phase !== 'complete') {
+    return null
+  }
+
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = messages[messageIndex]
 
@@ -448,14 +469,11 @@ export function toolCallOwnerMessageId(
     }
 
     for (const part of message.parts) {
-      if (part.type !== 'tool-call' || part.toolCallId !== stableId || payload?.args === undefined) {
-        continue
-      }
-
-      // Same id is not the same call. A later call in this turn may reuse the
-      // id with different args; only an identical replay belongs on the row
-      // that already finished.
-      if (JSON.stringify(part.args) === JSON.stringify(payload.args)) {
+      if (
+        part.type === 'tool-call' &&
+        part.toolCallId === stableId &&
+        (payload?.result === undefined || JSON.stringify(part.result) === JSON.stringify(payload.result))
+      ) {
         return message.id
       }
     }
@@ -639,24 +657,28 @@ export function restorePendingBlockingToolCall(
   if (location) {
     const message = messages[location.messageIndex]
     const part = message.parts[location.partIndex]
-    // A correlated row that settle sealed (stop, lost completion) is live
-    // again: drop the seal so the card renders as pending, not as history.
-    const sealed = part.type === 'tool-call' && part.completedAt !== undefined && part.result === undefined
 
-    if (message.pending && !sealed) {
+    if (part.type !== 'tool-call') {
       return { messages, streamId: message.id }
     }
 
-    const next = [...messages]
+    // A correlated row that settle sealed (stop, lost completion) is live
+    // again: drop the seal so the card renders as pending, not as history.
+    // A sparse hydrated projection may already be marked pending while still
+    // lacking the authoritative clarify.request args, so re-arm in place and
+    // merge the live payload into that provider-authored part, preserving its
+    // tool-call id and transcript position.
+    const { completedAt: _completedAt, ...unsealed } = part
+    const args = toolArgs(clarifyPayload, part.args)
+    const parts = [...message.parts]
+    parts[location.partIndex] = {
+      ...unsealed,
+      args: args as never,
+      argsText: JSON.stringify(args)
+    } as ChatMessagePart
 
-    if (sealed) {
-      const { completedAt: _completedAt, ...unsealed } = part
-      const parts = [...message.parts]
-      parts[location.partIndex] = unsealed as ChatMessagePart
-      next[location.messageIndex] = { ...message, parts, pending: true }
-    } else {
-      next[location.messageIndex] = { ...message, pending: true }
-    }
+    const next = [...messages]
+    next[location.messageIndex] = { ...message, parts, pending: true }
 
     return { messages: next, streamId: message.id }
   }
@@ -919,9 +941,8 @@ export function storedToolMessagePart(toolMessage: SessionMessage, fallbackIndex
 }
 
 export function withUniqueToolCallIds(messages: ChatMessage[]): ChatMessage[] {
-  const seen = new Set<string>()
-
   return messages.map(message => {
+    const seen = new Set<string>()
     let changed = false
 
     const parts = message.parts.map((part, index) => {

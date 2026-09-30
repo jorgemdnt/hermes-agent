@@ -109,7 +109,7 @@ function persistBindings(bindings: KeybindBindings): void {
   const diff: KeybindBindings = {}
 
   for (const action of allKeybindActions()) {
-    const current = bindings[action.id] ?? []
+    const current = bindingsFor(action.id, bindings)
 
     if (!arraysEqual(current, defaults[action.id] ?? [])) {
       diff[action.id] = current

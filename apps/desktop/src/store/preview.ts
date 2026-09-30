@@ -45,7 +45,10 @@ export interface PreviewTarget {
   language?: string
   mimeType?: string
   path?: string
-  previewKind?: 'binary' | 'html' | 'image' | 'pdf' | 'text'
+  /** `directory`/`missing` are typed non-previewable results from main-process
+   * normalization (#101683): they never reach `openPreview` — callers branch on
+   * them for the native folder action / not-found reporting instead. */
+  previewKind?: 'binary' | 'directory' | 'html' | 'image' | 'missing' | 'pdf' | 'text'
   renderMode?: PreviewRenderMode
   source: string
   /** Runtime-only target that cannot be restored from persisted state. */
@@ -112,7 +115,12 @@ function previewBucketOwner(sessionId?: null | string): string {
     return focused
   }
 
-  if (raw === focused || raw === focusedStoredId || raw === focusedRuntimeId || raw === $activeSessionId.get()) {
+  if (
+    raw === focused ||
+    raw === focusedStoredId ||
+    raw === focusedRuntimeId ||
+    (!focusedRuntimeId && raw === $activeSessionId.get())
+  ) {
     return focused
   }
 
@@ -727,21 +735,26 @@ export function newBrowserTab() {
   selectRightRailTab(id)
 }
 
-export function closeRightRailTab(tabId: string) {
-  const current = $previewTabs.get()
+function closePreviewTabForOwner(owner: string, tabId: string): boolean {
+  const state = $previewTabsBySession.get()
+  const current = state.tabs[owner] ?? []
   const index = current.findIndex(tab => tab.id === tabId)
 
   if (index === -1) {
-    return
+    return false
   }
 
   const next = current.filter(tab => tab.id !== tabId)
+  const inView = owner === previewOwnerKey()
+  const activeId = inView
+    ? $rightRailActiveTabId.get()
+    : (current.find(tab => tab.id === state.activeBySession[owner])?.id ?? current[0]?.id ?? null)
+  const nextId = activeId === tabId ? (next[Math.min(index, next.length - 1)]?.id ?? null) : activeId
 
-  writeVisiblePreviewTabs(next)
+  forgetBrowserPage(tabId)
+  writeTabsForOwner(owner, next, nextId)
 
-  if ($rightRailActiveTabId.get() === tabId) {
-    const nextId = next[Math.min(index, next.length - 1)]?.id ?? null
-
+  if (inView && activeId === tabId) {
     if (nextId) {
       noteExplicitPreviewOpen(nextId)
     } else {
@@ -751,9 +764,15 @@ export function closeRightRailTab(tabId: string) {
     selectRightRailTab(nextId)
   }
 
-  if (next.length === 0) {
+  if (inView && next.length === 0) {
     selectRightRailTab(null)
   }
+
+  return true
+}
+
+export function closeRightRailTab(tabId: string) {
+  closePreviewTabForOwner(previewOwnerKey(), tabId)
 }
 
 /** Close the tab showing `source`, if one is open. Returns whether it closed. */
@@ -761,46 +780,126 @@ export function closePreviewForSource(source: string): boolean {
   return closePreviewMatching(source)
 }
 
-/** Close the first tab whose source, url, or label matches any candidate.
- *  Empty candidates are a no-op so a missed match cannot wipe the rail —
- *  closing the whole pane is `closeRightRail`. */
-export function closePreviewMatching(...candidates: string[]): boolean {
-  return closePreviewMatchingForOwner(previewOwnerKey(), candidates)
+/** Close the first docked Browser tab whose current page URL matches.
+ *  Browsers keep navigation state outside their persisted target so matching
+ *  only target.url misses redirects and in-page navigation. */
+export function closeBrowserPreviewMatchingLiveUrl(...candidates: string[]): boolean {
+  return closeBrowserPreviewMatchingLiveUrlForOwner(previewOwnerKey(), candidates)
 }
 
-export function closePreviewMatchingForSession(sessionId: null | string | undefined, ...candidates: string[]): boolean {
-  return closePreviewMatchingForOwner(previewBucketOwner(sessionId), candidates)
+function closeBrowserPreviewMatchingLiveUrlForOwner(owner: string, candidates: string[]): boolean {
+  const queries = new Set(
+    candidates
+      .map(value => {
+        try {
+          const url = new URL(value.trim())
+
+          return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : ''
+        } catch {
+          return ''
+        }
+      })
+      .filter(Boolean)
+  )
+
+  if (queries.size === 0) {
+    return false
+  }
+
+  const pages = $browserPages.get()
+  const popped = $poppedBrowserTabIds.get()
+  const state = $previewTabsBySession.get()
+  const tabs = state.tabs[owner] ?? []
+  const activeId = owner === previewOwnerKey() ? $rightRailActiveTabId.get() : state.activeBySession[owner]
+  const ordered = [...tabs.filter(tab => tab.id === activeId), ...tabs.filter(tab => tab.id !== activeId)]
+
+  const tab = ordered.find(item => {
+    if (item.target.kind !== 'url' || popped.has(item.id)) {
+      return false
+    }
+
+    const liveUrl = pages[item.id]?.url
+
+    if (!liveUrl) {
+      return false
+    }
+
+    try {
+      return queries.has(new URL(liveUrl).href)
+    } catch {
+      return false
+    }
+  })
+
+  if (!tab) {
+    return false
+  }
+
+  return closePreviewTabForOwner(owner, tab.id)
 }
 
-function closePreviewMatchingForOwner(owner: string, candidates: string[]): boolean {
+function closePreviewMatchingTabs(owner: string, tabs: PreviewTab[], candidates: string[]): boolean {
   const queries = [...new Set(candidates.map(value => value.trim()).filter(Boolean))]
 
   if (queries.length === 0) {
     return false
   }
 
-  const current = $previewTabsBySession.get().tabs[owner] ?? []
-  const index = current.findIndex(item => {
+  const tab = tabs.find(item => {
     const fields = [item.target.source, item.target.url, item.target.label]
 
     return queries.some(query => fields.includes(query))
   })
 
-  if (index === -1) {
+  if (!tab) {
     return false
   }
 
-  const tab = current[index]
-  const next = current.filter(item => item.id !== tab.id)
-  const nextActive = next[Math.min(index, next.length - 1)]?.id ?? null
+  return closePreviewTabForOwner(owner, tab.id)
+}
 
-  writeTabsForOwner(owner, next, nextActive)
+/** Close the first tab whose source, url, or label matches any candidate.
+ *  Empty candidates are a no-op so a missed match cannot wipe the rail —
+ *  closing the whole pane is `closeRightRail`. */
+export function closePreviewMatching(...candidates: string[]): boolean {
+  const owner = previewOwnerKey()
 
-  if (owner === previewOwnerKey() && $rightRailActiveTabId.get() === tab.id) {
-    selectRightRailTab(nextActive)
+  return closePreviewMatchingTabs(owner, visibleTabsForOwner(owner), candidates)
+}
+
+function dockedPreviewTabsForOwner(owner: string): PreviewTab[] {
+  const popped = $poppedBrowserTabIds.get()
+
+  return visibleTabsForOwner(owner).filter(tab => !popped.has(tab.id))
+}
+
+/** Agent-driven close is scoped to the docked rail; an independent Browser
+ *  window owns popped tabs and must not lose its backing state here. */
+export function closeDockedPreviewMatching(...candidates: string[]): boolean {
+  const owner = previewOwnerKey()
+
+  return closePreviewMatchingTabs(owner, dockedPreviewTabsForOwner(owner), candidates)
+}
+
+/** Agent closes stay on their owning thread, prefer the live page, and never
+ *  remove the backing tab of an independent Browser window. */
+export function closePreviewMatchingForSession(sessionId: null | string | undefined, ...candidates: string[]): boolean {
+  const owner = previewBucketOwner(sessionId)
+
+  return (
+    closeBrowserPreviewMatchingLiveUrlForOwner(owner, candidates) ||
+    closePreviewMatchingTabs(owner, dockedPreviewTabsForOwner(owner), candidates)
+  )
+}
+
+/** An empty agent close means this thread's docked previews, not the focused
+ *  thread's rail or its independent Browser windows. */
+export function closeDockedPreviewsForSession(sessionId: null | string | undefined) {
+  const owner = previewBucketOwner(sessionId)
+
+  for (const tab of dockedPreviewTabsForOwner(owner)) {
+    closePreviewTabForOwner(owner, tab.id)
   }
-
-  return true
 }
 
 /** Artifact tabs can't outlive the registry they read from, so clearing it
