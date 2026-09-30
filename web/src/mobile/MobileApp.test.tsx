@@ -74,6 +74,7 @@ const storage = new Map<string, string>();
 beforeEach(() => {
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:message-image") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  mocks.fetchJSON.mockImplementation(async url => url.endsWith("/kanban/boards") ? { boards: [{ slug: "default", name: "Engineering" }, { slug: "ops", name: "Operations" }], current: "default" } : url.startsWith("/api/mobile/projects") ? { projects: [], supported: true } : { server_host: "testhost", client_on_server_host: false, profiles: {} });
   storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
@@ -91,6 +92,10 @@ const typeComposer = (element: HTMLElement, value: string) => {
 };
 
 const openDestination = async (label: string) => {
+  if (label === "Board") {
+    await act(async () => (host.querySelector('.m-home-switch [role="radio"]:last-of-type') as HTMLButtonElement).click());
+    return;
+  }
   await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
   await act(async () => (Array.from(host.querySelectorAll('.m-dropdown a')).find(link => link.textContent === label) as HTMLAnchorElement).click());
 };
@@ -989,10 +994,10 @@ it("steers the running Samwise turn instead of starting a second one", async () 
   expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
 });
 
-it("routes Board and Settings from the profile menu, and offers Screen only with Samwise", async () => {
+it("routes Board from the footer only and Settings from the profile menu", async () => {
   await renderApp(); await settle();
   await act(async () => (host.querySelector('[aria-label="Profile menu"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })));
-  expect(Array.from(host.querySelectorAll('.m-dropdown a')).map(a => [a.textContent, a.getAttribute('href')])).toEqual([["Board", "/m/board"], ["Subscriptions", "/m/subscriptions"], ["Settings", "/m/settings"]]);
+  expect(Array.from(host.querySelectorAll('.m-dropdown a')).map(a => [a.textContent, a.getAttribute('href')])).toEqual([["Subscriptions", "/m/subscriptions"], ["Settings", "/m/settings"]]);
   await act(async () => (host.querySelector('.m-dropdown a[href="/m/settings"]') as HTMLAnchorElement).click());
   expect(window.location.pathname).toBe('/m/settings');
   await act(async () => (host.querySelector('[aria-label="Back to bots"]') as HTMLButtonElement).click());
@@ -1434,6 +1439,21 @@ it("restores the focused chat and bot across mode switches and reload", async ()
   expect(window.location.pathname).toContain('/m/chat/frodo/stored');
   await switchTo('Chats');
   expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+  await switchTo('Board');
+  expect(window.location.pathname).toBe('/m/board');
+  expect(host.querySelector('.m-home-switch [aria-checked="true"]')?.textContent).toBe('Board');
+  expect(host.querySelector('.m-pinned')).toBeNull();
+  expect(host.querySelector('.m-board-list [aria-current="page"]')?.textContent).toBe('Engineering');
+  await act(async () => (host.querySelector('.m-board-list a[href="/m/board?board=ops"]') as HTMLAnchorElement).click());
+  expect(window.location.search).toBe('?board=ops');
+  expect(host.querySelector('.m-board-list [aria-current="page"]')?.textContent).toBe('Operations');
+  await switchTo('Chats');
+  expect(window.location.pathname).toContain('/m/chat/gandalf/gandalf-found');
+  window.history.back();
+  await vi.waitFor(() => expect(host.querySelector('.m-home-switch')?.getAttribute('data-value')).toBe('board'));
+  expect(window.location.search).toBe('?board=ops');
+  window.history.go(-2);
+  await vi.waitFor(() => expect(host.querySelector('.m-home-switch')?.getAttribute('data-value')).toBe('chats'));
   window.history.back();
   await vi.waitFor(() => expect(host.querySelector('.m-home-switch')?.getAttribute('data-value')).toBe('bots'));
   expect(window.location.pathname).toContain('/m/chat/frodo/stored');

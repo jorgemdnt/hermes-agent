@@ -28,6 +28,7 @@ import { GatewayClient } from "@/lib/gatewayClient";
 import PromptCard from "./PromptCard";
 import { Avatar, Badge, Button, Sheet, Skeleton, Tooltip } from "./ui";
 import MobileKanban from "./MobileKanban";
+import { BoardSidebar } from "./BoardSidebar";
 import MobileScreen from "./MobileScreen";
 import MobileMessage from "./MobileMessage";
 import { loadComposerAttachments, saveComposerAttachments } from "./composer-attachments";
@@ -106,6 +107,8 @@ export default function MobileApp() {
   const navigationHistory = useMobileNavigation();
   const route = mobileRoute(location.pathname);
   const view = route.view;
+  const boardSlug = new URLSearchParams(location.search).get("board") || undefined;
+  const boardPath = boardSlug ? `/m/board?board=${encodeURIComponent(boardSlug)}` : "/m/board";
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 768px)").matches || !!window.hermetic);
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
@@ -267,6 +270,7 @@ export default function MobileApp() {
   const [pins, setPins] = useState(() => savedPins(window.localStorage));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [homeTab, setHomeTab] = useState<HomeTab>(() => localStorage.getItem(HOME_TAB_KEY) === "chats" ? "chats" : "bots");
+  const activeHomeTab = view === "board" ? "board" : homeTab;
   const homeTabRef = useRef(homeTab);
   homeTabRef.current = homeTab;
   const [chatSort, setChatSort] = useState<ChatSort>(() => localStorage.getItem(CHAT_SORT_KEY) === "created" ? "created" : "recent");
@@ -371,10 +375,10 @@ export default function MobileApp() {
   const [shellContainer, setShellContainer] = useState<HTMLDivElement | null>(null);
   const bindShell = useCallback((node: HTMLDivElement | null) => { shellRef.current = node; setShellContainer(node); }, []);
   const goBack = useCallback(() => {
-    if (view === "board" && route.task) { routerNavigate("/m/board"); return; }
+    if (view === "board" && route.task) { routerNavigate(boardPath); return; }
     if (window.history.state?.idx > 0) window.history.back();
     else routerNavigate(view === "board" && route.task ? "/m/board" : "/m");
-  }, [routerNavigate, view, route.task]);
+  }, [routerNavigate, view, route.task, boardPath]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [conversationsOpen, setConversationsOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -1252,22 +1256,6 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
-  const pinRail = useRef<HTMLDivElement>(null);
-  const [pinEdges, setPinEdges] = useState({ left: false, right: false });
-  const measurePins = useCallback(() => {
-    const rail = pinRail.current;
-    if (!rail) return;
-    const left = rail.scrollLeft > 1;
-    const right = rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 1;
-    setPinEdges(previous => previous.left === left && previous.right === right ? previous : { left, right });
-  }, []);
-  useLayoutEffect(() => {
-    const rail = pinRail.current;
-    if (!rail) return;
-    measurePins();
-    window.addEventListener("resize", measurePins);
-    return () => window.removeEventListener("resize", measurePins);
-  }, [pinned.length, searchOpen, searchQuery, homeTab, measurePins]);
   const pinIndex = pinned.findIndex(p => p.name === pinMenu);
   const reorderPin = (direction: -1 | 1) => {
     const neighbour = pinned[pinIndex + direction];
@@ -1275,7 +1263,8 @@ export default function MobileApp() {
   };
   const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profile, profiles, input: composerInput, onPickSkill: (start, end, name) => composerInput.current?.insertSkill(start, end, name) });
   const chooseHomeTab = (tab: HomeTab) => {
-    if (tab === homeTab) return;
+    if (tab === "board") { routerNavigate(boardPath); return; }
+    if (tab === activeHomeTab) return;
     homeTabRef.current = tab;
     setHomeTab(tab);
     localStorage.setItem(HOME_TAB_KEY, tab);
@@ -1350,6 +1339,7 @@ export default function MobileApp() {
         return;
       case "tab": chooseHomeTab(action.tab); return;
       case "nth": {
+        if (activeHomeTab === "board") return;
         if (homeTab === "chats") { const target = chatView.visible[action.index]; if (target) openChat(target); }
         else { const target = [...pinned, ...others][action.index]; if (target) void selectProfile(target.name); }
         return;
@@ -1423,6 +1413,7 @@ export default function MobileApp() {
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
     name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} desktop={desktop} />;
+  const sidebarFooter = <footer className="m-sidebar-footer">{accountMenu}<HomeSwitch value={activeHomeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></footer>;
   const newChatHero = <NewChatHero />;
   const newChatToolbar = <NewChatToolbar container={shellContainer} projects={projects} supported={projectSupported} reason={projectReason}
     projectId={projectId} onProject={id => { setProjectId(id); if (!projects.find(project => project.id === id)?.git) setWorkspaceMode("local"); preparedWorkspace.current = ""; setCreation(null); }}
@@ -1432,21 +1423,21 @@ export default function MobileApp() {
   const creationStatus = creation && <CreationStatus progress={creation} mode={workspaceMode} onRetry={() => composerForm.current?.requestSubmit()} />;
   const sidebarToggle = desktop && <button type="button" className="m-icon-button m-sidebar-toggle" aria-label={sidebarOpen ? "Collapse left sidebar" : "Open left sidebar"} aria-expanded={sidebarOpen} aria-controls="m-left-sidebar" title="Toggle left sidebar (⌘B / Ctrl+B)" onClick={() => setSidebarOpen(open => !open)}><PanelLeft size={20} aria-hidden="true" /></button>;
   const HomeScroller = desktop ? "aside" : "main";
+  const sidebarTab = desktop ? activeHomeTab : homeTab;
   const renderHome = () => <>
     <header className="m-list-header">
       {!desktop && <HistoryButtons {...navigationHistory} />}
       {sidebarOpen && sidebarToggle}
-      <h1 className="sr-only">{homeTab === "chats" ? "Chats" : "Bots"}</h1>
-      {!desktop && <div className="m-list-header-left">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></div>}
-      <div className="m-top-actions">
+      <h1 className={sidebarTab === "board" ? "m-page-title" : "sr-only"}>{sidebarTab === "board" ? "Boards" : homeTab === "chats" ? "Chats" : "Bots"}</h1>
+      {sidebarTab !== "board" && <div className="m-top-actions">
         <button type="button" className="m-icon-button" aria-label="Search" onClick={() => setSearchOpen(open => !open)}><Search size={21} aria-hidden="true" /></button>
         <button type="button" className="m-icon-button" aria-label="New conversation" onClick={() => setNewChatOpen(true)}><Plus size={23} aria-hidden="true" /></button>
-      </div>
+      </div>}
     </header>
-    {searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder={homeTab === "chats" ? "Search conversations…" : "Search bots & conversations…"} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
+    {sidebarTab !== "board" && searchOpen && <div className="m-search"><Search size={19} aria-hidden="true" /><input aria-label="Search bots and conversations" name="mobile-search" autoComplete="off" type="search" placeholder={homeTab === "chats" ? "Search conversations…" : "Search bots & conversations…"} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearchResults([]); setSearchError(""); }} /><button type="button" aria-label="Close search" onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); setSearchError(""); }}><X size={19} aria-hidden="true" /></button></div>}
     {error && view === "bots" && <p role="alert" className="m-error">{error}</p>}
     <HomeScroller className="m-bot-list" ref={listRef} onScroll={e => { listScroll.current = e.currentTarget.scrollTop; }}>
-      {homeTab === "chats" ? <>
+      {sidebarTab === "board" ? <BoardSidebar selected={boardSlug} /> : homeTab === "chats" ? <>
         <ChatsToolbar sort={chatSort} onSort={chooseSort} grouped={chatsGrouped} onGrouped={chooseGrouped} />
         <ChatsPanel groups={chatView.groups} grouped={chatsGrouped} collapsed={collapsedGroups} onToggleGroup={toggleGroup} currentKey={view === "chat" ? chatKey(profile, selected) : ""} onOpen={openChat}
           onNewInProject={group => { void (async () => {
@@ -1464,14 +1455,12 @@ export default function MobileApp() {
           bots={{ label: botLabelFor, avatar: name => avatars[name] }} empty={searchOpen && searchQuery.trim() ? "No matching conversations." : "No conversations yet."} />
       </> : <>
       {!!pinned.filter(matching).length && <div className="m-pinned-wrap">
-        <div className="m-pinned" aria-label="Pinned bots" ref={pinRail} onScroll={measurePins}>{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
+        <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
           <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
             {avatar(p)}<span title={botName(p)}>{botName(p)}</span>
           </button>
           <button type="button" className="m-pinned-more" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><MoreHorizontal size={17} aria-hidden="true" /></button>
         </div>)}</div>
-        {pinEdges.left && <button type="button" className="m-pinned-scroll m-pinned-scroll-left" aria-label="Scroll pinned bots left" onClick={() => pinRail.current?.scrollBy({ left: -184, behavior: "smooth" })}><ChevronRight size={18} aria-hidden="true" /></button>}
-        {pinEdges.right && <button type="button" className="m-pinned-scroll m-pinned-scroll-right" aria-label="Scroll pinned bots right" onClick={() => pinRail.current?.scrollBy({ left: 184, behavior: "smooth" })}><ChevronRight size={18} aria-hidden="true" /></button>}
       </div>}
       <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
         <button type="button" className="m-bot-main" aria-current={view === "chat" && p.name === profile ? "page" : undefined} {...botGesture(p.name)}>
@@ -1486,7 +1475,7 @@ export default function MobileApp() {
         {!searchResults.length && !searchError && <p className="m-muted">No matching conversations.</p>}
       </section>}
       </>}
-      {!!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2 className="sr-only">Requests</h2>{activePrompts.map(p => {
+      {sidebarTab !== "board" && !!activePrompts.length && <section className="m-inbox" aria-label="Requests"><h2 className="sr-only">Requests</h2>{activePrompts.map(p => {
         const sid = p.request.params.session_id;
         const owner = liveSessions.find(s => s.id === sid);
         return <div className="m-inline-request" data-method={p.request.method} key={p.request.id}>
@@ -1495,7 +1484,7 @@ export default function MobileApp() {
         </div>;
       })}</section>}
     </HomeScroller>
-    {desktop && <footer className="m-sidebar-footer">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></footer>}
+    {(desktop || view === "bots") && sidebarFooter}
     </>;
 
   const skipExit = skipBackAnimation.current && (view === "bots" || view !== swipeSource.current);
@@ -1538,7 +1527,7 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header">{!sidebarOpen && sidebarToggle}<HistoryButtons {...navigationHistory} />{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
+      <header className="m-header">{!sidebarOpen && sidebarToggle}<HistoryButtons {...navigationHistory} />{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate(boardPath) : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && !selected && currentBot ? <DropdownMenu.Root>
           <DropdownMenu.Trigger className="m-chat-identity" aria-label="Choose bot" disabled={sendingHere || !!creation && !creation.error}>{avatar(currentBot)}<span>{name}</span><ChevronDown size={14} aria-hidden="true" /></DropdownMenu.Trigger>
           <DropdownMenu.Portal container={shellRef.current}><DropdownMenu.Content className="m-dropdown m-new-picker-menu" align="center" sideOffset={8} collisionPadding={16}>
@@ -1636,7 +1625,7 @@ export default function MobileApp() {
             {!chat && !selected && newChatToolbar}
           </form>
         </>}
-        {view === "board" && <MobileKanban taskId={route.task} boardSlug={new URLSearchParams(location.search).get("board") || undefined} onSelectTask={(id, board) => routerNavigate(`${taskPath(id)}?board=${encodeURIComponent(board)}`)} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
+        {view === "board" && <MobileKanban taskId={route.task} boardSlug={boardSlug} showBoardPicker={!desktop} onSelectTask={(id, board) => routerNavigate(`${taskPath(id)}?board=${encodeURIComponent(board)}`)} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
         {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
           <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
           {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
@@ -1650,6 +1639,7 @@ export default function MobileApp() {
           <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
         </section>}
       </main>
+      {!desktop && sidebarFooter}
     </>
       </motion.div>}
       </AnimatePresence>

@@ -12,7 +12,7 @@ interface TaskDetail { task: Task; comments: Array<{ id: string | number; author
 interface BoardChoice { slug: string; name?: string }
 const ageLabel = (seconds: number) => seconds < 3600 ? `${Math.max(1, Math.floor(seconds / 60))}m` : seconds < 86400 ? `${Math.floor(seconds / 3600)}h` : `${Math.floor(seconds / 86400)}d`;
 
-export default function MobileKanban({ taskId, boardSlug, onSelectTask, getSavedScroll, onScroll, avatars = {} }: { taskId?: string; boardSlug?: string; onSelectTask: (id: string, board: string) => void; getSavedScroll: () => number; onScroll: (top: number) => void; avatars?: Record<string, string> }) {
+export default function MobileKanban({ taskId, boardSlug, onSelectTask, getSavedScroll, onScroll, showBoardPicker = true, avatars = {} }: { taskId?: string; boardSlug?: string; onSelectTask: (id: string, board: string) => void; getSavedScroll: () => number; onScroll: (top: number) => void; showBoardPicker?: boolean; avatars?: Record<string, string> }) {
   const boardScroll = useRef<HTMLElement>(null);
   const [boards, setBoards] = useState<BoardChoice[]>([]);
   const [boardName, setBoardName] = useState(boardSlug || "");
@@ -57,7 +57,7 @@ export default function MobileKanban({ taskId, boardSlug, onSelectTask, getSaved
   return <section className="m-board" aria-label="Kanban board" ref={boardScroll} onScroll={e => { if (!taskId) onScroll(e.currentTarget.scrollTop); }}>
     {!taskId ? <>
       <header><button type="button" aria-label="Refresh board" onClick={() => refresh(n => n + 1)}><RefreshCw size={16} aria-hidden="true" /></button></header>
-      {boards.length > 1 && <label>Board<select value={boardName} onChange={e => { setTask(null); setBoard(null); setBoardName(e.target.value); }}>{boards.map(b => <option key={b.slug} value={b.slug}>{b.name || b.slug}</option>)}</select></label>}
+      {showBoardPicker && boards.length > 1 && <label>Board<select value={boardName} onChange={e => { setTask(null); setBoard(null); setBoardName(e.target.value); }}>{boards.map(b => <option key={b.slug} value={b.slug}>{b.name || b.slug}</option>)}</select></label>}
       {error && <p role="alert">{error}</p>}
       {!board && !error && <div className="m-loading" role="status" aria-label="Loading board"><Skeleton /><Skeleton /><Skeleton /></div>}
       {board && !board.columns.some(column => column.tasks.length) && <div className="m-board-empty"><LayoutGrid size={28} strokeWidth={1.5} aria-hidden="true" /><strong>No cards yet</strong></div>}

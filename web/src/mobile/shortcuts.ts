@@ -1,6 +1,6 @@
 export type ShortcutAction =
   | { kind: "nth"; index: number }
-  | { kind: "tab"; tab: "bots" | "chats" }
+  | { kind: "tab"; tab: "bots" | "chats" | "board" }
   | { kind: "sidebar"; side: "left" | "right" }
   | { kind: "archive" | "previous" | "next" | "new" | "search" | "unread" | "help" };
 
@@ -14,9 +14,9 @@ export function parseShortcut(
   // Option+B reports ∫ on macOS; use the physical key for this chord.
   if (!event.shiftKey && (key === "b" || event.code === "KeyB")) return { kind: "sidebar", side: event.altKey ? "right" : "left" };
   if (event.altKey) return null;
-  // On a Mac, Ctrl is free: Ctrl+1 / Ctrl+2 flip the Bots | Chats switch, Cmd+1-9 opens list items.
-  if (isMac && event.ctrlKey && !event.metaKey && !event.shiftKey && (key === "1" || key === "2")) {
-    return { kind: "tab", tab: key === "1" ? "bots" : "chats" };
+  // On a Mac, Ctrl is free: Ctrl+1–3 flip the Bots | Chats | Board switch, Cmd+1-9 opens list items.
+  if (isMac && event.ctrlKey && !event.metaKey && !event.shiftKey && (key === "1" || key === "2" || key === "3")) {
+    return { kind: "tab", tab: ({ "1": "bots", "2": "chats", "3": "board" } as const)[key] };
   }
   if (event.shiftKey) {
     if (key === "a") return { kind: "archive" };
@@ -29,7 +29,7 @@ export function parseShortcut(
 }
 
 export const SHORTCUT_HELP: ReadonlyArray<{ keys: string; label: string }> = [
-  { keys: "⌃1  ⌃2", label: "Switch to Bots / Chats" },
+  { keys: "⌃1  ⌃2  ⌃3", label: "Switch to Bots / Chats / Board" },
   { keys: "⌘1–9", label: "Open the Nth bot or conversation in the list" },
   { keys: "⌘[  ⌘]", label: "Back / forward in navigation history" },
   { keys: "⌘N", label: "New conversation with this bot" },
