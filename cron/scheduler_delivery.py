@@ -932,7 +932,17 @@ def _deliver_to_bot_chat(job: dict, content: str, profile: str, *, deferred: Opt
         report_file = f"{query_file}.turn.json"
         env[TURN_REPORT_FILE_ENV] = report_file
         timeout_s = _get_bot_chat_delivery_timeout()
-        result = _run_bot_chat_turn(argv, env, report_file, timeout_s)
+        from tools.bot_mode_probe import _hermes_root, _profile_name
+        from tools.bot_relay import acquire_turn_lock, TurnBusyError
+
+        # Share DM/relay admission: a busy fallback must not spend the full turn budget
+        # queued behind another delivery, or compete for its canonical session lease.
+        try:
+            with acquire_turn_lock(_hermes_root(home), _profile_name(home), timeout_seconds=0):
+                result = _run_bot_chat_turn(argv, env, report_file, timeout_s)
+        except TurnBusyError:
+            return _fail(f"bot-chat:{profile_label} target_busy: another delivery turn is running; "
+                         "this result was not sent and remains saved in `hermes cron runs`")
         if result.returncode != 0:
             tail = _format_failure_streams(result)
             logger.warning(

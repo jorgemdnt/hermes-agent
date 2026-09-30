@@ -868,6 +868,11 @@ cron:
   bot_chat_delivery_timeout_seconds: 900
 ```
 
+On POSIX, the CLI fallback shares the target profile's DM/relay turn lock. If another delivery holds it,
+cron returns `target_busy` immediately instead of waiting through the 600s turn budget. The result
+is not sent and remains saved; `last_delivery_error` records the refusal. A mailbox-capable live
+owner still accepts queued output immediately without waiting for its reply.
+
 A timed-out delivery is recorded in `last_delivery_error`; the bot's turn may still complete on its own.
 
 The cap bounds the bot's **turn** only. When that turn messages a teammate (`message_agent`), the delivery process stays alive afterwards — bounded by `terminal.oneshot_completion_wait_seconds` — so the teammate's reply can land in the Bot Chat; that wait is not part of the delivery and is never counted against, or cut short by, this cap.

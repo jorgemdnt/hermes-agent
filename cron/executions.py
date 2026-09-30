@@ -319,10 +319,12 @@ _OWNER_WEDGED_REASON = (
 )
 
 
-def recover_interrupted_executions() -> int:
-    """Mark abandoned attempts unknown without scheduling retries: rows whose owner is provably
-    dead, plus rows whose live owner holds a claim older than the derived stale bound (the
-    process is not killed)."""
+def recover_interrupted_executions(*, dead_only: bool = False) -> int:
+    """Mark abandoned attempts unknown without scheduling retries.
+
+    ``dead_only`` leaves live owners alone; scheduler ticks also apply the derived stale
+    bound to wedged live owners without killing their process.
+    """
     now = _hermes_now().isoformat()
     changed = 0
     recovered: List[Dict[str, Any]] = []
@@ -342,6 +344,8 @@ def recover_interrupted_executions() -> int:
                 continue
             reason = _OWNER_GONE_REASON
             if _owner_is_live(int(row["pid"]), row["process_started_at"]):
+                if dead_only:
+                    continue
                 # A live owner is normally a legitimately running job. A worker permanently
                 # deadlocked (e.g. futex_wait behind a route/proxy flip, #115692) also passes
                 # this check, so a claim older than the derived bound is treated as wedged
@@ -389,7 +393,10 @@ def recover_interrupted_executions() -> int:
 def list_executions(
     *, job_id: Optional[str] = None, limit: int = 50, before_claimed_at: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Return indexed, newest-first execution history with cursor pagination."""
+    """Return current execution history, reconciling dead owners before reporting."""
+    # Diagnostics must not report a dead CLI as running until the next throttled tick.
+    # Only proven-dead owners are reclaimed here; live-owner age policy stays with ticks.
+    recover_interrupted_executions(dead_only=True)
     clauses: List[str] = []
     params: List[Any] = []
     if job_id is not None:
@@ -432,6 +439,7 @@ def latest_executions(job_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     clean = [str(job_id) for job_id in dict.fromkeys(job_ids) if job_id]
     if not clean:
         return {}
+    recover_interrupted_executions(dead_only=True)
     placeholders = ",".join("?" for _ in clean)
     # One windowed sort: a per-row correlated ORDER BY julianday() cannot use the index and
     # grows quadratically with history (~90 ms at 1000 rows).
