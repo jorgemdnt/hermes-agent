@@ -166,10 +166,9 @@
 .m-empty-avatar .m-avatar { width: 70px; height: 70px; }
 .m-message { position: relative; max-width: 100%; min-width: 0; margin: 0 0 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .m-message:is(:hover, :focus-within, [data-timestamp-visible]) { z-index: 2; }
-.m-message-body { position: relative; width: fit-content; max-width: 100%; min-width: 0; }
-.m-bubble { --m-bubble-radius: 20px; --m-bubble-padding: 10px; width: fit-content; max-width: 100%; min-width: 0; padding: var(--m-bubble-padding); border-radius: var(--m-bubble-radius); }
-.m-message-footer { position: absolute; z-index: 1; top: 100%; left: 0; display: flex; align-items: center; gap: 6px; width: max-content; max-width: 100%; padding: 0 4px; border-radius: 6px; background: var(--background); opacity: 0; pointer-events: none; }
-.m-user .m-message-footer { left: auto; right: 0; }
+.m-message-body { --m-message-surface: var(--chat-bubble); position: relative; width: fit-content; max-width: 100%; min-width: 0; }
+.m-bubble { --m-bubble-radius: 20px; --m-bubble-padding: 10px; width: fit-content; max-width: 100%; min-width: 110px; padding: var(--m-bubble-padding); border-radius: var(--m-bubble-radius); }
+.m-message-footer { position: absolute; z-index: 1; bottom: 4px; right: 6px; display: flex; align-items: center; gap: 6px; width: max-content; max-width: calc(100% - 12px); padding: 0 2px 0 18px; font-size: 11px; background: linear-gradient(90deg, transparent, var(--m-message-surface) 18px); opacity: 0; pointer-events: none; }
 .m-message:is(:focus-within, [data-timestamp-visible]) .m-message-footer { opacity: 1; pointer-events: auto; }
 @media (hover: hover) { .m-message:hover .m-message-footer { opacity: 1; pointer-events: auto; } }
 .m-shell .m-message-actions { width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); padding: 0; }
@@ -178,7 +177,7 @@
 .m-assistant { width: 100%; color: var(--foreground); }
 .m-assistant .m-bubble { background: var(--chat-bubble); color: var(--chat-bubble-foreground); }
 .m-user { width: 100%; }
-.m-user .m-message-body { max-width: 86%; margin-left: auto; }
+.m-user .m-message-body { --m-message-surface: var(--secondary); max-width: 86%; margin-left: auto; }
 .m-user .m-bubble { background: var(--secondary); color: var(--secondary-foreground); }
 .m-assistant .m-markdown { color: inherit; }
 .m-bubble .m-markdown > :first-child { margin-top: 0; }

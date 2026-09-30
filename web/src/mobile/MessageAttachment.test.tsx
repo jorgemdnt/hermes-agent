@@ -26,6 +26,7 @@ it("authenticates image bytes instead of putting a token in the URL, and release
   expect(init?.credentials).toBe("include");
   expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:attachment");
   expect(host.querySelector("a")?.getAttribute("href")).toBe("blob:attachment");
+  expect(host.querySelector("a")?.download).toBe("roof.png");
   act(() => root.render(null));
   expect((init?.signal as AbortSignal).aborted).toBe(true);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:attachment");

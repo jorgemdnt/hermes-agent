@@ -55,7 +55,7 @@ export function MessageImage({ src, name }: MessageAttachmentProps) {
   }, [src]);
   if (failed) return <MessageFile src={src} name={name} />;
   if (!url) return <span className="m-image-ref" role="status">Loading {name}…</span>;
-  return <a className="m-image-attachment" href={url} target="_blank" rel="noreferrer" aria-label={`Open image ${name}`}>
+  return <a className="m-image-attachment" href={url} download={name} aria-label={`Download image ${name}`}>
     <img src={url} alt={name} onError={() => setFailed(true)} />
   </a>;
 }
