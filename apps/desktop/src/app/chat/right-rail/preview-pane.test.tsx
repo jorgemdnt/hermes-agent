@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { onComposerAttachImagesRequest } from '@/app/chat/composer/focus'
+import { bindNavigationReplay, recordNavigation, resetNavigationHistory } from '@/store/navigation-history'
 import { $previewTabs, closeRightRail, openPreview, previewTabId } from '@/store/preview'
 import { $connection, $selectedStoredSessionId } from '@/store/session'
 
@@ -35,6 +36,7 @@ function stubPdfObjectUrls() {
 
 describe('PreviewPane console state', () => {
   beforeEach(() => {
+    resetNavigationHistory()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
       window.setTimeout(() => callback(Date.now()), 0)
     )
@@ -183,7 +185,7 @@ describe('PreviewPane console state', () => {
     expect(rendered.queryByRole('button', { name: 'Pop out' })).toBeNull()
   })
 
-  it('drives the webview from the bar and tracks its history', async () => {
+  it('drives the webview address and shares back navigation with the app', async () => {
     let rendered!: ReturnType<typeof render>
     await act(async () => {
       rendered = render(
@@ -203,19 +205,33 @@ describe('PreviewPane console state', () => {
       loadURL
     })
 
-    // Back is disabled until the webview reports history, and a navigation is
-    // what makes it ask.
+    const chat = {
+      route: '/chat',
+      pane: null,
+      session: 'chat',
+      profile: 'default',
+      mode: 'sessions' as const,
+      owner: null,
+      newSessionTarget: null,
+      browserOpen: false
+    }
+    const replay = vi.fn()
+    const unbind = bindNavigationReplay(replay)
+    act(() => recordNavigation(chat))
     expect((rendered.getByRole('button', { name: 'Back' }) as HTMLButtonElement).disabled).toBe(true)
 
     act(() => {
       webview.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'http://localhost:5174/two' }))
+      recordNavigation({ ...chat, browserOpen: true, browser: { tabId: 'url:qa', url: 'http://localhost:5174/two' } })
     })
 
     const back = rendered.getByRole('button', { name: 'Back' }) as HTMLButtonElement
 
     expect(back.disabled).toBe(false)
     fireEvent.click(back)
-    expect(webview.goBack).toHaveBeenCalledOnce()
+    expect(replay).toHaveBeenCalledExactlyOnceWith(chat)
+    expect(webview.goBack).not.toHaveBeenCalled()
+    unbind()
 
     const address = rendered.getByRole('textbox', { name: 'Address' }) as HTMLInputElement
 
