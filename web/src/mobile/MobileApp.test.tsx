@@ -140,7 +140,7 @@ it("keeps notices quiet and reactions behind the message action menu", async () 
   expect(host.querySelector('.m-notice-group .m-notice-head svg')).toBeNull();
   const reply = host.querySelector('.m-assistant') as HTMLElement;
   expect(reply.querySelector('.m-reaction')).toBeNull();
-  expect(reply.querySelector('.m-bubble .m-message-footer time')).not.toBeNull();
+  expect(reply.querySelector('.m-message-footer time')).not.toBeNull();
   expect(reply.querySelector('.m-bubble .m-markdown')).not.toBeNull();
   expect(host.querySelector('.m-notice-group .m-bubble')).toBeNull();
   await act(async () => reply.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
@@ -694,7 +694,7 @@ it("uploads a selected photo to the bot profile, attaches it before submitting, 
   expect(mocks.uploadChatImage).toHaveBeenCalledWith(photo, 'frodo');
   expect(mocks.request).toHaveBeenCalledWith('image.attach', { session_id: 'runtime', profile: 'frodo', path: '/sample/image.png' });
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { session_id: 'runtime', profile: 'frodo', text: 'What do you see in this photo?' });
-  expect(host.querySelector('.m-message.m-user:last-of-type')?.textContent).toContain('Photo');
+  expect(host.querySelector('.m-message.m-user:last-of-type .m-image-attachment img')?.getAttribute('alt')).toBe('image.png');
   expect(host.querySelector('.m-messages')?.textContent).not.toContain('/sample/image.png');
   expect(host.querySelector('.m-photo-preview')).toBeNull();
 });
@@ -714,7 +714,7 @@ it("stages pasted photos and dropped files in the same composer", async () => {
   Object.defineProperty(dropped, 'dataTransfer', { value: { files: [new File(["PDF"], "dropped.pdf", { type: "application/pdf" })] } });
   await act(async () => (host.querySelector('.m-main') as HTMLElement).dispatchEvent(dropped));
   expect(dropped.defaultPrevented).toBe(true);
-  expect(host.querySelector('.m-file-previews')?.textContent).toContain('dropped.pdf');
+  expect(host.querySelector('.m-file-preview')?.textContent).toContain('dropped.pdf');
 });
 
 it("keeps the selected photo and text when its upload fails without sending a ghost message", async () => {
@@ -1081,11 +1081,11 @@ it("keeps drafts and attachments scoped to each bot and restores on switch", asy
   await act(async () => photo.dispatchEvent(new Event('change', { bubbles: true })));
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
   expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('');
-  expect(host.querySelector('.m-photo-previews')).toBeNull();
+  expect(host.querySelector('.m-attachment-previews')).toBeNull();
   await type('Gandalf only');
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
   expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Frodo draft');
-  expect(host.querySelector('.m-photo-previews')?.textContent).toContain('frodo.png');
+  expect(host.querySelector('.m-attachment-previews')?.textContent).toContain('frodo.png');
   expect((host.querySelector('.m-photo-preview img') as HTMLImageElement).alt).toBe('frodo.png');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
@@ -1107,9 +1107,9 @@ it("keeps a pending photo upload in its original chat after switching bots", asy
   Object.defineProperty(image, 'files', { configurable: true, value: [new File(['photo'], 'frodo.png', { type: 'image/png' })] });
   await act(async () => image.dispatchEvent(new Event('change', { bubbles: true })));
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
-  expect(host.querySelector('.m-photo-label')?.textContent).toContain('Uploading 1 of 1');
+  expect(host.querySelector('.m-attachment-label')?.textContent).toContain('Uploading 1 of 1');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
-  expect(host.querySelector('.m-photo-previews')).toBeNull();
+  expect(host.querySelector('.m-attachment-previews')).toBeNull();
   const input = host.querySelector('.m-skill-editor') as HTMLElement;
   await act(async () => { typeComposer(input, 'Gandalf only'); input.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
@@ -1126,7 +1126,7 @@ it("attaches a file using the existing gateway RPC before sending", async () => 
   const input = host.querySelectorAll('.m-composer input[type="file"]')[1] as HTMLInputElement;
   Object.defineProperty(input, 'files', { configurable: true, value: [new File(['hello'], 'test.txt', { type: 'text/plain' })] });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
-  expect(host.querySelector('.m-file-previews')?.textContent).toContain('test.txt');
+  expect(host.querySelector('.m-file-preview')?.textContent).toContain('test.txt');
   await act(async () => (host.querySelector('.m-send') as HTMLButtonElement).click());
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
   expect(mocks.request).toHaveBeenCalledWith('file.attach', expect.objectContaining({ session_id: 'runtime', profile: 'frodo', name: 'test.txt', data_url: expect.stringMatching(/^data:text\/plain;base64,/) }));
@@ -1144,7 +1144,8 @@ it("shows stored attachment chips without exposing injected context or filesyste
   const row = host.querySelector('.m-message.m-user') as HTMLElement;
   expect(row.textContent).toContain('Please read these.');
   expect(row.textContent).toContain('fixture.txt');
-  expect(row.textContent).toContain('Photo');
+  expect(row.querySelector('.m-image-attachment img')).not.toBeNull();
+  expect(row.textContent).not.toContain('Photo');
   expect(row.textContent).not.toContain('@file:');
   expect(row.textContent).not.toContain('Private content');
   expect(row.textContent).not.toContain('[screenshot]');
@@ -1159,7 +1160,8 @@ it("hides generated context warnings while retaining photo and file chips", asyn
   const row = host.querySelector('.m-message.m-user') as HTMLElement;
   expect(row.textContent).toContain('QA attachment check');
   expect(row.textContent).toContain('qa-riverstone.pdf');
-  expect(row.textContent).toContain('Photo');
+  expect(row.querySelector('.m-image-attachment img')).not.toBeNull();
+  expect(row.textContent).not.toContain('Photo');
   expect(row.textContent).not.toContain('Context Warnings');
   expect(row.textContent).not.toContain('allowed workspace');
   expect(row.textContent).not.toContain('/Users/qa');

@@ -13,6 +13,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileU
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { SkillEditor, type SkillEditorHandle } from "./SkillEditor";
+import { ComposerAttachments } from "./ComposerAttachments";
 import { queuedMessage, readQueues, writeQueue, type QueuedMessage } from "./mobile-queue";
 import { useComposerSuggestions } from "./ComposerSuggestions";
 import { toast, Toaster } from "sonner";
@@ -1364,7 +1365,7 @@ export default function MobileApp() {
   });
   const renderMessage = (row: ChatRow, previous: ChatRow | undefined, key: string) => {
     const id = reactionKey(row.role, row.timestamp, row.text);
-    return <MobileMessage key={key} profile={profile} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id, scope: composerKey })}
+    return <MobileMessage key={`${composerKey}:${key}`} profile={profile} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id, scope: composerKey })}
       onFileLink={href => {
         const path = fileLinkPath(href, conversationFolder);
         if (!path) return;
@@ -1500,6 +1501,7 @@ export default function MobileApp() {
       <main className="m-main" onDragOver={view === "chat" ? event => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); } : undefined}
         onDrop={view === "chat" ? event => { if (event.dataTransfer.files.length) { event.preventDefault(); addAttachments(event.dataTransfer.files); } } : undefined}>
         {view === "chat" && <>
+          <div className="m-thread">
           <div className="m-messages" ref={messagesRef} onClickCapture={event => {
             const link = (event.target as HTMLElement).closest("a[href]");
             const url = link && localPreviewLink(link.getAttribute("href") || "");
@@ -1531,13 +1533,13 @@ export default function MobileApp() {
             </div>
           </div>
           {!atBottom && <div className="m-jump-row"><button className="m-jump-latest" type="button" onClick={scrollToLatest} aria-label="Jump to latest message"><ArrowDown size={19} aria-hidden="true" /></button></div>}
+          </div>
           {!!queued.length && <div className="m-queued" aria-label="Queued messages">{queued.map((entry, index) => <div key={entry.id} className="m-queued-entry"><span>Queued {index + 1}: {entry.text}</span><button type="button" onClick={() => { failedQueue.current.delete(entry.id); setText(entry.text); updateDraft(composerKey, previous => ({ ...previous, text: entry.text, skills: entry.skills || [] })); setQueue(composerKey, (readQueues()[composerKey] || []).filter(item => item.id !== entry.id)); composerInput.current?.focus(); }}>Edit</button><button type="button" aria-label={`Remove queued message ${index + 1}`} onClick={() => setQueue(composerKey, (readQueues()[composerKey] || []).filter(item => item.id !== entry.id))}>Remove</button></div>)}</div>}
           <form ref={composerForm} className="m-composer" onSubmit={e => { void send(e, undefined, steerNext); setSteerNext(false); }}>
             {voice.phase !== "idle" && <p className="m-voice-status" role="status" aria-live="polite">{voice.phase === "recording" ? "Recording · tap to stop" : voice.phase === "starting" ? "Starting microphone…" : "Transcribing…"}</p>}
-            {!!photos.length && <div className="m-photo-previews" aria-label="Selected photos">{photos.map((photo, index) => <div className="m-photo-preview" key={photo.preview}>
-              <img src={photo.preview} alt={photo.file.name} /><span className="m-photo-label">{photo.file.name} · {Math.ceil(photo.file.size / 1024)} KB{uploadStatus[composerKey]?.[`photo:${index}`] && <small role="status">{uploadStatus[composerKey][`photo:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${photo.file.name}`} onClick={() => { URL.revokeObjectURL(photo.preview); setPhotos(current => current.filter((_, i) => i !== index)); }}><X size={15} aria-hidden="true" /></button>
-            </div>)}</div>}
-            {!!files.length && <div className="m-file-previews" aria-label="Selected files">{files.map((file, index) => <span key={`${file.name}-${index}`}><FileUp size={15} aria-hidden="true" /><span>{file.name} · {Math.ceil(file.size / 1024)} KB{uploadStatus[composerKey]?.[`file:${index}`] && <small role="status">{uploadStatus[composerKey][`file:${index}`]}</small>}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={15} aria-hidden="true" /></button></span>)}</div>}
+            <ComposerAttachments photos={photos} files={files} status={uploadStatus[composerKey]}
+              onRemovePhoto={index => { URL.revokeObjectURL(photos[index].preview); setPhotos(current => current.filter((_, i) => i !== index)); }}
+              onRemoveFile={index => setFiles(current => current.filter((_, i) => i !== index))} />
             {suggestions}
             {chat?.running && !desktop && <button type="button" className="m-steer-toggle" aria-label="Steer this turn" aria-pressed={steerNext} onClick={() => setSteerNext(value => !value)}>Steer this turn</button>}
             <div className="m-composer-row"><input hidden ref={photoInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple onChange={e => { choosePhotos(e.target.files); e.target.value = ""; }} />
