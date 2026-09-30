@@ -17,6 +17,11 @@ it("maps Cmd or Ctrl chords to actions", () => {
   expect(key("[")).toEqual({ kind: "previous" });
   expect(key("]")).toEqual({ kind: "next" });
   expect(key("n")).toEqual({ kind: "new" });
+  expect(key("b")).toEqual({ kind: "sidebar", side: "left" });
+  expect(key("b", { ctrlKey: true })).toEqual({ kind: "sidebar", side: "left" });
+  expect(key("b", { metaKey: true, altKey: true })).toEqual({ kind: "sidebar", side: "right" });
+  expect(key("b", { ctrlKey: true, altKey: true })).toEqual({ kind: "sidebar", side: "right" });
+  expect(parseShortcut({ key: "∫", code: "KeyB", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false }, true)).toEqual({ kind: "sidebar", side: "right" });
   expect(key("k")).toEqual({ kind: "search" });
   expect(key("/")).toEqual({ kind: "help" });
   expect(key("A", { metaKey: true, shiftKey: true })).toEqual({ kind: "archive" });

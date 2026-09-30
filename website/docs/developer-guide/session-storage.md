@@ -140,6 +140,10 @@ Key design decisions:
 - **FTS5 virtual table** for fast text search across all session messages
 - **Session lineage** via `parent_session_id` chains (compression-triggered splits)
 - **Source tagging** (`cli`, `telegram`, `discord`, etc.) for platform filtering
+- **Host-local workspace metadata**: `sessions.cwd` and its Git metadata stay NULL for
+  non-local terminal backends. Session writers enforce the owning store's terminal
+  policy, including inherited/rotated rows; CLI resume never changes the host cwd
+  for those profiles. Remote tools use `terminal.cwd` instead.
 - Batch runner and RL trajectories are NOT stored here (separate systems)
 
 

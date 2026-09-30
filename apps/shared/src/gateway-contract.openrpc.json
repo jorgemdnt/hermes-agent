@@ -12670,6 +12670,18 @@
             "default": null,
             "title": "Browser"
           },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transport"
+          },
           "blocker": {
             "anyOf": [
               {
@@ -12849,6 +12861,18 @@
             "default": null,
             "title": "Browser"
           },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transport"
+          },
           "blocker": {
             "anyOf": [
               {
@@ -13011,6 +13035,18 @@
             ],
             "default": null,
             "title": "Browser"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transport"
           },
           "blocker": {
             "anyOf": [
@@ -13206,6 +13242,18 @@
             "default": null,
             "title": "Browser"
           },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transport"
+          },
           "blocker": {
             "anyOf": [
               {
@@ -13397,6 +13445,18 @@
             ],
             "default": null,
             "title": "Browser"
+          },
+          "transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Transport"
           },
           "blocker": {
             "anyOf": [
@@ -28268,6 +28328,18 @@
             "default": null,
             "title": "Running"
           },
+          "external_turn": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "External Turn"
+          },
           "turn_started_at": {
             "anyOf": [
               {
@@ -31213,6 +31285,18 @@
             ],
             "default": null,
             "title": "Running"
+          },
+          "external_turn": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "External Turn"
           },
           "turn_started_at": {
             "anyOf": [
