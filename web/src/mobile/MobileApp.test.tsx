@@ -980,7 +980,9 @@ it("offers slash catalog and bot mentions with keyboard selection", async () => 
   expect(mocks.request).toHaveBeenCalledWith('commands.catalog', { session_id: 'runtime' });
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })));
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
-  expect(input.textContent).toBe('/my-skill ');
+  // A picked skill becomes one atomic pill, not typed "/my-skill " text.
+  expect([...input.querySelectorAll<HTMLElement>('[data-skill]')].map(pill => pill.dataset.skill)).toEqual(['/my-skill']);
+  expect(input.textContent?.startsWith('/')).toBe(false);
   await type('Hello @gan');
   expect(host.querySelector('.m-suggestions')?.textContent).toContain('gandalf');
   await act(async () => (host.querySelector('.m-suggestions button') as HTMLButtonElement).click());
