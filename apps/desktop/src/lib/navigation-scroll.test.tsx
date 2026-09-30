@@ -48,14 +48,17 @@ it('restores the selected chat offset after browser relayout, not another mounte
   const restoreOwner = vi.fn((top: number) => {
     selected.scrollTop = top
   })
-  const unsubscribe = subscribeNavigationScrollRestore(selected, restoreOwner)
+  let ownerElement: HTMLElement | null = null
+  const unsubscribe = subscribeNavigationScrollRestore(() => ownerElement, restoreOwner)
+  // The callback ref arrives after the subscription, without a new effect.
+  ownerElement = selected
   const stop = restoreNavigationScroll(entry, settled)
   selected.scrollTop = 500
   while (frames.length) frames.shift()!(0)
   expect(selected.scrollTop).toBe(123)
   expect(viewports[0].scrollTop).toBe(0)
   expect(settled).toHaveBeenCalledOnce()
-  expect(restoreOwner).toHaveBeenCalledWith(123)
+  expect(restoreOwner).toHaveBeenCalledWith(123, selected)
   unsubscribe()
   stop()
   expect(cancel).toHaveBeenCalledOnce()

@@ -2,11 +2,21 @@ import type { NavigationEntry } from '@/store/navigation-history'
 
 const RESTORE_EVENT = 'hermes:navigation-scroll-restore'
 
-export function subscribeNavigationScrollRestore(element: HTMLElement, restore: (top: number) => void): () => void {
-  const onRestore = (event: Event) => restore((event as CustomEvent<number>).detail)
-  element.addEventListener(RESTORE_EVENT, onRestore)
+export function subscribeNavigationScrollRestore(
+  surface: () => HTMLElement | null,
+  restore: (top: number, element: HTMLElement) => void
+): () => void {
+  const onRestore = (event: Event) => {
+    const element = surface()
+    if (element && element === event.target) {
+      restore((event as CustomEvent<number>).detail, element)
+    }
+  }
+  // use-stick-to-bottom's callback ref can acquire its element after effects
+  // subscribe. Delegate by live DOM identity, not the first render's null ref.
+  document.addEventListener(RESTORE_EVENT, onRestore, true)
 
-  return () => element.removeEventListener(RESTORE_EVENT, onRestore)
+  return () => document.removeEventListener(RESTORE_EVENT, onRestore, true)
 }
 
 function viewport(entry: NavigationEntry): HTMLElement | null {

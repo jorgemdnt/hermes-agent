@@ -11,17 +11,18 @@ export function useNavigationScrollRestore(
   paneVisible: boolean
 ) {
   useEffect(() => {
-    const element = scrollRef.current
-
-    if (!element || !paneVisible) {
+    if (!paneVisible) {
       return
     }
 
-    return subscribeNavigationScrollRestore(element, top => {
-      restoreRef.current?.({
-        kind: 'offset',
-        fromBottom: Math.max(0, element.scrollHeight - element.clientHeight - top)
-      })
-    })
+    return subscribeNavigationScrollRestore(
+      () => scrollRef.current,
+      (top, element) => {
+        restoreRef.current?.({
+          kind: 'offset',
+          fromBottom: Math.max(0, element.scrollHeight - element.clientHeight - top)
+        })
+      }
+    )
   }, [paneVisible, restoreRef, scrollRef])
 }
