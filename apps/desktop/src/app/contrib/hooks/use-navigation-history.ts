@@ -1,6 +1,6 @@
 import { historyKeyDirection } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
-import { useEffect } from 'react'
+import { useEffect, useEffectEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
 import { openSession } from '@/app/open-session'
@@ -19,6 +19,7 @@ import {
   bindNavigationReplay,
   navigationHistory,
   navigationReplayKey,
+  type NavigationEntry,
   recordNavigation,
   resetNavigationHistory,
   travelNavigation
@@ -52,6 +53,31 @@ export function useNavigationHistory() {
   const browserUrl = tab ? pages[tab.id]?.url || tab.target.url || '' : ''
 
   const route = `${location.pathname}${location.search}`
+
+  const applyEntry = useEffectEvent((entry: NavigationEntry) => {
+    setWorkspaceScope(entry.mode, entry.owner, entry.newSessionTarget)
+    navigate(entry.route, { replace: true })
+
+    if (entry.session && !isWorkspacePageRoute(entry.route.split('?')[0])) {
+      openSession(entry.session, navigate, 'in-place', {
+        workspaceMode: entry.mode,
+        workspaceOwnerKey: entry.owner ?? undefined
+      })
+    }
+
+    if (entry.browser) {
+      commitBrowserTabLocation(entry.browser.tabId, entry.browser.url)
+      selectRightRailTab(entry.browser.tabId)
+      setFileBrowserOpen(true)
+      revealTreePane(`preview-tile:${entry.browser.tabId}`)
+    } else {
+      setFileBrowserOpen(entry.browserOpen)
+
+      if (entry.pane) {
+        revealTreePane(entry.pane)
+      }
+    }
+  })
 
   useEffect(() => {
     resetNavigationHistory()
@@ -97,28 +123,7 @@ export function useNavigationHistory() {
         if (token !== generation) {
           return
         }
-        setWorkspaceScope(entry.mode, entry.owner, entry.newSessionTarget)
-        navigate(entry.route, { replace: true })
-
-        if (entry.session && !isWorkspacePageRoute(entry.route.split('?')[0])) {
-          openSession(entry.session, navigate, 'in-place', {
-            workspaceMode: entry.mode,
-            workspaceOwnerKey: entry.owner ?? undefined
-          })
-        }
-
-        if (entry.browser) {
-          commitBrowserTabLocation(entry.browser.tabId, entry.browser.url)
-          selectRightRailTab(entry.browser.tabId)
-          setFileBrowserOpen(true)
-          revealTreePane(`preview-tile:${entry.browser.tabId}`)
-        } else {
-          setFileBrowserOpen(entry.browserOpen)
-
-          if (entry.pane) {
-            revealTreePane(entry.pane)
-          }
-        }
+        applyEntry(entry)
         cancelScroll = restoreNavigationScroll(entry, () => {
           restoring = false
         })
@@ -136,7 +141,9 @@ export function useNavigationHistory() {
       document.removeEventListener('pointerdown', capture, true)
       document.removeEventListener('wheel', stopRestore, true)
     }
-  }, [navigate])
+    // Declarative Router's navigate changes with the path. Rebinding here
+    // would cancel the very restoration whose route change we just applied.
+  }, [connection])
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const browser = browserTabId ? { tabId: browserTabId, url: browserUrl } : undefined
