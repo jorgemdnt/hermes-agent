@@ -9,11 +9,13 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("image", { headers: { "Content-Type": "image/png" } })));
+  vi.stubGlobal("URL", class extends URL { static createObjectURL = vi.fn(() => "blob:message-image"); static revokeObjectURL = vi.fn(); });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it("keeps image/file metadata and removal controls together without redundant sent-image labels", () => {
+it("keeps image/file metadata and removal controls together without redundant sent-image labels", async () => {
   const removePhoto = vi.fn(), removeFile = vi.fn();
   const photo = new File(["image"], "roof.png", { type: "image/png" });
   const file = new File(["report"], "report.pdf");
@@ -26,13 +28,13 @@ it("keeps image/file metadata and removal controls together without redundant se
   act(() => (chips[0].querySelector("button") as HTMLButtonElement).click());
   act(() => (chips[1].querySelector("button") as HTMLButtonElement).click());
   expect(removePhoto).toHaveBeenCalledWith(0); expect(removeFile).toHaveBeenCalledWith(0);
-  act(() => root.render(<MobileMessage profile="default" row={{ role: "user", text: "See the roof\n@image:/images/roof.png", timestamp: 100 }} onAction={vi.fn()} />));
+  await act(async () => root.render(<MobileMessage profile="default" row={{ role: "user", text: "See the roof\n@image:/images/roof.png", timestamp: 100 }} onAction={vi.fn()} />));
   const image = host.querySelector(".m-image-attachment img") as HTMLImageElement;
   expect(image.alt).toBe(photo.name);
-  expect(image.closest("a")?.getAttribute("href")).toBe("/api/chat/attachment/default/image/roof.png");
+  expect(image.closest("a")?.getAttribute("href")).toBe("blob:message-image");
   expect(host.querySelector(".m-bubble")?.textContent).not.toContain("Photo");
   act(() => image.dispatchEvent(new Event("error")));
-  expect(host.querySelector("a")?.textContent).toContain(photo.name);
+  expect(host.querySelector(".m-image-ref")?.textContent).toContain(photo.name);
 });
 
 it("reveals timestamp on tap or long-press, not scrolling, and keeps metadata outside the bubble", () => {

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   rosterPreview: {} as Record<string, string>,
   rosterAbsent: "",
   fetchJSON: vi.fn(async (url: string, _init?: RequestInit): Promise<unknown> => { void _init; return url.startsWith("/api/mobile/projects") ? { projects: [], supported: true } : { server_host: "testhost", client_on_server_host: false, profiles: {} }; }),
+  authedFetch: vi.fn(async () => new Response("image", { headers: { "Content-Type": "image/png" } })),
   existingCanonical: "",
   getProfiles: vi.fn(async () => ({ profiles: [{ name: "frodo", is_default: true }, { name: "gandalf", is_default: false }] })),
   getAllProfileSessions: vi.fn(async (_limit?: number, archived?: "exclude" | "only"): Promise<{ sessions: Array<{ id: string; profile: string; title: string; preview: string; last_active: number; message_count: number; pinned?: boolean }> }> => { void _limit; return { sessions: archived === "only" ? [] : [
@@ -47,7 +48,7 @@ const mocks = vi.hoisted(() => ({
   requests: new Set<(request: unknown) => void>(),
 }));
 vi.mock("@/lib/chatImagePaste", () => ({ uploadChatImage: mocks.uploadChatImage }));
-vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: mocks.fetchJSON, api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionUnread: mocks.setSessionUnread, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
+vi.mock("@/lib/api", () => ({ HERMES_BASE_PATH: "", fetchJSON: mocks.fetchJSON, authedFetch: mocks.authedFetch, api: { getProfiles: mocks.getProfiles, getAllProfileSessions: mocks.getAllProfileSessions, getSessionMessages: mocks.getSessionMessages, searchSessions: mocks.searchSessions, renameSession: mocks.renameSession, setSessionArchived: mocks.setSessionArchived, setSessionUnread: mocks.setSessionUnread, setSessionPinned: mocks.setSessionPinned, transcribeAudio: mocks.transcribeAudio } }));
 vi.mock("@/lib/gatewayClient", () => ({ GatewayClient: class {
   connectionState = "idle";
   onState(handler: (state: string) => void) { handler("idle"); this.stateHandler = handler; return () => {}; }
@@ -69,7 +70,10 @@ import { PIN_STORAGE_KEY } from "./home-data";
 let root: Root;
 let host: HTMLDivElement;
 const storage = new Map<string, string>();
-beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
+beforeEach(() => {
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:message-image") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
   ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.setSessionPinned.mockImplementation(async (_id, pinned) => ({ ok: true, pinned })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.externalTurn = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
@@ -1276,8 +1280,12 @@ it("shows stored attachment chips without exposing injected context or filesyste
   expect(row.textContent).not.toContain('@file:');
   expect(row.textContent).not.toContain('Private content');
   expect(row.textContent).not.toContain('[screenshot]');
-  expect(row.querySelector<HTMLAnchorElement>('.m-image-attachment')?.href).toContain('/api/chat/attachment/frodo/image/photo.png');
-  expect(row.querySelector<HTMLAnchorElement>('a[download="fixture.txt"]')?.href).toContain('/api/chat/attachment/frodo/file/fixture.txt');
+  expect(mocks.authedFetch).toHaveBeenCalledWith('/api/chat/attachment/frodo/image/photo.png', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(row.querySelector<HTMLImageElement>('.m-image-attachment img')?.alt).toBe('photo.png');
+  const download = Array.from(row.querySelectorAll<HTMLButtonElement>('.m-image-ref')).find(button => button.textContent?.includes('fixture.txt'));
+  expect(download).toBeDefined();
+  await act(async () => download!.click());
+  expect(mocks.authedFetch).toHaveBeenCalledWith('/api/chat/attachment/frodo/file/fixture.txt');
 });
 
 it("hides generated context warnings while retaining photo and file chips", async () => {
