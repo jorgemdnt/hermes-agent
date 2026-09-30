@@ -375,7 +375,7 @@
   .m-list-header { padding-inline: 16px; }
   .m-bot-list { padding: 4px 12px 24px; }
   .m-sidebar-footer { flex: none; padding: 10px 12px 14px; border-top: 1px solid var(--border); }
-  .m-shell .m-sidebar-footer .m-profile-button { display: flex; justify-content: flex-start; gap: 10px; width: 100%; height: 52px; padding: 6px 10px; border: 0; border-radius: 10px; background: transparent; box-shadow: none; text-align: left; }
+  .m-shell .m-sidebar-footer .m-profile-button { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--card); box-shadow: 0 3px 14px var(--shadow); }
   .m-profile-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
   .m-pinned { padding: 8px 0 18px; }
   .m-shell .m-pinned-bot { padding: 8px 4px; }
@@ -531,7 +531,7 @@
 .m-shortcuts kbd { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--secondary); }
 @media (min-width: 768px) {
   .m-sidebar-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .m-shell .m-sidebar-footer .m-profile-button { width: auto; flex: none; padding: 6px; }
+  .m-shell .m-sidebar-footer .m-profile-button { width: 46px; flex: none; padding: 0; }
   .m-sidebar-footer .m-profile-name { display: none; }
 }
 
@@ -563,7 +563,8 @@
 .m-shell .m-chat-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .m-bot-main .m-avatar, .m-bot-main .m-avatar-fallback { width: 28px; height: 28px; font-size: 12px; }
 .m-bot-picker .m-avatar, .m-bot-picker .m-avatar-fallback { width: 28px; height: 28px; }
-.m-profile-button .m-avatar, .m-profile-button .m-avatar-fallback { width: 24px; height: 24px; font-size: 11px; }
+.m-shell .m-profile-button:is(:hover, :active, [data-state="open"]) { background: var(--secondary); border-color: var(--ring); }
+.m-shell .m-profile-button:focus-visible { border-radius: 50%; outline: 2px solid var(--ring); outline-offset: 3px; }
 .m-chat-identity .m-avatar, .m-chat-identity .m-avatar-fallback { width: 22px; height: 22px; font-size: 11px; }
 .m-shell .m-chat-identity { height: 34px; padding: 3px 9px 3px 5px; gap: 6px; box-shadow: none; }
 /* T3 Code's draft hero: project in the sentence, composer centered, context below. */
@@ -618,6 +619,5 @@
 }
 @media (min-width: 768px) {
   .m-shell .m-bot-main .m-avatar, .m-shell .m-bot-main .m-avatar-fallback { width: 28px; height: 28px; }
-  .m-sidebar-footer .m-profile-button .m-avatar, .m-sidebar-footer .m-profile-button .m-avatar-fallback { width: 24px; height: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .m-creation-progress li svg { animation: none !important; } }
