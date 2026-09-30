@@ -1625,7 +1625,7 @@ export default function MobileApp() {
             {!chat && !selected && newChatToolbar}
           </form>
         </>}
-        {view === "board" && <MobileKanban taskId={route.task} boardSlug={boardSlug} showBoardPicker={!desktop} onSelectTask={(id, board) => routerNavigate(`${taskPath(id)}?board=${encodeURIComponent(board)}`)} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
+        {view === "board" && <MobileKanban key={boardSlug || ""} taskId={route.task} boardSlug={boardSlug} showBoardPicker={!desktop} onSelectTask={(id, board) => routerNavigate(`${taskPath(id)}?board=${encodeURIComponent(board)}`)} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
         {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
           <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
           {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
