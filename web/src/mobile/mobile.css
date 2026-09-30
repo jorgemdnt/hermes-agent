@@ -594,34 +594,29 @@
 .m-shell .m-profile-button:focus-visible { border-radius: 50%; outline: 2px solid var(--ring); outline-offset: 3px; }
 .m-chat-identity .m-avatar, .m-chat-identity .m-avatar-fallback { width: 22px; height: 22px; font-size: 11px; }
 .m-shell .m-chat-identity { height: 34px; padding: 3px 9px 3px 5px; gap: 6px; box-shadow: none; }
-/* T3 Code's draft hero: project in the sentence, composer centered, context below. */
-.m-main:has(.m-new-chat) { justify-content: center; padding-top: 44px; }
-.m-main:has(.m-new-chat) .m-messages { flex: 0 1 auto; overflow-y: auto; padding: 0 16px; mask-image: none; -webkit-mask-image: none; }
-.m-main:has(.m-new-chat) .m-message-content { width: 100%; }
-.m-new-chat { width: 100%; margin: 0 auto 28px; text-align: center; }
+/* The draft uses the same transcript column and composer as an existing chat. */
+.m-main:has(.m-new-chat) .m-message-content { display: grid; align-content: center; min-height: 100%; }
+.m-new-chat { width: 100%; text-align: center; padding-block: 24px; }
 .m-new-chat h1 { margin: 0; font-size: 26px; font-weight: 400; letter-spacing: -.035em; line-height: 1.3; text-wrap: balance; }
-.m-shell .m-new-project-picker { display: inline-flex; align-items: baseline; gap: 4px; max-width: min(300px, 65vw); padding: 0 2px; border: 0; border-bottom: 1px dotted var(--muted-foreground); border-radius: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; vertical-align: baseline; }
-.m-new-project-picker svg { flex: none; }
-.m-new-picker-menu { max-width: min(300px, calc(100vw - 24px)); max-height: 260px; overflow-y: auto; }
-.m-new-picker-menu [role="menuitemradio"] { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-main:has(.m-new-chat) .m-composer { width: min(100%, 768px); padding: 0 16px 14px; background: transparent; }
-.m-main:has(.m-new-chat) .m-composer-row { min-height: 124px; padding: 8px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); box-shadow: 0 2px 14px var(--shadow); align-items: flex-end; }
-.m-main:has(.m-new-chat) .m-composer-row:focus-within { border-color: color-mix(in srgb, var(--ring) 45%, var(--border)); }
-.m-shell .m-composer textarea:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 35%, transparent); outline-offset: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 7%, transparent); }
-.m-shell .m-main:has(.m-new-chat) .m-composer textarea { align-self: stretch; min-height: 104px; height: 104px; padding: 13px 6px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; resize: none; }
-.m-shell .m-main:has(.m-new-chat) .m-composer textarea:focus-visible { outline: 0; box-shadow: none; }
-.m-new-context { min-width: 0; padding: 7px 2px 0; }
-.m-new-context-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.m-shell .m-composer .m-context-picker { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 36%; width: auto; height: 30px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 12px; white-space: nowrap; }
+.m-new-picker-menu { max-width: min(360px, calc(100vw - 32px)); max-height: 320px; overflow-y: auto; }
+.m-new-picker-menu [role="menuitemradio"] { min-height: 44px; }
+.m-new-picker-menu [role="menuitemradio"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.m-new-picker-menu small { display: block; color: var(--muted-foreground); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-new-context { min-width: 0; padding-top: 8px; }
+.m-new-context-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.m-shell .m-composer .m-context-picker { display: inline-flex; align-items: center; gap: 8px; flex: none; max-width: 45%; width: auto; height: 44px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--foreground); font-size: 13px; white-space: nowrap; }
 .m-context-picker span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.m-shell .m-composer .m-context-picker:hover, .m-shell .m-composer .m-context-picker[data-state="open"] { background: var(--secondary); color: var(--foreground); }
-.m-shell .m-new-branch { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 40%; margin-left: auto; color: var(--muted-foreground); }
+.m-context-picker svg { flex: none; }
+.m-shell .m-composer .m-context-picker:hover, .m-shell .m-composer .m-context-picker[data-state="open"] { background: var(--secondary); }
+.m-shell .m-worktree-choice { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; cursor: pointer; }
+.m-shell .m-worktree-choice:has(:disabled) { color: var(--muted-foreground); cursor: default; }
+.m-shell .m-worktree-choice input { display: inline-block; flex: none; width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 0; accent-color: var(--primary); }
+.m-shell .m-new-branch { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1; color: var(--muted-foreground); }
 .m-new-branch svg { flex: none; }
-.m-shell .m-new-branch input { width: 100%; min-width: 0; height: 30px; padding: 0 4px; border: 0; border-radius: 5px; background: transparent; color: var(--foreground); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.m-shell .m-new-branch input:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: 0; }
+.m-shell .m-new-branch input { width: 100%; min-width: 0; height: 44px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--foreground); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.m-shell .m-new-branch input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .m-new-branch input[aria-invalid="true"] { color: var(--destructive); }
-.m-new-validation, .m-new-hint { margin: 4px 4px 0; color: var(--destructive); font-size: 12px; overflow-wrap: anywhere; }
-.m-new-hint { color: var(--muted-foreground); }
+.m-new-validation, .m-new-hint { margin: 8px 0 0; color: var(--destructive); font-size: 12px; overflow-wrap: anywhere; }
 .m-creation-progress { list-style: none; max-width: 370px; padding: 14px 20px; margin: 0 auto 18px; border: 1px solid var(--border); border-radius: 12px; color: var(--muted-foreground); font-size: 13px; text-align: left; }
 .m-creation-progress li { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-height: 30px; }
 .m-creation-progress li[data-state="active"] { color: var(--accent-text); }
@@ -636,14 +631,8 @@
 .m-shell .m-detail > .m-error { position: relative; z-index: 2; }
 @media (min-width: 900px) { .m-shell .m-detail > .m-error { margin-top: 72px; } }
 @media (max-width: 599px) {
-  .m-main:has(.m-new-chat) { padding-top: 0; }
-  .m-new-chat { margin-bottom: 24px; }
   .m-new-chat h1 { font-size: 22px; }
-  .m-main:has(.m-new-chat) .m-messages { padding: 0 12px; }
-  .m-main:has(.m-new-chat) .m-composer { padding: 0 12px calc(12px + env(safe-area-inset-bottom)); }
-  .m-context-picker svg { flex: none; }
-  .m-new-context-row { flex-wrap: wrap; }
-  .m-shell .m-new-branch { flex: 1 0 100%; max-width: 100%; margin-left: 0; }
+  .m-shell .m-new-branch { flex-basis: 100%; }
 }
 @media (min-width: 768px) {
   .m-shell .m-bot-main .m-avatar, .m-shell .m-bot-main .m-avatar-fallback { width: 28px; height: 28px; }

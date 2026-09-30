@@ -1475,7 +1475,7 @@ it("switches to Chats, opens the recent item and marks it read, then honors Ctrl
 it("creates a project worktree on first send, shows failure and retries without losing the draft", async () => {
   let attempts = 0;
   mocks.fetchJSON.mockImplementation(async (url, init) => {
-    if (url.startsWith("/api/mobile/projects")) return { projects: [{ id: "p_qa", label: "QA repo", path: "/qa/repo" }], supported: true };
+    if (url.startsWith("/api/mobile/projects")) return { projects: [{ id: "p_qa", label: "QA repo", path: "/qa/repo", git: true }], supported: true };
     if (url === "/api/mobile/branch-check") {
       if (JSON.parse(String(init?.body)).branch === "../../bad") throw new Error("Invalid Git branch name. Choose another name.");
       return { valid: true };
@@ -1492,10 +1492,10 @@ it("creates a project worktree on first send, shows failure and retries without 
   await act(async () => (host.querySelector('.m-home [aria-label="New conversation"]') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('.m-bot-picker button') as HTMLButtonElement).click());
   await settle();
-  expect(host.querySelector('.m-new-chat')?.textContent).toContain('What should we build in QA repo?');
-  expect(host.querySelector('.m-new-project-picker')).not.toBeNull();
-  await act(async () => (host.querySelector('.m-context-picker[aria-label="Workspace"]') as HTMLButtonElement).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' })));
-  await act(async () => (Array.from(document.querySelectorAll('[role="menuitemradio"]')).find(item => item.textContent?.includes('New worktree')) as HTMLElement).click());
+  expect(host.querySelector('.m-new-chat')?.textContent).toContain('What should we build?');
+  expect(host.querySelector('[aria-label="Choose bot"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Project folder"]')?.textContent).toContain('QA repo');
+  await act(async () => (host.querySelector('.m-worktree-choice input') as HTMLInputElement).click());
   await act(async () => { typeComposer(host.querySelector('.m-skill-editor') as HTMLElement, 'Test first send'); });
   expect((host.querySelector('#m-new-branch') as HTMLInputElement).value).toBe('feat/test-first-send');
   await act(async () => { const input = host.querySelector('#m-new-branch') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '../../bad'); input.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -1513,7 +1513,7 @@ it("creates a project worktree on first send, shows failure and retries without 
   expect((host.querySelector('.m-skill-editor') as HTMLElement).textContent).toBe('Test first send');
   expect(mocks.request).not.toHaveBeenCalledWith('session.create', expect.anything());
   await act(async () => (host.querySelector('.m-creation-error button') as HTMLButtonElement).click());
-  expect(mocks.request).toHaveBeenCalledWith('session.create', { profile: 'frodo', source: 'mobile', close_on_disconnect: false, cwd: '/qa/repo/.worktrees/feat-qa-flow' });
+  expect(mocks.request).toHaveBeenCalledWith('session.create', { profile: 'frodo', source: 'mobile', close_on_disconnect: false, cwd: '/qa/repo/.worktrees/feat-qa-flow', cwd_explicit: true });
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { profile: 'frodo', session_id: 'new-runtime', text: 'Test first send' });
   expect(host.querySelector('.m-creation-progress')?.textContent).toContain('Bot is working');
   expect(attempts).toBe(2);
