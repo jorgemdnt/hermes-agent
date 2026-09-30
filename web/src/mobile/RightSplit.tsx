@@ -27,13 +27,22 @@ function BrowserPane({ address, onAddress, suggestions, navigation }: { address:
   const current = address || "";
   const native = !!window.hermetic;
   const activeAddress = useRef(address);
-  activeAddress.current = address;
+  const loadingAddress = useRef("");
+  // Native events can arrive between this render and the load effect. Fence
+  // the outgoing page immediately so it cannot add itself to the new history.
+  if (activeAddress.current !== address) {
+    activeAddress.current = address;
+    loadingAddress.current = address;
+  }
   const onGuestAddress = useRef(onAddress);
   onGuestAddress.current = onAddress;
-  const loadingAddress = useRef("");
   useEffect(() => {
     const node = guest.current;
-    if (!native || !ready || !address || !node || node.getURL() === address) return;
+    if (!native || !ready || !address || !node) return;
+    if (node.getURL() === address) {
+      loadingAddress.current = "";
+      return;
+    }
     loadingAddress.current = address;
     void node.loadURL(address).then(() => {
       if (activeAddress.current !== address) return;
