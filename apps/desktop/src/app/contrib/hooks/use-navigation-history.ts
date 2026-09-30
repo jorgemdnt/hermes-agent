@@ -27,7 +27,7 @@ import {
 import { $browserPages, $previewTabs, commitBrowserTabLocation } from '@/store/preview'
 import { $activeProfile, switchProfile } from '@/store/profile'
 import { $focusedTreePaneId } from '@/store/session-focus'
-import { $focusedStoredSessionId } from '@/store/session-states'
+import { $focusedStoredSessionId, focusedSessionWorkspaceScope } from '@/store/session-states'
 
 /** Pane focus and guest locations join router navigation, including Bot tabs. */
 export function useNavigationHistory() {
@@ -37,6 +37,7 @@ export function useNavigationHistory() {
   const profile = useStore($activeProfile)
   const pane = useStore($focusedTreePaneId) ?? null
   const session = useStore($focusedStoredSessionId)
+  const sessionScope = session ? focusedSessionWorkspaceScope() : undefined
   const mode = useStore($workspaceMode)
   const owner = useStore($workspaceOwnerKey)
   const newSessionTarget = useStore($workspaceNewSessionTarget)
@@ -59,10 +60,7 @@ export function useNavigationHistory() {
     navigate(entry.route, { replace: true })
 
     if (entry.session && !isWorkspacePageRoute(entry.route.split('?')[0])) {
-      openSession(entry.session, navigate, 'in-place', {
-        workspaceMode: entry.mode,
-        workspaceOwnerKey: entry.owner ?? undefined
-      })
+      openSession(entry.session, navigate, 'in-place', entry.sessionScope)
     }
 
     if (entry.browser) {
@@ -147,11 +145,34 @@ export function useNavigationHistory() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const browser = browserTabId ? { tabId: browserTabId, url: browserUrl } : undefined
-      recordNavigation({ route, pane, session, profile, mode, owner, newSessionTarget, browser, browserOpen })
+      recordNavigation({
+        route,
+        pane,
+        session,
+        sessionScope,
+        profile,
+        mode,
+        owner,
+        newSessionTarget,
+        browser,
+        browserOpen
+      })
     }, 0)
 
     return () => clearTimeout(timer)
-  }, [route, pane, session, profile, mode, owner, newSessionTarget, browserTabId, browserUrl, browserOpen])
+  }, [
+    route,
+    pane,
+    session,
+    sessionScope,
+    profile,
+    mode,
+    owner,
+    newSessionTarget,
+    browserTabId,
+    browserUrl,
+    browserOpen
+  ])
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const direction = historyKeyDirection(event)
@@ -174,11 +195,13 @@ export function useNavigationHistory() {
     }
 
     window.addEventListener('keydown', key, true)
-    window.addEventListener('mousedown', mouse, true)
+    // Consume these before pane pointerdown can focus the surface under the
+    // cursor and branch the history while a forward destination is applied.
+    window.addEventListener('pointerdown', mouse, true)
 
     return () => {
       window.removeEventListener('keydown', key, true)
-      window.removeEventListener('mousedown', mouse, true)
+      window.removeEventListener('pointerdown', mouse, true)
     }
   }, [])
 }

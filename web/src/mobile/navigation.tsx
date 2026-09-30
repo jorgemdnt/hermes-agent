@@ -34,9 +34,9 @@ export function useMobileNavigation() {
     };
     const pop = () => redraw(value => value + 1);
     window.addEventListener("keydown", key, true);
-    window.addEventListener("mouseup", mouse, true);
+    window.addEventListener("pointerdown", mouse, true);
     window.addEventListener("popstate", pop);
-    return () => { window.removeEventListener("keydown", key, true); window.removeEventListener("mouseup", mouse, true); window.removeEventListener("popstate", pop); };
+    return () => { window.removeEventListener("keydown", key, true); window.removeEventListener("pointerdown", mouse, true); window.removeEventListener("popstate", pop); };
   }, [back, forward]);
   return { back, forward, canGoBack: index > 0, canGoForward: index < ceiling.current };
 }

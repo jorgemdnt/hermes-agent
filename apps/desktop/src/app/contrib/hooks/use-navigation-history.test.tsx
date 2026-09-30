@@ -2,8 +2,10 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { HashRouter, useNavigate } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { openSession } from '@/app/open-session'
 import { subscribeNavigationScrollRestore } from '@/lib/navigation-scroll'
 import { navigationHistory, travelNavigation } from '@/store/navigation-history'
+import { focusedSessionWorkspaceScope } from '@/store/session-states'
 
 import { useNavigationHistory } from './use-navigation-history'
 
@@ -25,7 +27,15 @@ vi.mock('@/store/profile', async () => ({
   switchProfile: vi.fn()
 }))
 vi.mock('@/store/session-focus', async () => ({ $focusedTreePaneId: (await import('nanostores')).atom('workspace') }))
-vi.mock('@/store/session-states', async () => ({ $focusedStoredSessionId: (await import('nanostores')).atom(null) }))
+vi.mock('@/store/session-states', async () => ({
+  $focusedStoredSessionId: (await import('nanostores')).atom('qa-session'),
+  focusedSessionWorkspaceScope: () => ({
+    ownerRoute: { connectionId: 'owner-connection', profile: 'owner-profile' },
+    workspaceMode: 'bots',
+    workspaceOwnerKey: 'bot:default',
+    workspaceTabTitle: 'Bot Chat'
+  })
+}))
 vi.mock('@/store/layout', async () => {
   const { atom } = await import('nanostores')
   return {
@@ -98,6 +108,21 @@ it('keeps the pending restore alive when HashRouter changes navigate identity du
     expect(window.location.hash).toBe('#/')
     expect(restore).toHaveBeenCalledWith(123, element)
     expect(element.scrollTop).toBe(123)
+    expect(openSession).toHaveBeenLastCalledWith(
+      'qa-session',
+      expect.any(Function),
+      'in-place',
+      focusedSessionWorkspaceScope()
+    )
+
+    const focusPane = vi.fn()
+    element.addEventListener('pointerdown', focusPane)
+    const forward = new MouseEvent('pointerdown', { button: 4, bubbles: true, cancelable: true })
+    await act(() => element.dispatchEvent(forward))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(focusPane).not.toHaveBeenCalled()
+    expect(forward.defaultPrevented).toBe(true)
+    expect(window.location.hash).toContain('/kanban')
   } finally {
     unsubscribe()
     surface.remove()

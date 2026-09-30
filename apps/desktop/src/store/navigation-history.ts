@@ -1,6 +1,7 @@
 import { NavigationHistory } from '@hermes/shared'
 import { atom } from 'nanostores'
 
+import type { OpenSessionWorkspaceScope } from '@/app/open-session'
 import type { WorkspaceMode, WorkspaceNewSessionTarget } from '@/components/pane-shell/workspace-scope'
 import type { RightRailTabId } from '@/store/layout'
 
@@ -10,6 +11,7 @@ export interface NavigationEntry {
   route: string
   pane: string | null
   session: string | null
+  sessionScope?: OpenSessionWorkspaceScope
   profile: string
   mode: WorkspaceMode
   owner: string | null
