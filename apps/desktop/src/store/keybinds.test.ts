@@ -22,6 +22,26 @@ describe('keybinds store persist vs late-registered contributed actions', () => 
     vi.resetModules()
   })
 
+  it('persists a late plugin default as implicit, but preserves an explicit clear', async () => {
+    const { bindingsFor, setBinding } = await import('./keybinds')
+    const { registry } = await import('@/contrib/registry')
+    const { KEYBINDS_AREA } = await import('@/lib/keybinds/actions')
+    registry.register({
+      area: KEYBINDS_AREA,
+      ...DEMO_CONTRIBUTION,
+      data: { ...DEMO_CONTRIBUTION.data, defaults: ['mod+alt+l'] }
+    })
+
+    setBinding('session.new', ['mod+shift+n'])
+
+    expect(bindingsFor('demo.late')).toEqual(['mod+alt+l'])
+    expect(storedDiff()['demo.late']).toBeUndefined()
+
+    setBinding('demo.late', [])
+    expect(bindingsFor('demo.late')).toEqual([])
+    expect(storedDiff()['demo.late']).toEqual([])
+  })
+
   it('keeps stored overrides for plugin actions that register after boot', async () => {
     // A plugin-action rebind saved by an earlier session. The plugin has not
     // registered yet at boot, so the id is unknown to `allKeybindActions()`.
