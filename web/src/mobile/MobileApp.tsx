@@ -1466,9 +1466,8 @@ export default function MobileApp() {
         const sid = p.request.params.session_id;
         const owner = liveSessions.find(s => s.id === sid);
         return <div className="m-inline-request" data-method={p.request.method} key={p.request.id}>
-          <Badge className="m-request-label">{name} · {owner?.title || "Conversation"} · {sid || "Session unavailable"}</Badge>
-          {owner?.session_key && <Button variant="outline" type="button" onClick={() => navigate("chat", profile, owner.session_key)}>Open conversation</Button>}
-          <PromptCard pending={p} onAnswer={answer} onReceived={received} />
+          {typeof sid === "string" ? <Button variant="ghost" size="compact" type="button" onClick={() => navigate("chat", profile, owner?.session_key || sid)}>Needs your input · {owner?.title || name}</Button>
+            : <Badge className="m-request-label">{name} needs your input</Badge>}
         </div>;
       })}</section>}
     </HomeScroller>

@@ -152,14 +152,45 @@ it.each(["another chat", "new conversation"])("keeps a foreign-session approval 
   expect(host.querySelector('.m-messages')?.textContent).not.toContain("test foreign");
   expect(host.querySelector('.m-messages')?.textContent).toContain("View requests");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("View requests")) as HTMLButtonElement).click());
-  expect(host.querySelector('.m-inbox')?.textContent).toContain("Approval owner · other-runtime");
-  expect(host.querySelector('.m-inbox')?.textContent).toContain("test foreign");
+  expect(host.querySelector('.m-inbox')?.textContent).toContain("Needs your input · Approval owner");
+  expect(host.querySelector('.m-inbox [aria-label="Command approval"]')).toBeNull();
   await act(async () => (host.querySelector('.m-inbox button') as HTMLButtonElement).click());
   await settle();
   expect(mocks.request).toHaveBeenCalledWith("session.resume", { profile: "frodo", session_id: "other-stored", source: "mobile", close_on_disconnect: false, omit_messages: true, defer_history: true });
   expect(host.querySelector('.m-messages')?.textContent).toContain("test foreign");
   await act(async () => (Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Allow once") as HTMLButtonElement).click());
   expect(respond).toHaveBeenCalledWith({ choice: "once" });
+});
+
+it.each([false, true])("keeps secret answers only in their owning chat (desktop=%s)", async (desktop) => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: desktop && query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  mocks.liveSessions = [
+    { id: "runtime", session_key: "stored", title: "Current chat", status: "idle" },
+    { id: "other-runtime", session_key: "other-stored", title: "Secret owner", status: "idle" },
+  ];
+  window.history.replaceState({}, "", "/m/chat/frodo/stored");
+  await renderApp(); await settle(); await settle();
+  const respond = vi.fn();
+  await act(async () => { for (const handler of mocks.requests) handler({ id: "srq-secret", method: "secret.request", params: {
+    session_id: "other-runtime", name: "CANARY_TOKEN", reason: "UI regression", requester: "Frodo",
+    destination: { kind: "env_file", path: "fixture/canary.env" }, expires_at: Date.now() / 1000 + 180,
+  }, respond, fail: vi.fn() }); });
+  expect(host.querySelector('input[type="password"]')).toBeNull();
+  expect(host.querySelector('.m-inbox')?.textContent).toContain("Needs your input · Secret owner");
+  await act(async () => (host.querySelector('.m-inbox button') as HTMLButtonElement).click());
+  await settle();
+  const fields = host.querySelectorAll<HTMLInputElement>('input[type="password"]');
+  expect(fields).toHaveLength(1);
+  expect(fields[0].closest('.m-messages')).not.toBeNull();
+  expect(host.querySelector('.m-home form')).toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(fields[0], "ui-canary");
+    fields[0].dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(host.querySelector('.m-messages')?.textContent).not.toContain("ui-canary");
+  await act(async () => (host.querySelector('form[aria-label="Secret requested"]') as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(respond).toHaveBeenCalledExactlyOnceWith({ value: "ui-canary" });
+  expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
 });
 
 it("keeps notices quiet and reactions behind the message action menu", async () => {
@@ -1364,7 +1395,11 @@ it("shows the pending approval in the bot's home status without losing its answe
   await act(async () => { for (const handler of mocks.requests) handler({ id: 'approval-1', method: 'approval', params: { session_id: 'runtime', command: 'run tests', choices: ['once', 'deny'] }, respond: vi.fn(), fail: vi.fn() }); });
   expect(host.querySelector('.m-pinned-bot')?.getAttribute('aria-label')).toBe('Frodo, needs your input');
   expect(host.querySelector('.m-pinned-bot > span:last-of-type')?.textContent).toBe('Frodo');
-  expect(host.querySelector('.m-inbox')?.textContent).toContain('run tests');
+  expect(host.querySelector('.m-inbox')?.textContent).toContain('Needs your input · Frodo');
+  expect(host.querySelector('.m-inbox [aria-label="Command approval"]')).toBeNull();
+  await act(async () => (host.querySelector('.m-inbox button') as HTMLButtonElement).click());
+  await settle();
+  expect(host.querySelector('.m-messages [aria-label="Command approval"]')?.textContent).toContain('run tests');
 });
 
 it("submits Continue to the same chat when a running turn finishes before steer", async () => {
