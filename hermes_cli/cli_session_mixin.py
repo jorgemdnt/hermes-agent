@@ -145,6 +145,9 @@ class CLISessionMixin:
         terminal backend snapshots cwd on first use, after this). No-op when no cwd was
         recorded, the directory is gone (dim warning, never a crash), or we're already there.
         """
+        from tools.terminal_scope import session_uses_local_cwd
+        if not session_uses_local_cwd():
+            return
         recorded = (session_meta or {}).get("cwd")
         if not recorded:
             return

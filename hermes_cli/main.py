@@ -1669,6 +1669,8 @@ def _resolve_chat_session_args(args, use_tui: bool) -> None:
         and not getattr(args, "worktree", False)
     ):
         with _session_db() as db:  # never let cwd-restore break a resume
+            if not db.uses_local_cwd():
+                return
             _saved_cwd = ((db.get_session(args.resume) or {}).get("cwd") or "").strip()
             if _saved_cwd and not os.path.isdir(_saved_cwd):
                 print(f"⚠ session's recorded dir is gone ({_saved_cwd}); staying in {os.getcwd()}")

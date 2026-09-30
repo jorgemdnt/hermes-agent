@@ -319,6 +319,20 @@ class SessionSessionsMixin:
             logger.debug("own-profile derivation failed", exc_info=True)
         return None
 
+    def uses_local_cwd(self) -> bool:
+        """Cwd policy of THIS store, even when another profile is currently bound."""
+        from tools.terminal_scope import session_uses_local_cwd
+        return session_uses_local_cwd(Path(self.db_path).parent)
+
+    @staticmethod
+    def _clear_session_host_workspace(conn, session_id: str) -> None:
+        # Clear inherited/legacy host metadata too, and fence already-running Git probes.
+        conn.execute(
+            "UPDATE sessions SET cwd = NULL, git_branch = NULL, git_repo_root = NULL, "
+            "git_metadata_generation = COALESCE(git_metadata_generation, 0) + 1 WHERE id = ?",
+            (session_id,),
+        )
+
     @staticmethod
     def _inherit_parent_session_metadata(conn, session_id: str) -> None:
         """NULL-fill a child's cwd/git/profile from its parent (profile_name only within the same
@@ -368,6 +382,9 @@ class SessionSessionsMixin:
         sidebar even though its transcript is intact (#99222). Stores outside the profile tree (explicit
         ``db_path`` in tests, ad-hoc copies) derive nothing and keep NULL — never guess.
         """
+        local_cwd = self.uses_local_cwd()
+        if not local_cwd:
+            cwd = git_repo_root = None
         if not (profile_name or "").strip():
             profile_name = self._own_profile_name()
         def _do(conn):
@@ -428,6 +445,8 @@ class SessionSessionsMixin:
                 self._delete_unreferenced_system_prompts(conn)
             if parent_session_id:
                 self._inherit_parent_session_metadata(conn, session_id)
+            if not local_cwd:
+                self._clear_session_host_workspace(conn, session_id)
         # Transcript-critical: a failed row creation aborts the turn.
         self._execute_write(_do, patience_s=self._TRANSCRIPT_WRITE_PATIENCE_S)
 
@@ -563,7 +582,12 @@ class SessionSessionsMixin:
         only when non-empty (a probe failure never clobbers a value) except under ``replace_git_meta``
         (a workspace MOVE overwrites the old repo identity). Async probes publish with the returned
         generation so an older worker cannot overwrite a newer claim (A -> B -> A)."""
-        if not session_id or not cwd:
+        if not session_id:
+            return None
+        if not self.uses_local_cwd():
+            self._execute_write(lambda conn: self._clear_session_host_workspace(conn, session_id))
+            return None
+        if not cwd:
             return None
         branch = (git_branch or "").strip()
         repo_root = (git_repo_root or "").strip()
@@ -884,6 +908,8 @@ class SessionSessionsMixin:
         Only fills NULL/empty; an explicit column value always wins. Returns the
         number of rows changed.
         """
+        if not self.uses_local_cwd():
+            return 0
         return int(self._write_rowcount(
             """UPDATE sessions
                   SET cwd = json_extract(model_config, '$.cwd')
