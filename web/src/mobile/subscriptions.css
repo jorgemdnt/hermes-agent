@@ -21,7 +21,7 @@
 .m-sub-meter { border-radius: 9px; background: var(--background); padding: 10px; min-width: 0; }
 .m-sub-meter > div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .m-sub-meter strong { font-size: 12px; font-weight: 600; }
-.m-sub-meter progress { width: 100%; height: 7px; accent-color: var(--primary); margin: 12px 0 4px; }
+.m-sub-meter progress { width: 100%; height: 7px; accent-color: var(--accent); margin: 12px 0 4px; }
 .m-sub-meter small { display: block; }
 .m-sub-error { color: var(--destructive); }
 .m-sub-login { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 18px; }

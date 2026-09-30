@@ -47,6 +47,8 @@ import { RightSplit, type SplitTab } from "./RightSplit";
 import { useSidebarLayout } from "./sidebar-layout";
 import { conversationLocalLinks, fileLinkPath, localPreviewLink } from "./preview-links";
 import { activityTime, movePin, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
+import { AccentPicker } from "./AccentPicker";
+import { useMobileAccent } from "./useMobileAccent";
 import { unansweredTurn } from "./turn-status";
 import "./mobile-theme.css";
 import "./mobile.css";
@@ -439,6 +441,7 @@ export default function MobileApp() {
     const saved = window.localStorage?.getItem("hermes-mobile-theme");
     return saved === "light" || saved === "dark" ? saved : "system";
   });
+  const { accent, setAccent, accentStyles } = useMobileAccent(theme);
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [account, setAccount] = useState<AuthMeResponse | null>(null);
   useEffect(() => {
@@ -1496,7 +1499,7 @@ export default function MobileApp() {
   };
 
   return <div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={shellRef}
-    style={window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px`, "--m-split-width": `${splitWidth}px` } as CSSProperties : { "--m-split-width": `${splitWidth}px` } as CSSProperties}>
+    style={{ ...accentStyles, "--m-split-width": `${splitWidth}px`, ...(window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px` } : {}) } as CSSProperties}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
       <div id="m-left-sidebar" className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={desktop ? !sidebarOpen : view !== "bots"} inert={desktop ? !sidebarOpen : view !== "bots"}>
@@ -1611,7 +1614,7 @@ export default function MobileApp() {
         </section>)}
         {view === "subscriptions" && <MobileSubscriptions sessionId={chat?.runtimeId || selected || undefined} />}
         {view === "settings" && <section className="m-settings">
-          <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div></div>
+          <div className="m-settings-group"><h3>Appearance</h3><div className="m-theme-choices" role="group" aria-label="Appearance">{(["system", "light", "dark"] as const).map(choice => <Button key={choice} type="button" variant={theme === choice ? "outline" : "secondary"} aria-pressed={theme === choice} onClick={() => setTheme(choice)}>{choice === "system" ? <Monitor size={17} /> : choice === "light" ? <Sun size={17} /> : <Moon size={17} />}{choice[0].toUpperCase() + choice.slice(1)}</Button>)}</div><AccentPicker value={accent} onChange={setAccent} /></div>
           <div className="m-settings-group"><h3>Notifications</h3><button className="m-setting-action" type="button" disabled={!pushAvailable() || busy} onClick={() => void togglePush()}>{pushEnabled ? <BellOff size={19} /> : <Bell size={19} />}{pushAvailable() ? (pushEnabled ? "Turn off notifications" : "Turn on notifications") : "Unavailable in this browser"}<ChevronRight size={17} /></button></div>
           <div className="m-settings-group"><h3>Account</h3><button className="m-setting-action" type="button" disabled={busy} onClick={() => void logout()}><LockKeyhole size={19} />Sign out<ChevronRight size={17} /></button><p className="m-muted">Other devices stay signed in.</p></div>
         </section>}
