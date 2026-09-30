@@ -12,8 +12,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme: theme, hasTouch: width === 390 })
     const page = await context.newPage()
     if (process.env.HERMETIC_POLISH_BACKEND) await page.route('**/api/chat/attachment/**', async route => {
-      const token = await page.evaluate(() => window.__HERMES_SESSION_TOKEN__)
-      const response = await route.fetch({ url: new URL(new URL(route.request().url()).pathname, process.env.HERMETIC_POLISH_BACKEND).href, headers: { authorization: `Bearer ${token}` } })
+      const response = await route.fetch({ url: new URL(new URL(route.request().url()).pathname, process.env.HERMETIC_POLISH_BACKEND).href })
       await route.fulfill({ response })
     })
     await page.addInitScript(theme => {
@@ -46,6 +45,8 @@ try {
     })
     await jump.click()
     const image = page.locator('.m-user .m-image-attachment').last()
+    await image.locator('img').waitFor()
+    await page.waitForFunction(() => [...document.querySelectorAll('.m-user .m-image-attachment img')].some(image => image.complete && image.naturalWidth > 0))
     const imageCount = await image.count()
     if (imageCount) {
       await image.scrollIntoViewIfNeeded()
