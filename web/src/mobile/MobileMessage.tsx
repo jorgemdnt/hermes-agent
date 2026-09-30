@@ -1,5 +1,5 @@
-import { useEffect, useRef, type TouchEvent } from "react";
-import { ExternalLink, FileUp, Image as ImageIcon, MoreHorizontal, ThumbsUp } from "lucide-react";
+import { useEffect, useRef, useState, type TouchEvent } from "react";
+import { ExternalLink, FileUp, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { classifyUserText } from "./message-kind";
 import { Markdown } from "@/components/Markdown";
 import type { ChatRow } from "./mobile-state";
@@ -15,12 +15,20 @@ interface MobileMessageProps {
   avatarFor?: (handle: string) => string | undefined;
 }
 
+function MessageImage({ src, name }: { src: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  return <a className={failed ? "m-image-ref" : "m-image-attachment"} href={src} target="_blank" rel="noreferrer" aria-label={`Open image ${name}`}>
+    {failed ? <><FileUp size={16} aria-hidden="true" />{name}</> : <img src={src} alt={name} onError={() => setFailed(true)} />}
+  </a>;
+}
+
 export default function MobileMessage({ profile, row, previous, onAction, onReact, onFileLink, reacted, avatarFor }: MobileMessageProps) {
   const link = row.role === "assistant" ? /https?:\/\/[^\s<>)\]]+/i.exec(row.text)?.[0] : undefined;
   const linkedTitle = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(row.text);
   let preview: URL | null = null;
   try { if (link) preview = new URL(link); } catch { /* Invalid links stay plain text. */ }
   const kind = row.role === "user" ? classifyUserText(row.text) : null;
+  const [timestampVisible, setTimestampVisible] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const origin = useRef({ x: 0, y: 0 });
   const grouped = previous?.role === row.role && !(kind && kind.kind !== "human") && !(previous?.role === "user" && classifyUserText(previous.text).kind !== "human");
@@ -35,10 +43,14 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
     if ((event.target as Element).closest("a, button")) return;
     cancelPress();
     origin.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-    press.current = setTimeout(() => { press.current = null; onAction(displayText || "Photo"); }, 550);
+    press.current = setTimeout(() => { press.current = null; setTimestampVisible(true); onAction(displayText || "Photo"); }, 550);
   };
   const movePress = (event: TouchEvent) => {
     if (Math.hypot(event.touches[0].clientX - origin.current.x, event.touches[0].clientY - origin.current.y) > 10) cancelPress();
+  };
+  const endPress = () => {
+    if (press.current) setTimestampVisible(visible => !visible);
+    cancelPress();
   };
   if (kind && kind.kind !== "human") {
     const avatar = kind.kind === "agent" ? avatarFor?.(kind.handle) : undefined;
@@ -52,17 +64,19 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
     </article>;
   }
   return <article className={`m-message m-${row.role}${grouped ? " m-grouped" : ""}`}
-    onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
+    data-timestamp-visible={timestampVisible || undefined}
+    onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={endPress} onTouchCancel={cancelPress}
     onContextMenu={event => { if (!(event.target as Element).closest("a, button")) { event.preventDefault(); onAction(displayText || "Photo"); } }}>
+    <div className="m-message-body">
     <div className="m-bubble">
-      {row.role === "assistant" ? <Markdown content={row.text} onFileLink={onFileLink} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <a className="m-image-ref m-image-attachment" key={`${index}-${image}`} href={attachmentUrl("image", image)} target="_blank" rel="noreferrer" aria-label={`Open photo ${image}`}><img src={attachmentUrl("image", image)} alt={image} onError={event => { event.currentTarget.style.display = "none"; }} /><ImageIcon size={16} aria-hidden="true" /><span>Photo</span></a>)}{fileNames.map((file, index) => <a className="m-image-ref" href={attachmentUrl("file", file)} download={file} key={`${index}-${file}`}><FileUp size={16} aria-hidden="true" />{file}</a>)}</>}
+      {row.role === "assistant" ? <Markdown content={row.text} onFileLink={onFileLink} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <MessageImage key={`${index}-${image}`} src={attachmentUrl("image", image)} name={image} />)}{fileNames.map((file, index) => <a className="m-image-ref" href={attachmentUrl("file", file)} download={file} key={`${index}-${file}`}><FileUp size={16} aria-hidden="true" />{file}</a>)}</>}
       {preview && <a className="m-link-preview" href={preview.href} target="_blank" rel="noreferrer" aria-label={`Open ${preview.hostname}`}>
         <span className="m-link-domain">{preview.hostname}<ExternalLink size={14} aria-hidden="true" /></span>
         <strong>{linkedTitle?.[2] === preview.href ? linkedTitle[1] : preview.pathname.split("/").filter(Boolean).at(-1) || preview.hostname}</strong>
       </a>}
-      <div className="m-message-footer">
       {reacted && onReact && <button type="button" className="m-reaction" aria-label="Remove thumbs up" aria-pressed="true" onClick={onReact}><ThumbsUp size={14} aria-hidden="true" />1</button>}
-      <span className="m-message-footer-spacer" />
+    </div>
+      <div className="m-message-footer">
       {row.timestamp && (!grouped || !previous?.timestamp || row.timestamp - previous.timestamp > 300) && <time dateTime={new Date(row.timestamp * 1000).toISOString()} className="m-message-time">{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(row.timestamp * 1000)}</time>}
       <button type="button" className="m-message-actions" aria-label="Message actions" onClick={() => onAction(displayText || "Photo")}><MoreHorizontal size={16} aria-hidden="true" /></button>
       </div>

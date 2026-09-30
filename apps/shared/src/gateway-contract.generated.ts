@@ -1246,6 +1246,7 @@ export interface DisplayStatus {
   geometry: string
   install_command?: string | null
   browser?: string | null
+  transport?: string | null
   blocker?: string | null
   memory_available_mb?: number | null
   memory_limit_mb?: number | null
@@ -1291,6 +1292,7 @@ export interface DisplayStopResult {
   geometry: string
   install_command?: string | null
   browser?: string | null
+  transport?: string | null
   blocker?: string | null
   memory_available_mb?: number | null
   memory_limit_mb?: number | null
@@ -1316,6 +1318,7 @@ export interface DisplayObserveResult {
   geometry: string
   install_command?: string | null
   browser?: string | null
+  transport?: string | null
   blocker?: string | null
   memory_available_mb?: number | null
   memory_limit_mb?: number | null
@@ -1343,6 +1346,7 @@ export interface DisplaySwitchSandboxImageResult {
   geometry: string
   install_command?: string | null
   browser?: string | null
+  transport?: string | null
   blocker?: string | null
   memory_available_mb?: number | null
   memory_limit_mb?: number | null
@@ -3029,6 +3033,7 @@ export interface SessionResumeResult {
   messages_omitted?: boolean | null
   hydrating?: boolean | null
   running?: boolean | null
+  external_turn?: boolean | null
   turn_started_at?: number | null
   started_at?: number | null
   status?: string | null
@@ -3099,6 +3104,7 @@ export interface SessionActivateResult {
   messages_omitted?: boolean | null
   hydrating?: boolean | null
   running?: boolean | null
+  external_turn?: boolean | null
   turn_started_at?: number | null
   started_at?: number | null
   status?: string | null
@@ -4473,6 +4479,7 @@ export interface DisplayStatusPayload {
   geometry: string
   install_command?: string | null
   browser?: string | null
+  transport?: string | null
   blocker?: string | null
   memory_available_mb?: number | null
   memory_limit_mb?: number | null
