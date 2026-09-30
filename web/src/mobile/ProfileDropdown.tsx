@@ -1,14 +1,14 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { CreditCard, LayoutGrid, LogOut, Monitor, Settings2 } from "lucide-react";
 import { Link } from "react-router";
-import { Avatar } from "./ui";
+import { AccountAvatar } from "./AccountAvatar";
 
 export function ProfileDropdown({ open, onOpenChange, showScreen, container, name, picture, onSignOut, signingOut, desktop = false }: {
   open: boolean; onOpenChange: (open: boolean) => void; showScreen: boolean; container?: HTMLElement | null;
   name: string; picture: string; onSignOut: () => void; signingOut: boolean; desktop?: boolean;
 }) {
   return <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
-    <DropdownMenu.Trigger className="m-icon-button m-profile-button" aria-label="Profile menu"><Avatar src={picture} name={name} />{desktop && <span className="m-profile-name">{name}</span>}</DropdownMenu.Trigger>
+    <DropdownMenu.Trigger className="m-icon-button m-profile-button" aria-label="Profile menu"><AccountAvatar key={picture} picture={picture} name={name} />{desktop && <span className="m-profile-name">{name}</span>}</DropdownMenu.Trigger>
     <DropdownMenu.Portal container={container}>
       <DropdownMenu.Content className="m-dropdown" align="start" side={desktop ? "top" : "bottom"} sideOffset={8} collisionPadding={12}>
         <DropdownMenu.Label className="m-dropdown-label">{name}</DropdownMenu.Label>
