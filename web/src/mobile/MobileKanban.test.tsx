@@ -47,7 +47,7 @@ it("renders real API statuses, model, owner avatar, age and live marker without 
   expect(card.querySelector("time")?.textContent).toBe("1m");
   expect(host.querySelector("form, [draggable], input")).toBeNull();
   await act(async () => card.click());
-  expect(onSelectTask).toHaveBeenCalledWith("t_1");
+  expect(onSelectTask).toHaveBeenCalledWith("t_1", "default");
 });
 
 it("loads the clicked card body, result, comments and runs", async () => {

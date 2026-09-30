@@ -3,9 +3,10 @@
 import type { Unstable_DirectiveFormatter, Unstable_DirectiveSegment, Unstable_TriggerItem } from '@assistant-ui/core'
 import type { TextMessagePartComponent, TextMessagePartProps } from '@assistant-ui/react'
 import type { FC } from 'react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { isPastedContentPath } from '@/app/chat/composer/large-paste'
+import { CardMentions } from '@/components/chat/card-link'
 import { ZoomableImage } from '@/components/chat/zoomable-image'
 import { type I18nContextValue, useI18n } from '@/i18n'
 import { extractEmbeddedImages } from '@/lib/embedded-images'
@@ -379,7 +380,7 @@ export function DirectiveContent({ text }: { text: string }) {
     <span className="whitespace-pre-line" data-slot="aui_directive-text">
       {segments.map((segment, index) =>
         segment.kind === 'text' ? (
-          <Fragment key={`t-${index}`}>{segment.text}</Fragment>
+          <CardMentions key={`t-${index}`} text={segment.text} />
         ) : segment.type === 'image' ? null : segment.type === 'session' ? (
           <SessionRefChip key={`m-${index}-${segment.id}`} label={segment.label} value={segment.id} />
         ) : segment.type === 'skill' ? (

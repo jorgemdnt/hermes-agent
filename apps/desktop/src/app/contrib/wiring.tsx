@@ -164,6 +164,7 @@ import {
 } from './hooks/use-background-sync'
 import { useDesktopIntegrations } from './hooks/use-desktop-integrations'
 import { useDesktopMetrics } from './hooks/use-desktop-metrics'
+import { useNavigationHistory } from './hooks/use-navigation-history'
 import { usePetBridge } from './hooks/use-pet-bridge'
 import { useQuickEntryBridge } from './hooks/use-quick-entry-bridge'
 import { useSessionTileDelegate } from './hooks/use-session-tile-delegate'
@@ -196,6 +197,7 @@ export { WiredPane } from './context'
 const HANDOFF_CREATE_LEG_METHODS = new Set(['config.set', 'session.close', 'session.create'])
 
 export function ContribWiring({ children }: { children: ReactNode }) {
+  useNavigationHistory()
   const queryClient = useQueryClient()
   const location = useLocation()
   const navigate = useNavigate()

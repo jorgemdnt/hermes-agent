@@ -1,4 +1,5 @@
 import { normalizeMathDelimiters } from '@assistant-ui/react-streamdown'
+import { cardReference, linkifyCardMentions } from '@hermes/shared'
 
 import { isLikelyProseFence, sanitizeLanguageTag } from '@/lib/markdown-code'
 import { clampHtmlNestingDepth } from '@/lib/markdown-html-depth'
@@ -434,6 +435,10 @@ function routeFileLinksToPreview(text: string): string {
     const groups = args.at(-1) as { label: string; target: string }
     const target = groups.target.replace(/^<|>$/g, '')
 
+    if (cardReference(target)) {
+      return match
+    }
+
     const href = mediaKind(target) === 'file' ? previewMarkdownHref(target) : mediaMarkdownHref(target)
 
     return `[${groups.label}](${href})`
@@ -441,12 +446,14 @@ function routeFileLinksToPreview(text: string): string {
 }
 
 function rewriteProseSegment(segment: string): string {
-  return linkifySessionRefs(
-    escapeLoneTildes(
-      autoLinkRawUrls(
-        routeFileLinksToPreview(
-          escapeUnknownHtmlLikeTags(
-            segment.replace(/`{3,}/g, '').replace(CITATION_TRANSPORT_MARKER_RE, '').replace(CITATION_MARKER_RE, '')
+  return linkifyCardMentions(
+    linkifySessionRefs(
+      escapeLoneTildes(
+        autoLinkRawUrls(
+          routeFileLinksToPreview(
+            escapeUnknownHtmlLikeTags(
+              segment.replace(/`{3,}/g, '').replace(CITATION_TRANSPORT_MARKER_RE, '').replace(CITATION_MARKER_RE, '')
+            )
           )
         )
       )

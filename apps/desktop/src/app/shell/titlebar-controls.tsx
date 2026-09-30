@@ -14,23 +14,14 @@ import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 import { recordAction } from '@/store/desktop-metrics'
 import { toggleHud } from '@/store/hud'
-import {
-  $fileBrowserOpen,
-  $panesFlipped,
-  $sidebarOpen,
-  toggleRightSide,
-  toggleSidebarOpen
-} from '@/store/layout'
+import { $fileBrowserOpen, $panesFlipped, $sidebarOpen, toggleRightSide, toggleSidebarOpen } from '@/store/layout'
+import { $navigationAvailability, travelNavigation } from '@/store/navigation-history'
 import { $unreadSessionCount } from '@/store/session-dot-state'
 import { $titlebarAppActionsSide } from '@/store/titlebar-app-actions'
 
 import { appViewForPath, hidesFixedTitlebarClusters, isOverlayView } from '../routes'
 
-import {
-  TITLEBAR_CHROME_CHANGED_EVENT,
-  titlebarButtonClass,
-  titlebarToolClusterClass
-} from './titlebar'
+import { TITLEBAR_CHROME_CHANGED_EVENT, titlebarButtonClass, titlebarToolClusterClass } from './titlebar'
 import { TitlebarIcon } from './titlebar-icon'
 
 export interface TitlebarTool {
@@ -89,6 +80,27 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   const sidebarOpen = useStore($sidebarOpen)
   const unreadCount = useStore($unreadSessionCount)
   const appActionsSide = useStore($titlebarAppActionsSide)
+  const history = useStore($navigationAvailability)
+
+  const historyTools: TitlebarTool[] = [
+    {
+      id: 'history-back',
+      label: 'Go back',
+      title: 'Back (⌘[ / Ctrl+[)',
+      icon: <TitlebarIcon name="arrow-left" />,
+      disabled: !history.back,
+      onSelect: () => travelNavigation(-1)
+    },
+    {
+      id: 'history-forward',
+      label: 'Go forward',
+      title: 'Forward (⌘] / Ctrl+])',
+      icon: <TitlebarIcon name="arrow-right" />,
+      disabled: !history.forward,
+      onSelect: () => travelNavigation(1)
+    }
+  ]
+
   const unreadBadge = unreadCount > 0 ? unreadCount : undefined
   const unreadHint = unreadBadge ? ` · ${t.titlebar.unreadSessions(unreadBadge)}` : ''
 
@@ -190,7 +202,7 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   // route. Contributed `titleBar.tools` items keep rendering here too, so a
   // chrome-owning page never silently drops a registered item.
   if (hidesFixedTitlebarClusters(view) && pageOwnsTitlebar) {
-    const pageTools = [...leftTools, ...tools].filter(tool => !tool.hidden)
+    const pageTools = [...historyTools, ...leftTools, ...tools].filter(tool => !tool.hidden)
 
     // Both markers are required even when a page contributes to only one side.
     return (
@@ -212,7 +224,9 @@ export function TitlebarControls({ leftTools = [], tools = [], onOpenSettings }:
   }
 
   const visibleLeftTools = (
-    appActionsSide === 'left' ? [sidebarTool, ...systemTools, ...leftTools] : [sidebarTool, ...leftTools]
+    appActionsSide === 'left'
+      ? [sidebarTool, ...historyTools, ...systemTools, ...leftTools]
+      : [sidebarTool, ...historyTools, ...leftTools]
   ).filter(tool => !tool.hidden)
 
   const visibleSystemTools = appActionsSide === 'right' ? systemTools.filter(tool => !tool.hidden) : []

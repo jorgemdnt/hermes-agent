@@ -1,0 +1,8 @@
+.m-card-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; vertical-align: baseline; padding: 2px 7px; margin: 1px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--secondary); color: var(--foreground); font-size: .92em; line-height: 1.4; text-decoration: none; cursor: pointer; }
+.m-card-chip > span { overflow-wrap: anywhere; }
+.m-card-chip > small { flex-shrink: 0; color: var(--muted-foreground); font-size: .78em; }
+.m-card-chip:hover { border-color: var(--primary); }
+.m-history { display: flex; align-items: center; flex-shrink: 0; gap: 0; -webkit-app-region: no-drag; }
+.m-history .m-icon-button { width: 28px; height: 32px; }
+.m-history button:disabled { opacity: .3; cursor: default; }
+@media (max-width: 767px) { .m-with-split .m-messages, .m-with-split .m-composer { display: none; } }

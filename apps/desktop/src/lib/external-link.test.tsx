@@ -162,6 +162,23 @@ describe('external link helpers', () => {
     expect($previewTabs.get()).toHaveLength(0)
   })
 
+  it('keeps PR and Linear links in-app even when general links always open externally', async () => {
+    const openExternal = vi.fn().mockResolvedValue(undefined)
+    installDesktopBridge({ openExternal: openExternal as Window['hermesDesktop']['openExternal'] })
+    setAlwaysExternalLinks(true)
+    render(
+      <>
+        <ExternalLink href="https://github.com/org/repo/pull/12">Pull request</ExternalLink>
+        <ExternalLink href="https://linear.app/team/issue/ART-1">Ticket</ExternalLink>
+      </>
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'Pull request' }))
+    await waitFor(() => expect($previewTabs.get().at(-1)?.target.url).toBe('https://github.com/org/repo/pull/12'))
+    fireEvent.click(screen.getByRole('link', { name: 'Ticket' }))
+    await waitFor(() => expect($previewTabs.get().at(-1)?.target.url).toBe('https://linear.app/team/issue/ART-1'))
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
   it('treats only the HUD renderer as a native-link surface', () => {
     expect(hudForcesNativeLinks('')).toBe(false)
     expect(hudForcesNativeLinks('?win=secondary')).toBe(false)

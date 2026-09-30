@@ -5,6 +5,8 @@ import { Markdown } from "@/components/Markdown";
 import { authedFetch, fetchJSON } from "@/lib/api";
 import { browserAddress } from "./preview-links";
 import "./right-split.css";
+import type { useMobileNavigation } from "./navigation";
+type HistoryNavigation = ReturnType<typeof useMobileNavigation>;
 
 export type SplitTab = "browser" | "files" | "screen";
 type Guest = HTMLElement & {
@@ -16,58 +18,65 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 const query = (profile: string, session: string, path: string, view: "list" | "content") =>
   `/api/bot-preview?${new URLSearchParams({ profile, session, path, view })}`;
 
-function BrowserPane({ address, onAddress, suggestions }: { address: string; onAddress: (url: string) => void; suggestions: string[] }) {
+function BrowserPane({ address, onAddress, suggestions, navigation }: { address: string; onAddress: (url: string, replace?: boolean) => void; suggestions: string[]; navigation?: HistoryNavigation }) {
   const [draft, setDraft] = useState<{ base: string; value: string } | null>(null);
   const [error, setError] = useState("");
-  const [nav, setNav] = useState({ back: false, forward: false });
   const guest = useRef<Guest | null>(null);
   const [ready, setReady] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
-  const [history, setHistory] = useState<string[]>([]);
-  const [index, setIndex] = useState(-1);
   const current = address || "";
   const native = !!window.hermetic;
+  const activeAddress = useRef(address);
+  activeAddress.current = address;
+  const onGuestAddress = useRef(onAddress);
+  onGuestAddress.current = onAddress;
+  const loadingAddress = useRef("");
   useEffect(() => {
-    if (!native || !ready || !address || !guest.current || guest.current.getURL() === address) return;
-    void guest.current.loadURL(address).catch((cause: unknown) => setError(message(cause)));
+    const node = guest.current;
+    if (!native || !ready || !address || !node || node.getURL() === address) return;
+    loadingAddress.current = address;
+    void node.loadURL(address).then(() => {
+      if (activeAddress.current !== address) return;
+      const final = browserAddress(node.getURL());
+      if (final && final !== address) onGuestAddress.current(final, true);
+    }).catch((cause: unknown) => {
+      if (activeAddress.current === address) setError(message(cause));
+    }).finally(() => {
+      if (loadingAddress.current === address) loadingAddress.current = "";
+    });
   }, [address, native, ready]);
   useEffect(() => {
     if (!native || !guest.current) return;
     const node = guest.current;
-    const sync = () => {
+    const sync = (replace = false) => {
       const next = browserAddress(node.getURL());
-      if (next) onAddress(next);
-      setNav({ back: node.canGoBack(), forward: node.canGoForward() });
+      // Late load events must not resurrect a preview closed by Back.
+      if (next && activeAddress.current && !loadingAddress.current && next !== activeAddress.current) onGuestAddress.current(next, replace);
     };
-    const attached = () => { setReady(true); sync(); };
+    const attached = () => { setReady(true); };
+    const navigated = () => sync();
+    const inPage = () => sync(true);
     const failed = (event: Event) => setError((event as Event & { errorDescription?: string }).errorDescription || "Page could not load.");
     node.addEventListener("dom-ready", attached);
-    node.addEventListener("did-navigate", sync);
-    node.addEventListener("did-navigate-in-page", sync);
+    node.addEventListener("did-navigate", navigated);
+    node.addEventListener("did-navigate-in-page", inPage);
     node.addEventListener("did-fail-load", failed);
     return () => {
       node.removeEventListener("dom-ready", attached);
-      node.removeEventListener("did-navigate", sync);
-      node.removeEventListener("did-navigate-in-page", sync);
+      node.removeEventListener("did-navigate", navigated);
+      node.removeEventListener("did-navigate-in-page", inPage);
       node.removeEventListener("did-fail-load", failed);
     };
-  }, [native, onAddress]);
+  }, [native]);
   const visit = (value: string) => {
     const url = browserAddress(value);
     if (!url) { setError("Enter an HTTP or HTTPS address."); return; }
     setError("");
-    if (!native) { setHistory(previous => [...previous.slice(0, index + 1), url]); setIndex(index + 1); }
     setDraft(null);
     onAddress(url);
   };
-  const back = () => {
-    if (native) guest.current?.goBack();
-    else if (index > 0) { setIndex(index - 1); onAddress(history[index - 1]); }
-  };
-  const forward = () => {
-    if (native) guest.current?.goForward();
-    else if (index < history.length - 1) { setIndex(index + 1); onAddress(history[index + 1]); }
-  };
+  const back = () => navigation?.back();
+  const forward = () => navigation?.forward();
   const reload = () => native ? guest.current?.reload() : setFrameKey(value => value + 1);
   const openExternal = () => {
     if (!address) return;
@@ -76,8 +85,8 @@ function BrowserPane({ address, onAddress, suggestions }: { address: string; onA
   };
   return <div className="m-split-browser">
     <form className="m-split-address" onSubmit={event => { event.preventDefault(); visit(draft?.base === current ? draft.value : current); }}>
-      <button type="button" aria-label="Back" disabled={native ? !nav.back : index <= 0} onClick={back}><ArrowLeft size={17} /></button>
-      <button type="button" aria-label="Forward" disabled={native ? !nav.forward : index >= history.length - 1} onClick={forward}><ArrowRight size={17} /></button>
+      <button type="button" aria-label="Back" disabled={!navigation?.canGoBack} onClick={back}><ArrowLeft size={17} /></button>
+      <button type="button" aria-label="Forward" disabled={!navigation?.canGoForward} onClick={forward}><ArrowRight size={17} /></button>
       <button type="button" aria-label="Reload page" disabled={!address} onClick={reload}><RefreshCw size={16} /></button>
       <input type="text" inputMode="url" name="browser-address" autoComplete="off" aria-label="Browser address" value={draft?.base === current ? draft.value : current} onChange={event => setDraft({ base: current, value: event.target.value })} onFocus={() => setDraft({ base: current, value: current })} placeholder="https://example.com…" spellCheck={false} />
       <button type="submit" aria-label="Go to address"><ChevronRight size={17} /></button>
@@ -160,9 +169,9 @@ function FilesPane({ profile, session, requestedPath }: { profile: string; sessi
   </div>;
 }
 
-export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserUrl, onBrowserUrl, suggestions, filePath, profile, session, screen }: {
+export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserUrl, onBrowserUrl, suggestions, filePath, profile, session, screen, navigation }: {
   open: boolean; width: number; onWidth: (width: number) => void; onClose: () => void; tab: SplitTab; onTab: (tab: SplitTab) => void;
-  browserUrl: string; onBrowserUrl: (url: string) => void; suggestions: string[]; filePath: string; profile: string; session: string; screen?: ReactNode;
+  browserUrl: string; onBrowserUrl: (url: string, replace?: boolean) => void; suggestions: string[]; filePath: string; profile: string; session: string; screen?: ReactNode; navigation?: HistoryNavigation;
 }) {
   const initial = useRef<{ x: number; width: number } | null>(null);
   const clamp = (value: number) => Math.max(320, Math.min(value, Math.min(900, window.innerWidth - 620)));
@@ -170,7 +179,7 @@ export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserU
     <div className="m-split-resize" role="separator" tabIndex={0} aria-label="Resize right split" aria-orientation="vertical" aria-valuenow={width} onPointerDown={event => { initial.current = { x: event.clientX, width }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (initial.current) onWidth(clamp(initial.current.width + initial.current.x - event.clientX)); }} onPointerUp={() => { initial.current = null; }} onPointerCancel={() => { initial.current = null; }} onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); onWidth(clamp(width + (event.key === "ArrowLeft" ? 24 : -24))); } }} />
     <div className="m-split-header"><div role="tablist" aria-label="Right split views">{(["browser", "files", ...(screen ? ["screen"] : [])] as SplitTab[]).map(item => <button type="button" role="tab" aria-selected={tab === item} key={item} onClick={() => onTab(item)}>{item === "browser" ? <Globe2 size={16} /> : item === "files" ? <FileText size={16} /> : <Monitor size={16} />}{item[0].toUpperCase() + item.slice(1)}</button>)}</div>{open && <button type="button" className="m-icon-button" aria-label="Close right split" aria-expanded={open} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={onClose}><PanelRight size={20} aria-hidden="true" /></button>}</div>
     <div className="m-split-body" role="tabpanel" aria-label={tab}>
-      <div className="m-split-tab-pane" hidden={tab !== "browser"}><BrowserPane address={browserUrl} onAddress={onBrowserUrl} suggestions={suggestions} /></div>
+      <div className="m-split-tab-pane" hidden={tab !== "browser"}><BrowserPane address={browserUrl} onAddress={onBrowserUrl} suggestions={suggestions} navigation={navigation} /></div>
       {open && tab === "files" && <FilesPane key={`${profile}/${session}/${filePath}`} profile={profile} session={session} requestedPath={filePath} />}
       {open && tab === "screen" && screen}
     </div>

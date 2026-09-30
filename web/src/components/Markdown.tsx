@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
+import { cardReference, linkifyCardMentions } from "@hermes/shared";
+import { CardLink } from "@/mobile/CardLink";
 
 /**
  * Lightweight markdown renderer for LLM output.
@@ -283,6 +285,7 @@ type InlineNode =
   | { type: "br" };
 
 function parseInline(text: string): InlineNode[] {
+  text = linkifyCardMentions(text);
   const nodes: InlineNode[] = [];
   // Pattern priority: code > link > bold > italic > bare URL > line break
   const pattern =
@@ -325,7 +328,7 @@ function parseInline(text: string): InlineNode[] {
   return nodes;
 }
 
-function InlineContent({
+export function InlineContent({
   text,
   highlightTerms,
 }: {
@@ -373,6 +376,7 @@ function InlineContent({
             // (javascript:, data:, vbscript:) are dropped to plain text so a
             // crafted link in agent/message content can't execute on click.
             const href = node.href.trim();
+            if (cardReference(href)) return <CardLink key={i} href={href} />;
             if (onFileLink && (/^file:\/\//i.test(href) || /^\.?\.?\//.test(href) || /^[\w.-]+\/[\w./%-]+$/.test(href))) {
               return <button key={i} type="button" className="m-file-link" onClick={() => onFileLink(href)}>{node.text}</button>;
             }

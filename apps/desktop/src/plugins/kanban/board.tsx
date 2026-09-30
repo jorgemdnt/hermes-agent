@@ -60,6 +60,7 @@ import {
   useRef,
   useState
 } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 
 import {
   $boardSlug,
@@ -1106,7 +1107,32 @@ export function KanbanBoardPage() {
     refetchInterval: 60_000
   })
 
-  const [openId, setOpenId] = useState<null | string>(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const parameters = new URLSearchParams(location.search)
+  const openId = parameters.get('task')
+  const requestedBoard = parameters.get('board')
+  useEffect(() => {
+    if (requestedBoard) {
+      $boardSlug.set(requestedBoard)
+    }
+  }, [requestedBoard])
+
+  const setOpenId = (id: null | string) => {
+    const query = new URLSearchParams(location.search)
+
+    if (id) {
+      query.set('task', id)
+    } else {
+      query.delete('task')
+    }
+
+    if (slug) {
+      query.set('board', slug)
+    }
+    navigate(`/kanban${query.size ? `?${query}` : ''}`)
+  }
+
   const [addStatus, setAddStatus] = useState<null | string>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')

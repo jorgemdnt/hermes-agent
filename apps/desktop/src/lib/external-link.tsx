@@ -1,3 +1,4 @@
+import { isWorkItemLink } from '@hermes/shared'
 import type { ComponentProps, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -266,7 +267,7 @@ export function openLink(href: string, options: { native?: boolean } = {}): void
 
   if (
     options.native ||
-    $alwaysExternalLinks.get() ||
+    ($alwaysExternalLinks.get() && !isWorkItemLink(target)) ||
     isConnectorAuthorizationLink(target) ||
     hudForcesNativeLinks() ||
     !/^https?:$/i.test(parseUrl(target)?.protocol ?? '')

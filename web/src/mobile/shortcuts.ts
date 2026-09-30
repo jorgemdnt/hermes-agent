@@ -31,7 +31,7 @@ export function parseShortcut(
 export const SHORTCUT_HELP: ReadonlyArray<{ keys: string; label: string }> = [
   { keys: "⌃1  ⌃2", label: "Switch to Bots / Chats" },
   { keys: "⌘1–9", label: "Open the Nth bot or conversation in the list" },
-  { keys: "⌘[  ⌘]", label: "Previous / next conversation" },
+  { keys: "⌘[  ⌘]", label: "Back / forward in navigation history" },
   { keys: "⌘N", label: "New conversation with this bot" },
   { keys: "⌘K", label: "Search" },
   { keys: "⌘⇧A", label: "Archive conversation (undo in the toast)" },

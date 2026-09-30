@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type TouchEvent } from "react";
 import { ExternalLink, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { classifyUserText } from "./message-kind";
 import { MessageFile, MessageImage } from "./MessageAttachment";
-import { Markdown } from "@/components/Markdown";
+import { InlineContent, Markdown } from "@/components/Markdown";
+import { cardReference } from "@hermes/shared";
 import type { ChatRow } from "./mobile-state";
 
 interface MobileMessageProps {
@@ -20,7 +21,7 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
   const link = row.role === "assistant" ? /https?:\/\/[^\s<>)\]]+/i.exec(row.text)?.[0] : undefined;
   const linkedTitle = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(row.text);
   let preview: URL | null = null;
-  try { if (link) preview = new URL(link); } catch { /* Invalid links stay plain text. */ }
+  try { if (link && !cardReference(link)) preview = new URL(link); } catch { /* Invalid links stay plain text. */ }
   const kind = row.role === "user" ? classifyUserText(row.text) : null;
   const [timestampVisible, setTimestampVisible] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,7 +64,7 @@ export default function MobileMessage({ profile, row, previous, onAction, onReac
     onContextMenu={event => { if (!(event.target as Element).closest("a, button")) { event.preventDefault(); onAction(displayText || "Photo"); } }}>
     <div className="m-message-body">
     <div className="m-bubble">
-      {row.role === "assistant" ? <Markdown content={row.text} onFileLink={onFileLink} /> : <>{displayText && <div className="m-preserve">{displayText}</div>}{imageNames.map((image, index) => <MessageImage key={`${index}-${image}`} src={attachmentUrl("image", image)} name={image} />)}{fileNames.map((file, index) => <MessageFile key={`${index}-${file}`} src={attachmentUrl("file", file)} name={file} />)}</>}
+      {row.role === "assistant" ? <Markdown content={row.text} onFileLink={onFileLink} /> : <>{displayText && <div className="m-preserve"><InlineContent text={displayText} /></div>}{imageNames.map((image, index) => <MessageImage key={`${index}-${image}`} src={attachmentUrl("image", image)} name={image} />)}{fileNames.map((file, index) => <MessageFile key={`${index}-${file}`} src={attachmentUrl("file", file)} name={file} />)}</>}
       {preview && <a className="m-link-preview" href={preview.href} target="_blank" rel="noreferrer" aria-label={`Open ${preview.hostname}`}>
         <span className="m-link-domain">{preview.hostname}<ExternalLink size={14} aria-hidden="true" /></span>
         <strong>{linkedTitle?.[2] === preview.href ? linkedTitle[1] : preview.pathname.split("/").filter(Boolean).at(-1) || preview.hostname}</strong>

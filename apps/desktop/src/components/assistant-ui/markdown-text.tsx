@@ -7,10 +7,12 @@ import {
   type SyntaxHighlighterProps,
   tailBoundedRemend
 } from '@assistant-ui/react-streamdown'
+import { cardReference } from '@hermes/shared'
 import type { code as streamdownCode } from '@streamdown/code'
 import { type ComponentProps, isValidElement, memo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { defaultRemarkPlugins } from 'streamdown'
 
+import { CardLink } from '@/components/chat/card-link'
 import { ExpandableBlock } from '@/components/chat/expandable-block'
 import { PreviewAttachment } from '@/components/chat/preview-attachment'
 import { chunkByLines, SyntaxHighlighter } from '@/components/chat/shiki-highlighter'
@@ -282,6 +284,9 @@ function flattenChildrenToText(node: unknown): string {
 }
 
 function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a'>) {
+  if (cardReference(href)) {
+    return <CardLink href={href!} />
+  }
   const mediaPath = mediaPathFromMarkdownHref(href)
 
   if (mediaPath) {

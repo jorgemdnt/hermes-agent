@@ -1,3 +1,4 @@
+export { NavigationHistory, historyKeyDirection } from './navigation-history'
 export { hasAnsi, sanitizeAnsiForRender, stripAnsi } from './ansi'
 export { backendScopeKey, backendScopePrefix, LOCAL_CONNECTION_ID, registryBackendScopeKey } from './backend-scope'
 export {
@@ -27,6 +28,7 @@ export type {
   UsageBarData,
   UsageModelData
 } from './billing-types'
+export { cardReference, linkifyCardMentions, isWorkItemLink, resolveCard, type CardReference, type CardSummary } from './card-links'
 export { groupCatalogPlugins, PLUGIN_CATEGORIES, PLUGIN_CATEGORY_ORDER, sortCatalogPlugins } from './catalog-browse'
 export { pluginCatalogInstallUrl, skillCatalogInstallIdentifier, skillCatalogInstallUrl } from './catalog-install'
 export {

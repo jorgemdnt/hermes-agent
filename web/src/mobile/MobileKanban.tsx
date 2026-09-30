@@ -12,10 +12,11 @@ interface TaskDetail { task: Task; comments: Array<{ id: string | number; author
 interface BoardChoice { slug: string; name?: string }
 const ageLabel = (seconds: number) => seconds < 3600 ? `${Math.max(1, Math.floor(seconds / 60))}m` : seconds < 86400 ? `${Math.floor(seconds / 3600)}h` : `${Math.floor(seconds / 86400)}d`;
 
-export default function MobileKanban({ taskId, onSelectTask, getSavedScroll, onScroll, avatars = {} }: { taskId?: string; onSelectTask: (id: string) => void; getSavedScroll: () => number; onScroll: (top: number) => void; avatars?: Record<string, string> }) {
+export default function MobileKanban({ taskId, boardSlug, onSelectTask, getSavedScroll, onScroll, avatars = {} }: { taskId?: string; boardSlug?: string; onSelectTask: (id: string, board: string) => void; getSavedScroll: () => number; onScroll: (top: number) => void; avatars?: Record<string, string> }) {
   const boardScroll = useRef<HTMLElement>(null);
   const [boards, setBoards] = useState<BoardChoice[]>([]);
-  const [boardName, setBoardName] = useState("");
+  const [boardName, setBoardName] = useState(boardSlug || "");
+  useEffect(() => { if (boardSlug) setBoardName(boardSlug); }, [boardSlug]);
   const [board, setBoard] = useState<Board | null>(null);
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState("");
@@ -44,6 +45,7 @@ export default function MobileKanban({ taskId, onSelectTask, getSavedScroll, onS
   useEffect(() => {
     if (!taskId || !boardName) return;
     let alive = true;
+    setTask(null);
     void fetchJSON<TaskDetail>(`${BASE}/tasks/${encodeURIComponent(taskId)}?board=${encodeURIComponent(boardName)}`).then(data => { if (alive) { setTask(data); setError(""); } }).catch(e => { if (alive) setError(String(e)); });
     return () => { alive = false; };
   }, [boardName, revision, taskId]);
@@ -62,7 +64,7 @@ export default function MobileKanban({ taskId, onSelectTask, getSavedScroll, onS
       {board && <div className="m-board-columns">{STATUSES.flatMap(status => status === "ready" && board.columns.some(column => column.name === "scheduled" && column.tasks.length) ? ["scheduled", status] : [status]).map(status => {
         const column = board.columns.find(c => c.name === status);
         return <section key={status} className="m-column"><h3>{status} <small>{column?.tasks.length || 0}</small></h3>
-          {column?.tasks.map(item => <button type="button" key={item.id} className="m-task" onClick={() => { onScroll(boardScroll.current?.scrollTop || 0); setTask(null); setError(""); onSelectTask(item.id); }}>
+          {column?.tasks.map(item => <button type="button" key={item.id} className="m-task" onClick={() => { onScroll(boardScroll.current?.scrollTop || 0); setTask(null); setError(""); onSelectTask(item.id, boardName); }}>
             <strong>{item.title}</strong><span className="m-task-id">{item.id}</span>
             <span className="m-task-meta">{item.assignee && <span className="m-task-owner">{avatars[item.assignee] ? <img src={avatars[item.assignee]} alt="" width={20} height={20} /> : <span aria-hidden="true">{item.assignee.slice(0, 1).toUpperCase()}</span>}{item.assignee}</span>}
               {item.model_override && <span title={item.model_override} className="m-task-model">{item.model_override}</span>}

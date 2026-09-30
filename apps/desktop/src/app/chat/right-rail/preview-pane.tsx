@@ -30,6 +30,7 @@ import { admitPreviewExternalUrl, PREVIEW_EXTERNAL_CHANNEL } from '@/lib/preview
 import { reachablePreviewUrl } from '@/lib/preview-reach'
 import { rafCoalesce } from '@/lib/raf-coalesce'
 import { cn } from '@/lib/utils'
+import { $navigationAvailability, travelNavigation } from '@/store/navigation-history'
 import { notify, notifyError } from '@/store/notifications'
 import {
   $browserPages,
@@ -282,7 +283,6 @@ export function PreviewPane({
   const liveUrlRef = useRef(currentUrl)
   liveUrlRef.current = currentUrl
   const [devtoolsOpen, setDevtoolsOpen] = useState(false)
-  const [history, setHistory] = useState({ back: false, forward: false })
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<PreviewLoadErrorState | null>(null)
   const [localReloadKey, setLocalReloadKey] = useState(0)
@@ -751,21 +751,9 @@ export function PreviewPane({
     [copy.unreachableDescription]
   )
 
-  const goBack = useCallback(() => {
-    const webview = webviewRef.current
-
-    if (webview?.canGoBack?.()) {
-      webview.goBack?.()
-    }
-  }, [])
-
-  const goForward = useCallback(() => {
-    const webview = webviewRef.current
-
-    if (webview?.canGoForward?.()) {
-      webview.goForward?.()
-    }
-  }, [])
+  const navigation = useStore($navigationAvailability)
+  const goBack = useCallback(() => travelNavigation(-1), [])
+  const goForward = useCallback(() => travelNavigation(1), [])
 
   // Gestures that land on the app's chrome (⌘R from the address bar, a mouse
   // button over the frame). A gesture made INSIDE the page is answered by main
@@ -1054,7 +1042,6 @@ export function PreviewPane({
     webviewRef.current = null
     setCurrentUrl(target.url)
     setDevtoolsOpen(false)
-    setHistory({ back: false, forward: false })
     setLoadError(null)
     consoleState.reset()
     setLoading(true)
@@ -1116,14 +1103,6 @@ export function PreviewPane({
       }
     }
 
-    const syncHistory = () => {
-      try {
-        setHistory({ back: webview.canGoBack?.() ?? false, forward: webview.canGoForward?.() ?? false })
-      } catch {
-        // Same attach / dom-ready rule as getURL.
-      }
-    }
-
     // Tell the strip what this Browser is showing, so its tab renames itself
     // like a tab anywhere else. Deliberately NOT written back into the tab's
     // target: the guest is built from `target.url`, so that would rebuild the
@@ -1150,7 +1129,6 @@ export function PreviewPane({
       // move itself (redirects, history.pushState, a link into a new document),
       // so it is the only thing that knows what its history holds. Wired to
       // `did-navigate-in-page` too, or SPA route changes never update it.
-      syncHistory()
     }
 
     const onFail = (event: Event) => {
@@ -1185,7 +1163,6 @@ export function PreviewPane({
       // A load that ends without a `did-navigate` (an in-place reload, a
       // cancelled navigation) still settles the history — resync so the
       // buttons can't be left stale.
-      syncHistory()
       notePage()
     }
 
@@ -1372,8 +1349,8 @@ export function PreviewPane({
         {isWebPreview && !isRemoteHtml && (
           <PreviewBrowserBar
             annotateMode={annotate.mode}
-            canGoBack={history.back}
-            canGoForward={history.forward}
+            canGoBack={navigation.back}
+            canGoForward={navigation.forward}
             commentCount={annotate.stack.pins.length}
             consoleOpen={consoleOpen}
             devToolsOpen={devtoolsOpen}

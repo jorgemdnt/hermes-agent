@@ -22,6 +22,7 @@ import {
   invokePluginNotifyActivate,
   respondToApprovalAction
 } from '@/store/native-notifications'
+import { travelNavigation } from '@/store/navigation-history'
 import { requestPluginCatalogInstallFromDeepLink } from '@/store/plugin-catalog-install'
 import { openPluginInstallRequest } from '@/store/plugin-install-request'
 import { openFolderAsProject } from '@/store/projects'
@@ -42,7 +43,14 @@ import { isBrowserWindow, isHudWindow, isSecondaryWindow } from '@/store/windows
 import type { SessionInfo } from '@/types/hermes'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
-import { appViewForPath, isOverlayView, isWorkspacePageRoute, NEW_CHAT_ROUTE, routeSessionId, sessionRoute } from '../../routes'
+import {
+  appViewForPath,
+  isOverlayView,
+  isWorkspacePageRoute,
+  NEW_CHAT_ROUTE,
+  routeSessionId,
+  sessionRoute
+} from '../../routes'
 
 import { resolveRememberedSessionId } from './remembered-session'
 
@@ -172,6 +180,7 @@ export function useDesktopIntegrations({
         if (route && isWorkspacePageRoute(route) && isPaneVisible('hermes-bots:pane')) {
           return
         }
+
         // A delegate child (source='subagent') is never a restorable
         // destination: it is invisible in the sidebar, so resuming one leaves
         // the app split between the highlighted parent and the child the chat
@@ -480,6 +489,12 @@ export function useDesktopIntegrations({
   // app-level meaning to fall back to; an unfocused swipe is a no-op.
   useEffect(() => {
     const unsubscribe = window.hermesDesktop?.onPreviewNav?.(command => {
+      if (command === 'back' || command === 'forward') {
+        travelNavigation(command === 'back' ? -1 : 1)
+
+        return
+      }
+
       if (!commandFocusedPreview(command) && command === 'reload') {
         window.location.reload()
       }

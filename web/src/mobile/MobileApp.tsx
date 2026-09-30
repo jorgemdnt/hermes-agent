@@ -4,6 +4,9 @@ import { AnimatePresence, motion, motionValue, useReducedMotion } from "motion/r
 import { Markdown } from "@/components/Markdown";
 import { useChatScroll } from "./useChatScroll";
 import { useLatestBuild } from "./useLatestBuild";
+import { CardNavigation } from "./CardLink";
+import { HistoryButtons, useMobileNavigation } from "./navigation";
+import { cardReference, historyKeyDirection, isWorkItemLink } from "@hermes/shared";
 
 const LAST_BOT_KEY = "hermes-mobile-last-bot";
 const LAST_CHAT_KEY = "hermes-mobile-last-chat";
@@ -100,6 +103,7 @@ function MobileListRow({ leading, title, preview, onClick, className = "", onWar
 export default function MobileApp() {
   const location = useLocation();
   const routerNavigate = useNavigate();
+  const navigationHistory = useMobileNavigation();
   const route = mobileRoute(location.pathname);
   const view = route.view;
   const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 768px)").matches || !!window.hermetic);
@@ -120,6 +124,22 @@ export default function MobileApp() {
   const [splitTab, setSplitTab] = useState<SplitTab>("browser");
   const [browserUrl, setBrowserUrl] = useState("");
   const [filePath, setFilePath] = useState("");
+  const previousPreview = useRef(location.search);
+  const previewOriginSplit = useRef(splitOpen);
+  const openBrowser = useCallback((url: string, replace = false) => {
+    const search = new URLSearchParams(location.search);
+    if (search.get("preview") === url) return;
+    if (!search.has("preview")) previewOriginSplit.current = splitOpen;
+    search.set("preview", url);
+    routerNavigate(`${location.pathname}?${search}`, { replace });
+  }, [location.pathname, location.search, routerNavigate, splitOpen]);
+  useEffect(() => {
+    const url = new URLSearchParams(location.search).get("preview") || "";
+    setBrowserUrl(url);
+    if (url) { setSplitTab("browser"); setSplitOpen(true); }
+    else if (new URLSearchParams(previousPreview.current).has("preview")) setSplitOpen(previewOriginSplit.current);
+    previousPreview.current = location.search;
+  }, [location.key, location.search, setSplitOpen]);
   const resizeSplit = (value: number) => { setSplitWidth(value); localStorage.setItem("hermes:right-split-width", String(value)); };
   useEffect(() => {
     if (!desktop || view !== "chat") return;
@@ -1355,6 +1375,7 @@ export default function MobileApp() {
   useEffect(() => {
     if (!desktop) return;
     const onShortcut = (event: KeyboardEvent) => {
+      if (historyKeyDirection(event) !== null) return;
       const action = parseShortcut(event);
       if (!action) return;
       event.preventDefault();
@@ -1411,6 +1432,7 @@ export default function MobileApp() {
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
+      {!desktop && <HistoryButtons {...navigationHistory} />}
       {sidebarOpen && sidebarToggle}
       <h1 className="sr-only">{homeTab === "chats" ? "Chats" : "Bots"}</h1>
       {!desktop && <div className="m-list-header-left">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></div>}
@@ -1498,14 +1520,14 @@ export default function MobileApp() {
     navigate("chat");
   };
 
-  return <div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={shellRef}
+  return <CardNavigation.Provider value={href => routerNavigate(href)}><div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={shellRef}
     style={{ ...accentStyles, "--m-split-width": `${splitWidth}px`, ...(window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px` } : {}) } as CSSProperties}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
       <div id="m-left-sidebar" className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={desktop ? !sidebarOpen : view !== "bots"} inert={desktop ? !sidebarOpen : view !== "bots"}>
         {renderHome()}
       </div>
-      {desktop && view === "bots" && <main className="m-desktop-empty">{!sidebarOpen && <header className="m-header">{sidebarToggle}</header>}<MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
+      {desktop && view === "bots" && <main className="m-desktop-empty"><header className="m-header">{!sidebarOpen && sidebarToggle}<HistoryButtons {...navigationHistory} /></header><MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
@@ -1515,7 +1537,7 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header">{!sidebarOpen && sidebarToggle}{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
+      <header className="m-header">{!sidebarOpen && sidebarToggle}<HistoryButtons {...navigationHistory} />{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && !splitOpen && <button type="button" className="m-icon-button" aria-label="Open right split" aria-expanded={splitOpen} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
@@ -1528,12 +1550,12 @@ export default function MobileApp() {
           <div className="m-thread">
           <div className="m-messages" ref={messagesRef} onClickCapture={event => {
             const link = (event.target as HTMLElement).closest("a[href]");
-            const url = link && localPreviewLink(link.getAttribute("href") || "");
+            const href = link?.getAttribute("href") || "";
+            if (cardReference(href)) return;
+            const url = localPreviewLink(href) || (isWorkItemLink(href) ? href : null);
             if (!url) return;
             event.preventDefault();
-            setBrowserUrl(url);
-            setSplitTab("browser");
-            setSplitOpen(true);
+            openBrowser(url);
           }} onScroll={event => { onScroll(event); if (userScrolled() && event.currentTarget.scrollTop < 96) void loadOlder(); }} role="log" aria-live="polite">
             <div className="m-message-content">
               {paging.key === chatKey(profile, selected) && paging.hasOlder && <button type="button" className="m-older" disabled={paging.loading} onClick={() => void loadOlder()}>{paging.loading ? "Loading earlier…" : "Earlier messages"}</button>}
@@ -1605,7 +1627,7 @@ export default function MobileApp() {
             {!chat && !selected && newChatToolbar}
           </form>
         </>}
-        {view === "board" && <MobileKanban taskId={route.task} onSelectTask={id => routerNavigate(taskPath(id))} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
+        {view === "board" && <MobileKanban taskId={route.task} boardSlug={new URLSearchParams(location.search).get("board") || undefined} onSelectTask={(id, board) => routerNavigate(`${taskPath(id)}?board=${encodeURIComponent(board)}`)} getSavedScroll={getBoardScroll} onScroll={setBoardScroll} avatars={avatars} />}
         {view === "screen" && (profile === "samwise" || profile === "default" ? <MobileScreen key={profile} gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : <section className="m-screen m-computer-activity" aria-label={`${name} computer activity`}>
           <p className="m-activity-now" role="status"><i className="m-status-dot" aria-hidden="true" />{status}</p>
           {liveSessions.filter(session => session.status === "running" || session.status === "waiting").map(session => <p key={session.id}>{session.title || "Conversation"} · {session.status}</p>)}
@@ -1622,9 +1644,9 @@ export default function MobileApp() {
     </>
       </motion.div>}
       </AnimatePresence>
-      {view === "chat" && <RightSplit open={splitOpen} width={splitWidth} onWidth={resizeSplit} onClose={() => setSplitOpen(false)}
+      {view === "chat" && <RightSplit open={splitOpen} width={splitWidth} onWidth={resizeSplit} onClose={() => { previewOriginSplit.current = false; if (new URLSearchParams(location.search).has("preview")) { const search = new URLSearchParams(location.search); search.delete("preview"); routerNavigate(`${location.pathname}?${search}`); } else setSplitOpen(false); }}
         tab={splitTab === "screen" && !screenVisible ? "browser" : splitTab} onTab={setSplitTab}
-        browserUrl={browserUrl} onBrowserUrl={setBrowserUrl} suggestions={conversationLocalLinks(chat?.rows.map(row => row.text) || [])} filePath={filePath} profile={profile} session={selected}
+        browserUrl={browserUrl} onBrowserUrl={openBrowser} navigation={navigationHistory} suggestions={conversationLocalLinks(chat?.rows.map(row => row.text) || [])} filePath={filePath} profile={profile} session={selected}
         screen={screenVisible ? <MobileScreen gateway={screenGateway} profile={profile} name={name} onStateChange={setScreenState} onContinue={profile === "samwise" ? continueAfterScreen : undefined} /> : undefined} />}
       <BotTerminalDock profile={terminalProfile} session={terminalSession} open={terminalVisible} fullScreen={view === "terminal"}
       height={terminalHeight} onHeightChange={setTerminalHeight}
@@ -1675,5 +1697,5 @@ export default function MobileApp() {
       <button type="button" className="m-pin-choice" onClick={() => { setActivityOpen(false); setConversationsOpen(true); }}><MessageSquare size={18} aria-hidden="true" />Conversations</button>
       {activity.length ? <ul>{activity.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className="m-muted">No activity yet.</p>}
     </Sheet>}
-  </div>;
+  </div></CardNavigation.Provider>;
 }
