@@ -791,7 +791,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
 
   const surfaceId = useComposerSurfaceId()
   const scrollSessionId = sessionId ?? surfaceId
-  useNavigationScrollRestore(scrollRef, jumpRestoreRef, paneVisible)
+  useNavigationScrollRestore(scrollRef, jumpRestoreRef, stopScroll, paneVisible)
   useEffect(
     () => publishThreadAtBottom(isAtBottom && !isHistorical, { paneVisible, sessionId: scrollSessionId }),
     [isAtBottom, isHistorical, paneVisible, scrollSessionId]

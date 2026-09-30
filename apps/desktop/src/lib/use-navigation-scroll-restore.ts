@@ -8,6 +8,7 @@ import { subscribeNavigationScrollRestore } from './navigation-scroll'
 export function useNavigationScrollRestore(
   scrollRef: RefObject<HTMLElement | null>,
   restoreRef: RefObject<((target?: ThreadScrollState) => void) | null>,
+  stopScroll: () => void,
   paneVisible: boolean
 ) {
   useEffect(() => {
@@ -18,11 +19,18 @@ export function useNavigationScrollRestore(
     return subscribeNavigationScrollRestore(
       () => scrollRef.current,
       (top, element) => {
-        restoreRef.current?.({
-          kind: 'offset',
-          fromBottom: Math.max(0, element.scrollHeight - element.clientHeight - top)
-        })
+        if (restoreRef.current) {
+          restoreRef.current({
+            kind: 'offset',
+            fromBottom: Math.max(0, element.scrollHeight - element.clientHeight - top)
+          })
+        } else {
+          // Cached Bot messages can render before the live session key exists.
+          // This transcript still owns its library's follow state during wakeup.
+          stopScroll()
+          element.scrollTop = top
+        }
       }
     )
-  }, [paneVisible, restoreRef, scrollRef])
+  }, [paneVisible, restoreRef, scrollRef, stopScroll])
 }
