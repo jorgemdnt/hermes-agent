@@ -26,11 +26,11 @@ def with_turn_status(handler):
         # Activate addresses a runtime id; its owning profile, not the launch
         # profile, decides which store contains the shared turn lease.
         session = server._sessions.get(str(payload.get("session_id") or ""), {})
-        profile = params.get("profile")
-        if home := session.get("profile_home"):
-            profile = server.profile_name_for_home(home)
+        if session.get("running"):
+            payload["external_turn"] = False
+            return response
         try:
-            with server._profile_db({"profile": profile}) as db:
+            with (server._session_db(session) if session else server._profile_db(params)) as db:
                 if db is None:
                     return server._db_unavailable_error(rid, code=5000)
                 if not callable(getattr(type(db), "get_session_turn_lease", None)):
