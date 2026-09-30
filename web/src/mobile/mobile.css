@@ -396,6 +396,7 @@
   .m-composer { width: min(100%, 768px); margin-inline: auto; padding: 12px 24px 20px; }
   .m-jump-row { right: max(24px, calc((100% - 720px) / 2)); }
   .m-settings, .m-board { width: min(100%, 768px); margin-inline: auto; }
+  .m-shell .m-detail .m-board { padding-top: 84px; }
   .m-screen { width: min(100%, 1240px); margin-inline: auto; padding-top: 84px; }
   @media (min-width: 1360px) {
     .m-shell:has(.m-right-split[data-open="true"]) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
