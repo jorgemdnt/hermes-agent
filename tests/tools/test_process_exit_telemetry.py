@@ -218,7 +218,6 @@ def test_exhausted_spurious_eof_recovery_is_not_called_a_disconnect(home, monkey
 
 @pytest.mark.platforms("posix")
 def test_dead_desktop_parent_is_recorded_as_parent_disconnect(home, monkeypatch, caplog):
-    import os
     import subprocess
     import threading
 
@@ -232,7 +231,7 @@ def test_dead_desktop_parent_is_recorded_as_parent_disconnect(home, monkeypatch,
     monkeypatch.delenv("HERMES_PARENT_START_MARKER", raising=False)
     monkeypatch.delenv("HERMES_PARENT_NONCE", raising=False)
     monkeypatch.setenv("HERMES_SERVE_WATCHDOG_POLL_S", "0.5")
-    monkeypatch.setattr(os, "_exit", lambda code: exited.set())
+    monkeypatch.setattr(web_server_lifecycle, "_request_orphan_shutdown", exited.set)
     web_server_lifecycle._start_parent_death_watchdog()
     assert exited.wait(10), "watchdog never fired for a dead parent"
     lines = _exit_lines(caplog, "host.exit")

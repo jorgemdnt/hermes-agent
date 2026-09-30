@@ -656,7 +656,7 @@ export function useMessageStream({
           // the sealed one keeps reading "Result unavailable", and a running
           // event for the same id seeds a second live row with its own timer
           // under the user's message (#113035). Both phases route by id.
-          eventTarget: state => toolCallOwnerMessageId(state.messages, payload)
+          eventTarget: state => toolCallOwnerMessageId(state.messages, payload, phase)
         },
         occurredAt
       )

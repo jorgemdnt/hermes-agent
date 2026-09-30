@@ -5,6 +5,7 @@ import { resumeAccountConnect } from '@/app/capabilities/connectors/data/deep-li
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { commandFocusedPreview } from '@/app/chat/right-rail/preview-nav'
 import { bindNotifiedSessionFocus, focusNotifiedSession } from '@/app/focus-notified-session'
+import { commandFocusedTerminal } from '@/app/right-sidebar/terminal/terminal-context-menu'
 import { openConnectionDoneLink } from '@/components/assistant-ui/connector-tool'
 import { isPaneVisible } from '@/components/pane-shell/tree/store'
 import { $diskPluginsScanPending } from '@/contrib/runtime-loader'
@@ -39,7 +40,7 @@ import { storedSessionIdForRuntimeId } from '@/store/session-states'
 import { onSessionsChanged } from '@/store/session-sync'
 import { requestSkillInstallFromDeepLink } from '@/store/skill-deeplink-install'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
-import { isBrowserWindow, isHudWindow, isSecondaryWindow } from '@/store/windows'
+import { isBrowserWindow, isHudWindow, isPeerInstanceWindow, isSecondaryWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
 import { requestComposerFocus, requestComposerInsert } from '../../chat/composer/focus'
@@ -129,7 +130,12 @@ export function useDesktopIntegrations({
   // This ref is a one-time lifecycle latch, not a mirror of reactive atom state.
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
-    if (!profileReady || isHudWindow() || isBrowserWindow()) {
+    // A peer instance window (Ctrl+Shift+N / New Window) boots on the fresh
+    // draft route by design: it must not replay the primary window's
+    // remembered-route/remembered-session restore, which lands it back on the
+    // very session Window 1 has open (#74948). Connections' source
+    // restoration already skips peers for the same reason.
+    if (!profileReady || isHudWindow() || isBrowserWindow() || isPeerInstanceWindow()) {
       return
     }
 
@@ -483,15 +489,15 @@ export function useDesktopIntegrations({
     return () => unsubscribe?.()
   }, [navigate])
 
-  // Native browser gestures (⌘R, a mouse's back/forward buttons, a trackpad
-  // swipe) that landed on the app's own chrome rather than inside a page — main
-  // answers those against the focused guest and never asks. Only ⌘R has an
-  // app-level meaning to fall back to; an unfocused swipe is a no-op.
+  // Back/forward share the app stack even from a guest. Reload stays scoped
+  // to the focused terminal/preview before falling back to the app.
   useEffect(() => {
     const unsubscribe = window.hermesDesktop?.onPreviewNav?.(command => {
       if (command === 'back' || command === 'forward') {
         travelNavigation(command === 'back' ? -1 : 1)
-
+        return
+      }
+      if (commandFocusedTerminal(command)) {
         return
       }
 
