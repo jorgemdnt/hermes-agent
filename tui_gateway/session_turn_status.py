@@ -27,7 +27,6 @@ def with_turn_status(handler):
         # profile, decides which store contains the shared turn lease.
         session = server._sessions.get(str(payload.get("session_id") or ""), {})
         if session.get("running"):
-            payload["external_turn"] = False
             return response
         try:
             with (server._session_db(session) if session else server._profile_db(params)) as db:
