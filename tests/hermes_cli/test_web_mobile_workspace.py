@@ -33,7 +33,7 @@ def setup(tmp_path: Path, monkeypatch):
 def test_project_list_and_local_first_send(setup):
     _, repo, project_id = setup
     result = workspace.list_workspaces("default")
-    assert result == {"projects": [{"id": project_id, "label": "Example", "path": str(repo)}], "supported": True}
+    assert result == {"projects": [{"id": project_id, "label": "Example", "path": str(repo), "git": True}], "supported": True}
     prepared = workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=project_id, mode="local"))
     assert prepared == {"cwd": str(repo), "branch": None}
 
@@ -42,7 +42,7 @@ def test_project_without_folder_is_not_offered(setup):
     home, repo, project_id = setup
     with projects_db.connect_closing(db_path=home / "projects.db") as db:
         projects_db.create_project(db, name="No folder")
-    assert workspace.list_workspaces("default")["projects"] == [{"id": project_id, "label": "Example", "path": str(repo)}]
+    assert workspace.list_workspaces("default")["projects"] == [{"id": project_id, "label": "Example", "path": str(repo), "git": True}]
 
 
 def test_worktree_is_real_and_invalid_branch_does_not_create_it(setup):
@@ -101,9 +101,60 @@ def test_non_git_project_does_not_get_initialized(setup, tmp_path):
     assert not (folder / ".git").exists()
 
 
-def test_remote_bot_is_explicitly_unsupported(setup, monkeypatch):
-    _, _, project_id = setup
+def test_remote_ids_are_resolved_on_the_terminal_host(setup, monkeypatch, tmp_path):
+    import json
+    import os
+    import sys
+    from hermes_cli.web_mobile_workspace_remote import REMOTE_WORKSPACES
+
+    _, local_repo, local_id = setup
+    remote_home = tmp_path / "remote"
+    remote_repo = remote_home / "work" / "example"
+    remote_repo.mkdir(parents=True)
+    _git(remote_repo, "init", "-b", "main")
+    _git(remote_repo, "-c", "user.email=qa@example.test", "-c", "user.name=QA", "commit", "--allow-empty", "-m", "init")
+
+    def on_host(config, action, **values):
+        result = subprocess.run([sys.executable, "-c", REMOTE_WORKSPACES],
+            input=json.dumps({"action": action, "cwd": "~/work/example", **values}),
+            text=True, capture_output=True, env={**os.environ, "HOME": str(remote_home)})
+        payload = json.loads(result.stdout)
+        if result.returncode:
+            raise ValueError(payload["error"])
+        return payload
+
     monkeypatch.setattr(workspace, "terminal_config", lambda profile: {"backend": "ssh"})
-    assert workspace.list_workspaces("default")["supported"] is False
-    with pytest.raises(ValueError, match="Remote bot"):
-        workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=project_id, mode="worktree", branch="feat/qa"))
+    monkeypatch.setattr(workspace, "remote_workspaces", on_host)
+    choices = workspace.list_workspaces("default")["projects"]
+    chosen = next(p for p in choices if p["path"] == str(remote_repo))
+    assert chosen["git"] and all(p["path"] != str(local_repo) for p in choices)
+    with pytest.raises(ValueError, match="Project unavailable"):
+        workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=local_id, mode="local"))
+    assert workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=chosen["id"], mode="local"))["cwd"] == str(remote_repo)
+    prepared = workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=chosen["id"], mode="worktree", branch="feat/remote"))
+    target = remote_home / "work/example-worktrees/feat-remote"
+    assert prepared["cwd"] == str(target) and target.is_dir()
+    assert subprocess.check_output(["git", "branch", "--show-current"], cwd=target, text=True).strip() == "feat/remote"
+    assert not (local_repo / ".worktrees").exists()
+
+
+def test_local_picker_includes_the_desktop_discovery_tree(setup, tmp_path, monkeypatch):
+    from hermes_state import SessionDB
+
+    home, _, _ = setup
+    other_home = tmp_path / "other-home"
+    other_home.mkdir()
+    monkeypatch.setattr(workspace, "_resolve_profile_dir", lambda profile: other_home if profile == "other" else home)
+    repo = tmp_path / "from-session"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "-c", "user.email=qa@example.test", "-c", "user.name=QA", "commit", "--allow-empty", "-m", "init")
+    with SessionDB(home / "state.db") as db:
+        db.create_session("old-chat", "mobile", cwd=str(repo))
+        db.append_message("old-chat", "user", "Work here")
+    choices = workspace.list_workspaces("default")["projects"]
+    assert workspace.list_workspaces("other")["projects"] == []
+    assert workspace.list_workspaces("default")["projects"] == choices
+    chosen = next(p for p in choices if p["path"] == str(repo))
+    assert chosen["git"]
+    assert workspace.prepare_workspace(workspace.WorkspaceRequest(profile="default", project_id=chosen["id"], mode="local"))["cwd"] == str(repo)

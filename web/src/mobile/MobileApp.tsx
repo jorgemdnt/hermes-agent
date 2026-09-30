@@ -12,7 +12,7 @@ const LAST_BOT_KEY = "hermes-mobile-last-bot";
 const LAST_CHAT_KEY = "hermes-mobile-last-chat";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelLeft, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, Check, ChevronDown, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelLeft, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { SkillEditor, type SkillEditorHandle } from "./SkillEditor";
@@ -304,7 +304,8 @@ export default function MobileApp() {
   useEffect(() => {
     if (view !== "chat" || selected || !profile) return;
     let active = true;
-    setProjects([]);
+    setProjects([]); setProjectId(""); setWorkspaceMode("local"); setProjectSupported(false); setProjectReason("");
+    preparedWorkspace.current = ""; setCreation(null); setBranchName(""); setBranchCheck(null);
     void fetchJSON<{ projects: ProjectChoice[]; supported: boolean; reason?: string }>(`/api/mobile/projects?profile=${encodeURIComponent(profile)}`)
       .then(result => {
         if (!active) return;
@@ -367,6 +368,8 @@ export default function MobileApp() {
     routerNavigate(path);
   };
   const shellRef = useRef<HTMLDivElement>(null);
+  const [shellContainer, setShellContainer] = useState<HTMLDivElement | null>(null);
+  const bindShell = useCallback((node: HTMLDivElement | null) => { shellRef.current = node; setShellContainer(node); }, []);
   const goBack = useCallback(() => {
     if (view === "board" && route.task) { routerNavigate("/m/board"); return; }
     if (window.history.state?.idx > 0) window.history.back();
@@ -1078,7 +1081,7 @@ export default function MobileApp() {
         }
         creationStep = "chat";
         setCreation({ step: "chat" });
-        const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false, ...(cwd ? { cwd } : {}) });
+        const created = await gw.request<SessionSnapshot>("session.create", { profile, source: "mobile", close_on_disconnect: false, ...(cwd ? { cwd, cwd_explicit: true } : {}) });
         target = { runtimeId: created.session_id, storedId: created.stored_session_id || created.session_id, rows: [], draft: "", running: false };
         skipResume.current = target.storedId;
         chatRef.current = target;
@@ -1420,10 +1423,9 @@ export default function MobileApp() {
   };
   const accountMenu = <ProfileDropdown open={profileMenuOpen} onOpenChange={setProfileMenuOpen} showScreen={profiles.some(p => p.name === "samwise")} container={shellRef.current}
     name={account?.display_name || account?.email?.split("@")[0] || "Jorge"} picture={account?.picture || ""} onSignOut={() => void logout()} signingOut={busy} desktop={desktop} />;
-  const newChatHero = <NewChatHero projects={projects} projectId={projectId} disabled={!!creation && !creation.error}
-    onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }} />;
-  const newChatToolbar = <NewChatToolbar projects={projects} supported={projectSupported} reason={projectReason}
-    projectId={projectId} onProject={id => { setProjectId(id); preparedWorkspace.current = ""; setCreation(null); }}
+  const newChatHero = <NewChatHero />;
+  const newChatToolbar = <NewChatToolbar container={shellContainer} projects={projects} supported={projectSupported} reason={projectReason}
+    projectId={projectId} onProject={id => { setProjectId(id); if (!projects.find(project => project.id === id)?.git) setWorkspaceMode("local"); preparedWorkspace.current = ""; setCreation(null); }}
     mode={workspaceMode} onMode={mode => { setWorkspaceMode(mode); preparedWorkspace.current = ""; setCreation(null); }}
     branch={effectiveBranch} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
     branchError={branchError} disabled={!!creation && !creation.error} />;
@@ -1519,7 +1521,7 @@ export default function MobileApp() {
     navigate("chat");
   };
 
-  return <CardNavigation.Provider value={href => routerNavigate(href)}><div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={shellRef}
+  return <CardNavigation.Provider value={href => routerNavigate(href)}><div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={bindShell}
     style={{ ...accentStyles, "--m-split-width": `${splitWidth}px`, ...(window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px` } : {}) } as CSSProperties}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
@@ -1537,7 +1539,14 @@ export default function MobileApp() {
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
       <header className="m-header">{!sidebarOpen && sidebarToggle}<HistoryButtons {...navigationHistory} />{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
-        {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
+        {view === "chat" && !selected && currentBot ? <DropdownMenu.Root>
+          <DropdownMenu.Trigger className="m-chat-identity" aria-label="Choose bot" disabled={sendingHere || !!creation && !creation.error}>{avatar(currentBot)}<span>{name}</span><ChevronDown size={14} aria-hidden="true" /></DropdownMenu.Trigger>
+          <DropdownMenu.Portal container={shellRef.current}><DropdownMenu.Content className="m-dropdown m-new-picker-menu" align="center" sideOffset={8} collisionPadding={16}>
+            <DropdownMenu.RadioGroup value={profile} onValueChange={bot => { void selectProfile(bot, ""); }}>
+              {profiles.map(bot => <DropdownMenu.RadioItem key={bot.name} value={bot.name}><Check size={14} className="m-check" aria-hidden="true" />{avatar(bot)}{botName(bot)}</DropdownMenu.RadioItem>)}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content></DropdownMenu.Portal>
+        </DropdownMenu.Root> : view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
         {view === "chat" && !splitOpen && <button type="button" className="m-icon-button" aria-label="Open right split" aria-expanded={splitOpen} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error m-turn-error"><span>{error}</span>{view === "chat" && !chat?.running && retryMessage && <button type="button" aria-label="Edit and retry message" onClick={() => {
@@ -1621,7 +1630,8 @@ export default function MobileApp() {
               {voice.phase === "recording" ? <button type="button" className="m-voice-stop" aria-label="Stop recording" onClick={voice.stop}><Square size={16} fill="currentColor" aria-hidden="true" /></button>
                 : voice.phase !== "idle" ? <button type="button" className="m-voice-loading" aria-label={voice.phase === "starting" ? "Starting microphone" : "Transcribing audio"} disabled><LoaderCircle size={20} aria-hidden="true" /></button>
                 : !text.trim() && !photos.length && !files.length ? <button type="button" className="m-voice-start" aria-label="Dictate message" disabled={busy || sendingHere || connection !== "open"} onClick={() => void voice.start()}><Mic size={20} aria-hidden="true" /></button>
-                : <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open" || !branchReady}><ArrowUp size={20} /></Button>}
+                : null}
+              {voice.phase === "idle" && <Button type="submit" variant="primary" size="icon" className="m-send" aria-label="Send" disabled={busy || sendingHere || connection !== "open" || !branchReady || !text.trim() && !photos.length && !files.length}><ArrowUp size={20} /></Button>}
             </div>
             {!chat && !selected && newChatToolbar}
           </form>
