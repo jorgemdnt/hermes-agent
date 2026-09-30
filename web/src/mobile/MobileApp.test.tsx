@@ -3,9 +3,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { SessionMessage } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({
   running: false,
+  externalTurn: false,
   latestBuildIdle: null as (() => boolean) | null,
   liveSessions: [] as Array<{ id: string; session_key: string; title: string; status: string }>,
   waitingProfile: "",
@@ -24,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   setSessionPinned: vi.fn(async (_id: string, pinned: boolean, _profile: string) => { void _profile; return { ok: true, pinned }; }),
   uploadChatImage: vi.fn(async () => ({ path: "/sample/image.png", name: "image.png", bytes: 68, mime_type: "image/png" })),
   transcribeAudio: vi.fn(async (_dataUrl: string, _mimeType: string, _profile: string) => { void _dataUrl; void _mimeType; void _profile; return { ok: true, transcript: "Dictated words" }; }),
-  getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }): Promise<{ messages: Array<{ role: string; content: string; timestamp?: number }> }> => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
+  getSessionMessages: vi.fn(async (_id: string, profile: string, page?: { offset?: number }): Promise<{ messages: SessionMessage[] }> => { void page; return { messages: [{ role: "user", content: `Earlier from ${profile}` }] }; }),
   searchSessions: vi.fn(async (_query: string, profile: string) => ({ results: profile === "gandalf" ? [{ session_id: "gandalf-found", title: "Found chat", snippet: "Match in message", last_active: 10 }] : [] })),
   request: vi.fn(async (method: string, params?: { session_id?: string; profile?: string }) => {
     if (method === "profiles.list") return { profiles: ["frodo", "gandalf", "samwise", "author", "default", "gimli"].map(name => ({ name, canonical_session: name === mocks.rosterAbsent ? null : {
@@ -33,7 +35,7 @@ const mocks = vi.hoisted(() => ({
     } })) };
     if (method === "session.list") return { sessions: params?.profile === mocks.existingCanonical ? [{ id: "already-stored", resolved_id: "already-current" }] : [] };
     if (method === "session.active_list") return { sessions: mocks.waitingProfile && params?.profile !== mocks.waitingProfile ? [] : mocks.liveSessions };
-    if (method === "session.resume") return { session_id: params?.session_id === "other-stored" ? "other-runtime" : "runtime", stored_session_id: params?.session_id, messages: [{ role: "user", text: `Earlier from ${params?.profile}` }], running: mocks.running };
+    if (method === "session.resume") return { session_id: params?.session_id === "other-stored" ? "other-runtime" : "runtime", stored_session_id: params?.session_id, messages: [{ role: "user", text: `Earlier from ${params?.profile}` }], running: mocks.running, external_turn: mocks.externalTurn };
     if (method === "session.create") return { session_id: "new-runtime", stored_session_id: "new-stored", messages: [] };
     if (method === "session.steer") return { status: "queued" };
     if (method === "commands.catalog") return { categories: [{ name: "Session", pairs: [["/help", "Show help"]] }], pairs: [["/help", "Show help"], ["/my-skill", "Run skill"]] };
@@ -70,7 +72,7 @@ const storage = new Map<string, string>();
 beforeEach(() => { storage.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } }); vi.clearAllMocks(); mocks.getAllProfileSessions.mockImplementation(async (_limit, archived) => ({ sessions: archived === "only" ? [] : [
     { id: "side-frodo", profile: "frodo", title: "Prior chat", preview: "Earlier from frodo", last_active: 20, message_count: 2 },
     { id: "gandalf-found", profile: "gandalf", title: "Found chat", preview: "Match in message", last_active: 10, message_count: 2 },
-  ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.setSessionPinned.mockImplementation(async (_id, pinned) => ({ ok: true, pinned })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
+  ] })); mocks.renameSession.mockImplementation(async (_id, title) => ({ ok: true, title })); mocks.setSessionArchived.mockImplementation(async (_id, archived) => ({ ok: true, archived })); mocks.setSessionPinned.mockImplementation(async (_id, pinned) => ({ ok: true, pinned })); mocks.getSessionMessages.mockImplementation(async (_id, profile) => ({ messages: [{ role: "user", content: `Earlier from ${profile}` }] })); mocks.running = false; mocks.externalTurn = false; mocks.liveSessions = []; mocks.waitingProfile = ""; mocks.rosterPreview = {}; mocks.rosterAbsent = ""; mocks.existingCanonical = ""; window.history.replaceState({}, "", "/m"); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); HTMLDialogElement.prototype.showModal = function () { this.open = true; }; HTMLDialogElement.prototype.close = function () { this.open = false; }; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Element.prototype.scrollIntoView = vi.fn(); host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); mocks.events.clear(); mocks.requests.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); window.history.replaceState({}, "", "/m"); });
 const renderApp = async () => { await act(async () => root.render(<BrowserRouter><MobileApp /></BrowserRouter>)); };
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
@@ -607,6 +609,55 @@ it("shows compaction and a failed turn with an edit-and-retry action instead of 
   expect(host.querySelector('[aria-label="Edit and retry message"]')).not.toBeNull();
 });
 
+// Drive the existing polling interval without replacing the animation clock.
+function captureTurnPoll() {
+  let tick: () => void;
+  const interval = setInterval.bind(globalThis);
+  vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+    if (delay === 2000 && typeof handler === "function") tick = handler;
+    return interval(handler, delay, ...args);
+  });
+  return () => act(async () => { tick(); });
+}
+
+it("tails an external bot turn and only reports failure when its owner stops", async () => {
+  const poll = captureTurnPoll();
+  window.history.replaceState({}, "", "/m/chat/frodo/stored");
+  const dm: SessionMessage = { role: "user", content: "Message from Samwise (@samwise): Check this" };
+  mocks.running = true; mocks.externalTurn = true;
+  mocks.getSessionMessages.mockResolvedValue({ messages: [dm, { role: "assistant", content: "" }] });
+  await renderApp(); await settle(); await settle();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.querySelector('.m-thinking')?.textContent).toBe('Working, replying to Samwise…');
+  mocks.getSessionMessages.mockResolvedValue({ messages: [dm, { role: "assistant", content: "Still checking", tool_calls: [{ id: "t", function: { name: "terminal", arguments: "{}" } }] }] });
+  await poll();
+  expect(host.querySelector('.m-assistant')?.textContent).toContain('Still checking');
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  mocks.running = false; mocks.externalTurn = false;
+  await poll();
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('The turn stopped without a reply.');
+  expect(host.querySelector('[aria-label="Edit and retry message"]')).toBeNull();
+});
+
+it("detects a separately started turn while idle and settles its final reply without a banner", async () => {
+  const poll = captureTurnPoll();
+  window.history.replaceState({}, "", "/m/chat/frodo/stored");
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "Earlier" }, { role: "assistant", content: "Done" }] });
+  await renderApp(); await settle(); await settle();
+  mocks.running = true; mocks.externalTurn = true;
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }] });
+  await poll();
+  expect(host.querySelector('.m-thinking')).not.toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  mocks.running = false; mocks.externalTurn = false;
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }, { role: "assistant", content: "Real final reply" }] });
+  await poll();
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.textContent?.match(/Real final reply/g)).toHaveLength(1);
+});
+
 it("marks a saved unanswered turn as interrupted after reconnect and offers edit/retry", async () => {
   window.history.replaceState({}, "", "/m/chat/frodo/stored");
   await renderApp(); await settle(); await settle();
@@ -616,21 +667,21 @@ it("marks a saved unanswered turn as interrupted after reconnect and offers edit
 });
 
 it("re-checks the server after a silent turn and stops a ghost spinner", async () => {
+  const poll = captureTurnPoll();
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  vi.useFakeTimers();
-  try {
-    await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
-    expect(host.querySelector('.m-typing')).not.toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
-    await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
-    expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
-    expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
-    expect(host.querySelector('.m-thinking')).toBeNull();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
-  } finally { vi.useRealTimers(); }
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
+  expect(host.querySelector('.m-typing')).not.toBeNull();
+  await poll();
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31000);
+  await poll();
+  clock.mockRestore();
+  expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
+  expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
 });
 
 it("keeps one live status through thinking, tools, streamed writing, and completion", async () => {
@@ -1058,6 +1109,59 @@ it("focuses the desktop composer on bot switch without forcing synchronous heigh
   expect(input.style.height).toBe('');
   await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).click()); await settle();
   expect(document.activeElement).toBe(host.querySelector('.m-skill-editor'));
+});
+
+it("toggles both desktop sidebars ahead of composer handlers and restores their state on remount", async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Keep this draft'); });
+  const editorHandler = vi.fn();
+  input.addEventListener('keydown', editorHandler);
+  const press = async (target: EventTarget, modifiers: KeyboardEventInit) => {
+    const event = new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true, cancelable: true, ...modifiers });
+    await act(async () => { target.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+  };
+  const left = () => host.querySelector('#m-left-sidebar')!;
+  const right = () => host.querySelector('#m-right-sidebar')!;
+  const expanded = (side: string) => host.querySelector(`.m-detail [aria-controls="m-${side}-sidebar"]`)?.getAttribute('aria-expanded');
+  expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
+  await press(input, { metaKey: true });
+  expect(left().getAttribute('inert')).not.toBeNull(); expect(expanded('left')).toBe('false');
+  await press(input, { metaKey: true, repeat: true });
+  expect(expanded('left')).toBe('false');
+  await press(input, { metaKey: true, altKey: true });
+  expect(right().getAttribute('inert')).toBeNull(); expect(expanded('right')).toBe('true');
+  expect(editorHandler).not.toHaveBeenCalled(); expect(input.textContent).toBe('Keep this draft');
+  expect(storage.get('hermes:left-sidebar-open')).toBe('false'); expect(storage.get('hermes:right-split-open')).toBe('true');
+  await act(async () => root.unmount()); root = createRoot(host);
+  await renderApp(); await settle(); await settle();
+  expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
+  await press(window, { ctrlKey: true }); await press(window, { ctrlKey: true, altKey: true });
+  expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
+  await act(async () => (host.querySelector('.m-detail [aria-controls="m-left-sidebar"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-detail [aria-controls="m-right-sidebar"]') as HTMLButtonElement).click());
+  expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
+  await press(window, { ctrlKey: true, key: '/', code: 'Slash' });
+  expect(document.body.textContent).toContain('Toggle left sidebar'); expect(document.body.textContent).toContain('Toggle right sidebar');
+});
+
+it("leaves sidebars and composer input alone for sidebar chords at phone width", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Phone draft'); });
+  for (const modifier of ['ctrlKey', 'metaKey']) for (const altKey of [false, true]) {
+    const event = new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', [modifier]: true, altKey, bubbles: true, cancelable: true });
+    await act(async () => { input.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+  }
+  expect(host.querySelector('.m-sidebar-collapsed')).toBeNull();
+  expect(host.querySelector('#m-right-sidebar')?.getAttribute('aria-hidden')).toBe('true');
+  expect(input.textContent).toBe('Phone draft');
+  expect(storage.get('hermes:left-sidebar-open')).toBe('true'); expect(storage.get('hermes:right-split-open')).toBe('false');
 });
 
 it("does not focus the composer when opening a bot at phone width", async () => {

@@ -7,6 +7,7 @@ server.py the same way (tests monkeypatching ``server.X`` still intercept)."""
 import contextlib
 
 from .method_ctx import HandlerRegistry, bind_module
+from .session_turn_status import with_turn_status
 
 _registry = HandlerRegistry()
 method = _registry.method
@@ -969,6 +970,7 @@ def _resume_eager(ctx: _Resume) -> dict:
 
 
 @method("session.resume")
+@with_turn_status
 def _(rid, params: dict) -> dict:
     if not (target := params.get("session_id", "")):
         return _err(rid, 4006, "session_id required")
@@ -1080,7 +1082,9 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"sessions": rows})
 
 
-@_session_method("session.activate")
+@method("session.activate")
+@with_turn_status
+@_with_session
 def _(rid, params: dict, session: dict) -> dict:
     """Attach the frontend to a live TUI session without closing the previously focused one."""
     sid = str(params.get("session_id") or "")

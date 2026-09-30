@@ -10,6 +10,7 @@ export interface MobileChat {
   rows: ChatRow[];
   draft: string;
   running: boolean;
+  externalTurn?: boolean;
   runtimeId: string;
   storedId: string;
 }

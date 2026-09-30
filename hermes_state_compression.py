@@ -211,6 +211,7 @@ class SessionCompressionMixin:
         """INSERT the compression child's ``sessions`` row copied from *parent*. Same contract as
         _insert_session_row's compression-fork backfill: the child stays on the parent's profile and keeps
         gateway routing/origin columns; no owner on either side -> this store's profile."""
+        local_cwd = self.uses_local_cwd()
         system_prompt_hash = self._store_system_prompt(conn, system_prompt)
         # The child continues the parent's tools[] pin (the compaction refresh re-pinned it just
         # before publish), or its first hop to another surface re-derives the array.
@@ -225,8 +226,10 @@ class SessionCompressionMixin:
                 ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 child_session_id, source, model, json.dumps(model_config) if model_config else None,
-                system_prompt_hash, parent["tool_names"], parent_session_id, cwd or parent["cwd"], parent["git_branch"],
-                parent["git_repo_root"],
+                system_prompt_hash, parent["tool_names"], parent_session_id,
+                (cwd or parent["cwd"]) if local_cwd else None,
+                parent["git_branch"] if local_cwd else None,
+                parent["git_repo_root"] if local_cwd else None,
                 profile_name or parent["profile_name"] or self._own_profile_name(),
                 parent["user_id"], parent["session_key"], parent["chat_id"], parent["chat_type"],
                 parent["thread_id"], parent["display_name"], parent["origin_json"], time.time(),
@@ -670,6 +673,24 @@ class SessionCompressionMixin:
                 "DELETE FROM session_turn_leases WHERE conversation_id = ? AND holder = ?",
                 (conversation_id, holder))
         self._execute_write(_do)
+
+    def get_session_turn_lease(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Read the conversation's turn owner without acquiring or renewing its lease.
+
+        Use the same lineage key and dead-owner rule as admission. An idle open
+        surface is not a running turn; a killed writer is not alive until TTL expiry.
+        """
+        from hermes_state import _compression_lock_holder_process_is_dead
+
+        with self._read_ctx() as conn:
+            key = self._session_turn_lease_key_on_conn(conn, session_id)
+            row = conn.execute(
+                "SELECT holder, acquired_at, expires_at FROM session_turn_leases "
+                "WHERE conversation_id = ? AND expires_at > ?", (key, time.time()),
+            ).fetchone()
+        if row is None or _compression_lock_holder_process_is_dead(row["holder"]):
+            return None
+        return dict(row)
 
     def get_compression_lock_holder(self, session_id: str) -> Optional[str]:
         """Current (non-expired) holder for ``session_id``, or None. Diagnostic only."""

@@ -165,15 +165,14 @@ export function RightSplit({ open, width, onWidth, onClose, tab, onTab, browserU
   browserUrl: string; onBrowserUrl: (url: string) => void; suggestions: string[]; filePath: string; profile: string; session: string; screen?: ReactNode;
 }) {
   const initial = useRef<{ x: number; width: number } | null>(null);
-  if (!open) return null;
   const clamp = (value: number) => Math.max(320, Math.min(value, Math.min(900, window.innerWidth - 620)));
-  return <aside className="m-right-split" style={{ "--m-split-width": `${width}px` } as React.CSSProperties} aria-label="Right split">
+  return <aside id="m-right-sidebar" className="m-right-split" data-open={open} aria-hidden={!open} inert={!open} style={{ "--m-split-width": `${width}px` } as React.CSSProperties} aria-label="Right split">
     <div className="m-split-resize" role="separator" tabIndex={0} aria-label="Resize right split" aria-orientation="vertical" aria-valuenow={width} onPointerDown={event => { initial.current = { x: event.clientX, width }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (initial.current) onWidth(clamp(initial.current.width + initial.current.x - event.clientX)); }} onPointerUp={() => { initial.current = null; }} onPointerCancel={() => { initial.current = null; }} onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); onWidth(clamp(width + (event.key === "ArrowLeft" ? 24 : -24))); } }} />
     <div className="m-split-header"><div role="tablist" aria-label="Right split views">{(["browser", "files", ...(screen ? ["screen"] : [])] as SplitTab[]).map(item => <button type="button" role="tab" aria-selected={tab === item} key={item} onClick={() => onTab(item)}>{item === "browser" ? <Globe2 size={16} /> : item === "files" ? <FileText size={16} /> : <Monitor size={16} />}{item[0].toUpperCase() + item.slice(1)}</button>)}</div><button type="button" aria-label="Close right split" onClick={onClose}><X size={18} /></button></div>
     <div className="m-split-body" role="tabpanel" aria-label={tab}>
       <div className="m-split-tab-pane" hidden={tab !== "browser"}><BrowserPane address={browserUrl} onAddress={onBrowserUrl} suggestions={suggestions} /></div>
-      {tab === "files" && <FilesPane key={`${profile}/${session}/${filePath}`} profile={profile} session={session} requestedPath={filePath} />}
-      {tab === "screen" && screen}
+      {open && tab === "files" && <FilesPane key={`${profile}/${session}/${filePath}`} profile={profile} session={session} requestedPath={filePath} />}
+      {open && tab === "screen" && screen}
     </div>
   </aside>;
 }
