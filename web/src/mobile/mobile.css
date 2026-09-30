@@ -403,7 +403,25 @@
     .m-shell .m-pinned-bot:hover { background: var(--secondary); opacity: 1; }
   }
 }
-.m-shell.m-native :is(.m-list-header, .m-header) { -webkit-app-region: drag; }
+.m-shell.m-native :is(.m-list-header, .m-header, .m-split-header) { -webkit-app-region: drag; pointer-events: auto; }
+/* hiddenInset overlays the controls; reserve their horizontal strip, not a second titlebar. */
+.m-shell.m-native .m-list-header,
+.m-shell.m-native.m-sidebar-collapsed :is(.m-detail, .m-desktop-empty) > .m-header { padding-left: 96px; }
+.m-shell.m-native .m-split-header :is(button, input) { -webkit-app-region: no-drag; }
+@media (max-width: 1359px) {
+  .m-shell.m-native .m-split-header { padding-left: 96px; }
+}
+@media (max-width: 767px) {
+  /* A narrow Electron window still has sidebars; the phone browser keeps its back navigation. */
+  .m-shell.m-native .m-home { width: min(320px, 100%); z-index: 2; border-right: 1px solid var(--border); transition: transform .18s ease; }
+  .m-shell.m-native.m-sidebar-collapsed .m-home { transform: translateX(-100%); }
+  .m-shell.m-native .m-detail { left: 0; width: 100%; transform: none !important; }
+  .m-shell.m-native .m-header { min-height: 72px; padding-block: 12px; }
+  .m-shell.m-native .m-header .m-chat-identity { flex: 1; margin-right: 0; }
+  .m-shell.m-native .m-sidebar-footer { padding: 10px 12px; border-top: 1px solid var(--border); }
+  .m-shell.m-native .m-desktop-empty { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; }
+  .m-shell.m-native .m-desktop-empty > .m-header { position: absolute; top: 0; left: 0; right: 0; }
+}
 @media (prefers-reduced-motion: reduce) { .m-shell *, .m-shell *::before, .m-shell *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 @media (prefers-reduced-motion: no-preference) {
   .m-bot-row, .m-destination, .m-shell button { transition: background-color .18s ease, border-color .18s ease; }

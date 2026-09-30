@@ -1060,6 +1060,29 @@ it("focuses the desktop composer on bot switch without forcing synchronous heigh
   expect(document.activeElement).toBe(host.querySelector('.m-skill-editor'));
 });
 
+it.each(['desktop', 'narrow native'])("renders one toggle per sidebar and moves it with the panel in %s", async surface => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: surface === 'desktop' && query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  if (surface === 'narrow native') vi.stubGlobal('hermetic', { titlebarInset: 36, hostName: 'testhost' });
+  await renderApp(); await settle(); await settle();
+  const toggle = (side: string) => {
+    const buttons = host.querySelectorAll<HTMLButtonElement>(`[aria-controls="m-${side}-sidebar"]`);
+    expect(buttons).toHaveLength(1);
+    return buttons[0];
+  };
+  expect(toggle('left').closest('.m-list-header')).not.toBeNull();
+  await act(async () => toggle('left').click());
+  expect(toggle('left').closest('.m-header')).not.toBeNull();
+  expect(toggle('left').getAttribute('aria-expanded')).toBe('false');
+  await act(async () => toggle('left').click());
+  expect(toggle('left').closest('.m-list-header')).not.toBeNull();
+  expect(toggle('right').closest('.m-header')).not.toBeNull();
+  await act(async () => toggle('right').click());
+  expect(toggle('right').closest('.m-split-header')).not.toBeNull();
+  expect(toggle('right').querySelector('.lucide-panel-right')).not.toBeNull();
+  await act(async () => toggle('right').click());
+  expect(toggle('right').closest('.m-header')).not.toBeNull();
+});
+
 it("toggles both desktop sidebars ahead of composer handlers and restores their state on remount", async () => {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   await renderApp(); await settle(); await settle();
@@ -1075,7 +1098,7 @@ it("toggles both desktop sidebars ahead of composer handlers and restores their 
   };
   const left = () => host.querySelector('#m-left-sidebar')!;
   const right = () => host.querySelector('#m-right-sidebar')!;
-  const expanded = (side: string) => host.querySelector(`.m-detail [aria-controls="m-${side}-sidebar"]`)?.getAttribute('aria-expanded');
+  const expanded = (side: string) => host.querySelector(`[aria-controls="m-${side}-sidebar"]`)?.getAttribute('aria-expanded');
   expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
   await press(input, { metaKey: true });
   expect(left().getAttribute('inert')).not.toBeNull(); expect(expanded('left')).toBe('false');
@@ -1090,8 +1113,8 @@ it("toggles both desktop sidebars ahead of composer handlers and restores their 
   expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
   await press(window, { ctrlKey: true }); await press(window, { ctrlKey: true, altKey: true });
   expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
-  await act(async () => (host.querySelector('.m-detail [aria-controls="m-left-sidebar"]') as HTMLButtonElement).click());
-  await act(async () => (host.querySelector('.m-detail [aria-controls="m-right-sidebar"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('[aria-controls="m-left-sidebar"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('[aria-controls="m-right-sidebar"]') as HTMLButtonElement).click());
   expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
   await press(window, { ctrlKey: true, key: '/', code: 'Slash' });
   expect(document.body.textContent).toContain('Toggle left sidebar'); expect(document.body.textContent).toContain('Toggle right sidebar');

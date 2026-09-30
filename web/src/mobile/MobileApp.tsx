@@ -97,10 +97,10 @@ export default function MobileApp() {
   const routerNavigate = useNavigate();
   const route = mobileRoute(location.pathname);
   const view = route.view;
-  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 768px)").matches);
+  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 768px)").matches || !!window.hermetic);
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
-    const update = () => setDesktop(media.matches);
+    const update = () => setDesktop(media.matches || !!window.hermetic);
     media.addEventListener("change", update);
     update();
     return () => media.removeEventListener("change", update);
@@ -1397,7 +1397,7 @@ export default function MobileApp() {
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
-      {sidebarToggle}
+      {sidebarOpen && sidebarToggle}
       <h1 className="sr-only">{homeTab === "chats" ? "Chats" : "Bots"}</h1>
       {!desktop && <div className="m-list-header-left">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></div>}
       <div className="m-top-actions">
@@ -1491,7 +1491,7 @@ export default function MobileApp() {
       <div id="m-left-sidebar" className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={desktop ? !sidebarOpen : view !== "bots"} inert={desktop ? !sidebarOpen : view !== "bots"}>
         {renderHome()}
       </div>
-      {desktop && view === "bots" && <main className="m-desktop-empty">{!sidebarOpen && sidebarToggle}<MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
+      {desktop && view === "bots" && <main className="m-desktop-empty">{!sidebarOpen && <header className="m-header">{sidebarToggle}</header>}<MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
@@ -1501,9 +1501,9 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header">{sidebarToggle}{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
+      <header className="m-header">{!sidebarOpen && sidebarToggle}{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
+        {view === "chat" && !splitOpen && <button type="button" className="m-icon-button" aria-label="Open right split" aria-expanded={splitOpen} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
         const last = [...chat.rows].reverse().find(row => row.role === "user");
