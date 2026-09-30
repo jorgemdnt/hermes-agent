@@ -9,6 +9,9 @@ import { setApiRequestConnection, setApiRequestProfile } from '@/api/client'
 // Test harness supplies the host's locale registration, as plugin loading does.
 // eslint-disable-next-line no-restricted-imports
 import { registerPluginLocales } from '@/i18n/plugin-i18n'
+// Test harness resolves the host's translated navigation labels.
+// eslint-disable-next-line no-restricted-imports
+import { en as hostEn } from '@/i18n/en'
 // Test harness reads the host's toast stack.
 // eslint-disable-next-line no-restricted-imports
 import { $notifications, clearNotifications } from '@/store/notifications'
@@ -117,11 +120,12 @@ it('keeps app back and forward controls inside the modal card header', async () 
   try {
     openDrawer()
     const dialog = await screen.findByRole('dialog', { name: legacyDetail.task.title })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Go back' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: hostEn.preview.web.goBack }))
     expect(replay).toHaveBeenLastCalledWith(chat)
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Go forward' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: hostEn.preview.web.goForward }))
     expect(replay).toHaveBeenLastCalledWith(card)
   } finally {
+    cleanup()
     unbind()
     resetNavigationHistory()
   }
