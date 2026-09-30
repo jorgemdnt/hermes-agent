@@ -609,8 +609,19 @@ it("shows compaction and a failed turn with an edit-and-retry action instead of 
   expect(host.querySelector('[aria-label="Edit and retry message"]')).not.toBeNull();
 });
 
+// Drive the existing polling interval without replacing the animation clock.
+function captureTurnPoll() {
+  let tick: () => void;
+  const interval = setInterval.bind(globalThis);
+  vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+    if (delay === 2000 && typeof handler === "function") tick = handler;
+    return interval(handler, delay, ...args);
+  });
+  return () => act(async () => { tick(); });
+}
+
 it("tails an external bot turn and only reports failure when its owner stops", async () => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const poll = captureTurnPoll();
   window.history.replaceState({}, "", "/m/chat/frodo/stored");
   const dm: SessionMessage = { role: "user", content: "Message from Samwise (@samwise): Check this" };
   mocks.running = true; mocks.externalTurn = true;
@@ -618,37 +629,33 @@ it("tails an external bot turn and only reports failure when its owner stops", a
   await renderApp(); await settle(); await settle();
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.querySelector('.m-thinking')?.textContent).toBe('Working, replying to Samwise…');
-  try {
-    mocks.getSessionMessages.mockResolvedValue({ messages: [dm, { role: "assistant", content: "Still checking", tool_calls: [{ id: "t", function: { name: "terminal", arguments: "{}" } }] }] });
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(host.querySelector('.m-assistant')?.textContent).toContain('Still checking');
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    mocks.running = false; mocks.externalTurn = false;
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(host.querySelector('.m-thinking')).toBeNull();
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('The turn stopped without a reply.');
-    expect(host.querySelector('[aria-label="Edit and retry message"]')).toBeNull();
-  } finally { vi.useRealTimers(); }
+  mocks.getSessionMessages.mockResolvedValue({ messages: [dm, { role: "assistant", content: "Still checking", tool_calls: [{ id: "t", function: { name: "terminal", arguments: "{}" } }] }] });
+  await poll();
+  expect(host.querySelector('.m-assistant')?.textContent).toContain('Still checking');
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  mocks.running = false; mocks.externalTurn = false;
+  await poll();
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe('The turn stopped without a reply.');
+  expect(host.querySelector('[aria-label="Edit and retry message"]')).toBeNull();
 });
 
 it("detects a separately started turn while idle and settles its final reply without a banner", async () => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const poll = captureTurnPoll();
   window.history.replaceState({}, "", "/m/chat/frodo/stored");
   mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "Earlier" }, { role: "assistant", content: "Done" }] });
   await renderApp(); await settle(); await settle();
-  try {
-    mocks.running = true; mocks.externalTurn = true;
-    mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }] });
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(host.querySelector('.m-thinking')).not.toBeNull();
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    mocks.running = false; mocks.externalTurn = false;
-    mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }, { role: "assistant", content: "Real final reply" }] });
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(host.querySelector('.m-thinking')).toBeNull();
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.textContent?.match(/Real final reply/g)).toHaveLength(1);
-  } finally { vi.useRealTimers(); }
+  mocks.running = true; mocks.externalTurn = true;
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }] });
+  await poll();
+  expect(host.querySelector('.m-thinking')).not.toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  mocks.running = false; mocks.externalTurn = false;
+  mocks.getSessionMessages.mockResolvedValue({ messages: [{ role: "user", content: "New DM" }, { role: "assistant", content: "Real final reply" }] });
+  await poll();
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.textContent?.match(/Real final reply/g)).toHaveLength(1);
 });
 
 it("marks a saved unanswered turn as interrupted after reconnect and offers edit/retry", async () => {
@@ -660,21 +667,21 @@ it("marks a saved unanswered turn as interrupted after reconnect and offers edit
 });
 
 it("re-checks the server after a silent turn and stops a ghost spinner", async () => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const poll = captureTurnPoll();
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('.m-pinned-bot') as HTMLButtonElement).click());
   await settle();
-  try {
-    await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
-    expect(host.querySelector('.m-typing')).not.toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
-    await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
-    expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
-    expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
-    expect(host.querySelector('.m-thinking')).toBeNull();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
-  } finally { vi.useRealTimers(); }
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'message.start', session_id: 'runtime', payload: {} }); });
+  expect(host.querySelector('.m-typing')).not.toBeNull();
+  await poll();
+  await act(async () => { for (const handler of mocks.events) handler({ type: 'session.usage', session_id: 'runtime', payload: { usage: {} } }); });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31000);
+  await poll();
+  clock.mockRestore();
+  expect(mocks.request).toHaveBeenCalledWith('session.active_list', { profile: 'frodo' });
+  expect(mocks.request.mock.calls.filter(call => call[0] === 'session.resume').length).toBe(2);
+  expect(host.querySelector('.m-thinking')).toBeNull();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('stopped without a reply');
 });
 
 it("keeps one live status through thinking, tools, streamed writing, and completion", async () => {
