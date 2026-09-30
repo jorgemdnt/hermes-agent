@@ -63,6 +63,7 @@ vi.mock("./BotTerminalDock", () => ({ default: () => null }));
 vi.mock("./MobileScreen", () => ({ default: ({ onContinue }: { onContinue: () => Promise<void> }) => <button onClick={() => void onContinue()}>Continue after hand back</button> }));
 import MobileApp from "./MobileApp";
 import { PIN_STORAGE_KEY } from "./home-data";
+import { ACCENT_STORAGE_KEY, accentStyle, contrastRatio } from "./accent";
 
 let root: Root;
 let host: HTMLDivElement;
@@ -92,6 +93,39 @@ const openConversations = async () => {
   await act(async () => (host.querySelector('.m-chat-identity') as HTMLButtonElement).click());
   await act(async () => (Array.from(host.querySelectorAll('.m-activity .m-pin-choice')).find(button => button.textContent === 'Conversations') as HTMLButtonElement).click());
 };
+
+it("applies and restores the Settings accent live, without storing invalid custom hex", async () => {
+  window.history.replaceState({}, "", "/m/settings");
+  await renderApp();
+  const shell = () => host.querySelector<HTMLElement>(".m-shell")!;
+  const choose = async (name: string) => { await act(async () => (Array.from(host.querySelectorAll<HTMLButtonElement>(".m-accent-choices button")).find(button => button.textContent === name)!).click()); };
+  await choose("Blue");
+  const blue = localStorage.getItem(ACCENT_STORAGE_KEY)!;
+  expect(shell().style.getPropertyValue("--accent")).toBe(blue);
+  expect(shell().style.getPropertyValue("--accent-text")).toBe((accentStyle(blue, false) as Record<string, string>)["--accent-text"]);
+  await act(async () => (Array.from(host.querySelectorAll<HTMLButtonElement>(".m-theme-choices button")).find(button => button.textContent === "Dark")!).click());
+  expect(shell().style.getPropertyValue("--accent")).toBe(blue);
+  expect(shell().style.getPropertyValue("--accent-text")).toBe((accentStyle(blue, true) as Record<string, string>)["--accent-text"]);
+  const input = host.querySelector<HTMLInputElement>(".m-accent-custom input")!;
+  const typeHex = async (value: string) => { await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }); };
+  await typeHex("#xyz");
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(localStorage.getItem(ACCENT_STORAGE_KEY)).toBe(blue);
+  await typeHex("#AbC");
+  const custom = localStorage.getItem(ACCENT_STORAGE_KEY)!;
+  expect(custom).toBe("#aabbcc");
+  expect(contrastRatio(custom, shell().style.getPropertyValue("--accent-foreground"))).toBeGreaterThanOrEqual(4.5);
+  await act(async () => root.unmount()); root = createRoot(host);
+  await renderApp();
+  expect(shell().style.getPropertyValue("--accent")).toBe(custom);
+  expect(host.querySelector<HTMLInputElement>(".m-accent-custom input")!.value).toBe(custom);
+  await choose("Neutral");
+  expect(localStorage.getItem(ACCENT_STORAGE_KEY)).toBe("neutral");
+  expect(shell().style.getPropertyValue("--accent")).toBe("");
+});
 
 it.each(["another chat", "new conversation"])("keeps a foreign-session approval out of %s but answerable in its attributed inbox", async (mode) => {
   mocks.liveSessions = [

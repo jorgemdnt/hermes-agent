@@ -5,24 +5,29 @@
   --foreground: #171717;
   --card: #ffffff;
   --card-foreground: #171717;
-  --primary: #171717;
-  --primary-foreground: #ffffff;
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-foreground);
   --secondary: #fafafa;
   --secondary-foreground: #171717;
   --muted: #fafafa;
   --muted-foreground: #666666;
   --placeholder: #808080;
-  --accent: #171717;
-  --accent-foreground: #ffffff;
-  --question: #737373;
+  --accent: var(--foreground);
+  --accent-foreground: var(--background);
+  --accent-text: var(--foreground);
+  --accent-subtle: color-mix(in srgb, var(--accent) 12%, var(--background));
+  --accent-border: color-mix(in srgb, var(--accent-text) 40%, var(--border));
+  --accent-selection: var(--accent);
+  --accent-selection-foreground: var(--accent-foreground);
+  --question: var(--accent-text);
   --destructive: #ff5b4f;
   --destructive-foreground: #171717;
   --border: #ebebeb;
   --input: #ebebeb;
-  --ring: #171717;
-  --success: #737373;
+  --ring: var(--accent-text);
+  --success: #16803d;
   --color-success: var(--success);
-  --warning: #ff5b4f;
+  --warning: #a85b00;
   --chat-bubble: #f2f2f2;
   --chat-bubble-foreground: #171717;
   --screen: #0a0a0a;
@@ -33,13 +38,13 @@
 .m-shell[data-theme="dark"] {
   color-scheme: dark;
   --background: #0a0a0a; --foreground: #ededed; --card: #141414;
-  --card-foreground: #ededed; --primary: #ffffff; --primary-foreground: #171717;
+  --card-foreground: #ededed; --primary: var(--accent); --primary-foreground: var(--accent-foreground);
   --secondary: #1a1a1a; --secondary-foreground: #ededed;
   --muted: #1a1a1a; --muted-foreground: #aaaaaa; --placeholder: #808080;
-  --accent: #ededed; --accent-foreground: #0a0a0a; --question: #aaaaaa;
+  --accent: var(--foreground); --accent-foreground: var(--background);
   --destructive: #ff5b4f; --destructive-foreground: #171717;
-  --border: #292929; --input: #292929; --ring: #ededed;
-  --success: #aaaaaa; --warning: #ff5b4f;
+  --border: #292929; --input: #292929; --ring: var(--accent-text);
+  --success: #4ade80; --warning: #fbbf24;
   --chat-bubble: #1a1a1a; --chat-bubble-foreground: #ededed;
   --screen: #000000; --scrim: #000000b8; --shadow: #00000040;
 }
@@ -47,17 +52,20 @@
   .m-shell[data-theme="system"] {
     color-scheme: dark;
     --background: #0a0a0a; --foreground: #ededed; --card: #141414;
-    --card-foreground: #ededed; --primary: #ffffff; --primary-foreground: #171717;
+    --card-foreground: #ededed; --primary: var(--accent); --primary-foreground: var(--accent-foreground);
     --secondary: #1a1a1a; --secondary-foreground: #ededed;
     --muted: #1a1a1a; --muted-foreground: #aaaaaa; --placeholder: #808080;
-    --accent: #ededed; --accent-foreground: #0a0a0a; --question: #aaaaaa;
+    --accent: var(--foreground); --accent-foreground: var(--background);
     --destructive: #ff5b4f; --destructive-foreground: #171717;
-    --border: #292929; --input: #292929; --ring: #ededed;
-    --success: #aaaaaa; --warning: #ff5b4f;
+    --border: #292929; --input: #292929; --ring: var(--accent-text);
+    --success: #4ade80; --warning: #fbbf24;
     --chat-bubble: #1a1a1a; --chat-bubble-foreground: #ededed;
     --screen: #000000; --scrim: #000000b8; --shadow: #00000040;
   }
 }
+
+.m-shell { caret-color: var(--accent-text); accent-color: var(--accent); }
+.m-shell::selection, .m-shell *::selection { background: var(--accent-selection); color: var(--accent-selection-foreground); }
 
 /* The page behind the shell tints Safari's status bar and toolbar; keep it on the shell palette. */
 html:has(.m-shell), html:has(.m-shell) body { background: #ffffff; }
