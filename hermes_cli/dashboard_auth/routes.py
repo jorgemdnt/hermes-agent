@@ -471,18 +471,23 @@ def _require_session(request: Request):
 async def api_auth_me(request: Request):
     """Return the verified session as JSON. Auth-required (gate enforces)."""
     sess = _require_session(request)
-    from hermes_cli.dashboard_auth.avatar import google_picture_url
+    from hermes_cli.dashboard_auth.avatar import picture_for_session
     return {
         "user_id": sess.user_id, "email": sess.email, "display_name": sess.display_name,
         "org_id": sess.org_id, "provider": sess.provider, "expires_at": sess.expires_at,
-        "picture": f"{_prefix(request)}/api/auth/avatar" if google_picture_url(sess.picture) else ""}
+        "picture": f"{_prefix(request)}/api/auth/avatar" if picture_for_session(sess) else ""}
 
 @router.get("/api/auth/avatar", name="auth_avatar")
 async def api_auth_avatar(request: Request):
-    from hermes_cli.dashboard_auth.avatar import fetch_avatar
+    from hermes_cli.dashboard_auth.avatar import fetch_avatar, picture_for_session
+    import hashlib
     sess = _require_session(request)
-    image, media_type = await fetch_avatar(sess.picture)
-    return Response(image, media_type=media_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    image, media_type = await fetch_avatar(picture_for_session(sess))
+    etag = f'"{hashlib.sha256(image).hexdigest()}"'
+    headers = {"Cache-Control": "private, no-cache", "ETag": etag, "X-Content-Type-Options": "nosniff"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(image, media_type=media_type, headers=headers)
 
 
 @router.post("/api/mobile/logout", name="mobile_logout")
