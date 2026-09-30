@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 
 import { pluginRest } from '@/api/plugins'
 import { navigateToWorkspacePage } from '@/app/routes'
+import { setPluginEnabled } from '@/contrib/plugins-store'
 import { $activeConnectionId } from '@/store/connections'
 import { $activeGatewayProfile } from '@/store/profile'
 
@@ -47,7 +48,9 @@ export function CardLink({ href }: { href: string }) {
       href={`/m/board/${reference.id}`}
       onClick={event => {
         event.preventDefault()
-        navigateToWorkspacePage(navigate, `/kanban?${query}`)
+        void setPluginEnabled('kanban', true).then(() => {
+          navigateToWorkspacePage(navigate, `/kanban?${query}`)
+        })
       }}
       title={card ? `${card.title} · ${card.status}` : reference.id}
     >
