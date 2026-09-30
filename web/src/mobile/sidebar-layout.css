@@ -1,0 +1,16 @@
+@media (min-width: 768px) {
+  .m-shell { --m-sidebar-offset: var(--m-sidebar-width); }
+  .m-shell.m-sidebar-collapsed { --m-sidebar-offset: 0px; }
+  .m-shell .m-home { transition: transform .18s ease; }
+  .m-shell.m-sidebar-collapsed .m-home { transform: translateX(-100%); }
+  .m-shell .m-detail { left: var(--m-sidebar-offset); width: calc(100% - var(--m-sidebar-offset)); transition: left .18s ease, width .18s ease; }
+  .m-shell .m-desktop-empty { left: var(--m-sidebar-offset); transition: left .18s ease; }
+  .m-shell .m-terminal-dock:not(.m-terminal-full) { left: var(--m-sidebar-offset); transition: left .18s ease, right .18s ease; }
+  .m-desktop-empty > .m-sidebar-toggle { position: absolute; top: 12px; left: 24px; }
+}
+@media (min-width: 1360px) {
+  .m-shell .m-detail.m-with-split { width: calc(100% - var(--m-sidebar-offset) - var(--m-split-width)); }
+  .m-shell:has(.m-right-split[data-open="true"]) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
+}
+.m-right-split { transition: transform .18s ease, visibility .18s; }
+.m-right-split[data-open="false"] { transform: translateX(100%); visibility: hidden; pointer-events: none; }

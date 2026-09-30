@@ -1060,6 +1060,59 @@ it("focuses the desktop composer on bot switch without forcing synchronous heigh
   expect(document.activeElement).toBe(host.querySelector('.m-skill-editor'));
 });
 
+it("toggles both desktop sidebars ahead of composer handlers and restores their state on remount", async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Keep this draft'); });
+  const editorHandler = vi.fn();
+  input.addEventListener('keydown', editorHandler);
+  const press = async (target: EventTarget, modifiers: KeyboardEventInit) => {
+    const event = new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true, cancelable: true, ...modifiers });
+    await act(async () => { target.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+  };
+  const left = () => host.querySelector('#m-left-sidebar')!;
+  const right = () => host.querySelector('#m-right-sidebar')!;
+  const expanded = (side: string) => host.querySelector(`.m-detail [aria-controls="m-${side}-sidebar"]`)?.getAttribute('aria-expanded');
+  expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
+  await press(input, { metaKey: true });
+  expect(left().getAttribute('inert')).not.toBeNull(); expect(expanded('left')).toBe('false');
+  await press(input, { metaKey: true, repeat: true });
+  expect(expanded('left')).toBe('false');
+  await press(input, { metaKey: true, altKey: true });
+  expect(right().getAttribute('inert')).toBeNull(); expect(expanded('right')).toBe('true');
+  expect(editorHandler).not.toHaveBeenCalled(); expect(input.textContent).toBe('Keep this draft');
+  expect(storage.get('hermes:left-sidebar-open')).toBe('false'); expect(storage.get('hermes:right-split-open')).toBe('true');
+  await act(async () => root.unmount()); root = createRoot(host);
+  await renderApp(); await settle(); await settle();
+  expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
+  await press(window, { ctrlKey: true }); await press(window, { ctrlKey: true, altKey: true });
+  expect(expanded('left')).toBe('true'); expect(expanded('right')).toBe('false');
+  await act(async () => (host.querySelector('.m-detail [aria-controls="m-left-sidebar"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-detail [aria-controls="m-right-sidebar"]') as HTMLButtonElement).click());
+  expect(expanded('left')).toBe('false'); expect(expanded('right')).toBe('true');
+  await press(window, { ctrlKey: true, key: '/', code: 'Slash' });
+  expect(document.body.textContent).toContain('Toggle left sidebar'); expect(document.body.textContent).toContain('Toggle right sidebar');
+});
+
+it("leaves sidebars and composer input alone for sidebar chords at phone width", async () => {
+  await renderApp(); await settle(); await settle();
+  await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();
+  const input = host.querySelector('.m-skill-editor') as HTMLElement;
+  await act(async () => { typeComposer(input, 'Phone draft'); });
+  for (const modifier of ['ctrlKey', 'metaKey']) for (const altKey of [false, true]) {
+    const event = new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', [modifier]: true, altKey, bubbles: true, cancelable: true });
+    await act(async () => { input.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+  }
+  expect(host.querySelector('.m-sidebar-collapsed')).toBeNull();
+  expect(host.querySelector('#m-right-sidebar')?.getAttribute('aria-hidden')).toBe('true');
+  expect(input.textContent).toBe('Phone draft');
+  expect(storage.get('hermes:left-sidebar-open')).toBe('true'); expect(storage.get('hermes:right-split-open')).toBe('false');
+});
+
 it("does not focus the composer when opening a bot at phone width", async () => {
   await renderApp(); await settle(); await settle();
   await act(async () => (host.querySelector('[aria-label="Frodo"]') as HTMLButtonElement).click()); await settle();

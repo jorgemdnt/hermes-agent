@@ -9,7 +9,7 @@ const LAST_BOT_KEY = "hermes-mobile-last-bot";
 const LAST_CHAT_KEY = "hermes-mobile-last-chat";
 import { useMobileDictation } from "./useMobileDictation";
 import { isIOSDevice, useStandaloneSwipeBack } from "./useStandaloneSwipeBack";
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, BellOff, ChevronRight, Copy, FileUp, ImagePlus, LoaderCircle, LockKeyhole, MessageSquare, Mic, Moon, MoreHorizontal, PanelLeft, PanelRight, Pin, Plus, Search, Square, Sun, Monitor, ThumbsUp, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ProfileDropdown } from "./ProfileDropdown";
 import { SkillEditor, type SkillEditorHandle } from "./SkillEditor";
@@ -43,6 +43,7 @@ import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
 import { parseShortcut, type ShortcutAction } from "./shortcuts";
 import { RightSplit, type SplitTab } from "./RightSplit";
+import { useSidebarLayout } from "./sidebar-layout";
 import { conversationLocalLinks, fileLinkPath, localPreviewLink } from "./preview-links";
 import { activityTime, movePin, orderedBots, PIN_STORAGE_KEY, savedPins, type BotActivity } from "./home-data";
 import "./mobile-theme.css";
@@ -109,14 +110,14 @@ export default function MobileApp() {
   const [terminalCapabilities, setTerminalCapabilities] = useState<BotTerminalCapabilities | null>(null);
   const [terminalOpenByChat, setTerminalOpenByChat] = useState<Record<string, boolean>>({});
   const [terminalHeight, setTerminalHeight] = useState(() => Number(localStorage.getItem("hermes:bot-terminal-height")) || 310);
-  const [splitOpen, setSplitOpen] = useState(false);
+  const { sidebarOpen, setSidebarOpen, splitOpen, setSplitOpen } = useSidebarLayout();
   const [splitWidth, setSplitWidth] = useState(() => Number(localStorage.getItem("hermes:right-split-width")) || 520);
   const [splitTab, setSplitTab] = useState<SplitTab>("browser");
   const [browserUrl, setBrowserUrl] = useState("");
   const [filePath, setFilePath] = useState("");
   const resizeSplit = (value: number) => { setSplitWidth(value); localStorage.setItem("hermes:right-split-width", String(value)); };
   useEffect(() => {
-    if (view !== "chat") return;
+    if (!desktop || view !== "chat") return;
     const toggle = (event: KeyboardEvent) => {
       if (event.key !== "\\" || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
       event.preventDefault();
@@ -124,7 +125,7 @@ export default function MobileApp() {
     };
     window.addEventListener("keydown", toggle);
     return () => window.removeEventListener("keydown", toggle);
-  }, [view]);
+  }, [desktop, view, setSplitOpen]);
   const [selected, setSelected] = useState(() => route.session === "new" ? "" : route.session || "");
   const [conversationFolder, setConversationFolder] = useState("");
   useEffect(() => {
@@ -1306,6 +1307,10 @@ export default function MobileApp() {
   };
   const runShortcut = (action: ShortcutAction) => {
     switch (action.kind) {
+      case "sidebar":
+        if (action.side === "left") setSidebarOpen(open => !open);
+        else if (view === "chat") setSplitOpen(open => !open);
+        return;
       case "tab": chooseHomeTab(action.tab); return;
       case "nth": {
         if (homeTab === "chats") { const target = chatView.visible[action.index]; if (target) openChat(target); }
@@ -1339,10 +1344,15 @@ export default function MobileApp() {
       const action = parseShortcut(event);
       if (!action) return;
       event.preventDefault();
+      if (action.kind === "sidebar") {
+        // Win over contenteditable formatting, even with the composer focused.
+        event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
+      }
       runShortcutRef.current(action);
     };
-    window.addEventListener("keydown", onShortcut);
-    return () => window.removeEventListener("keydown", onShortcut);
+    window.addEventListener("keydown", onShortcut, true);
+    return () => window.removeEventListener("keydown", onShortcut, true);
   }, [desktop]);
   const matching = (p: ProfileInfo) => !searchOpen || !searchQuery.trim() || `${botName(p)} ${botPreview(p)}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
   const botPreview = (p: ProfileInfo) => {
@@ -1383,9 +1393,11 @@ export default function MobileApp() {
     branch={effectiveBranch} onBranch={value => { setBranchName(value); preparedWorkspace.current = ""; setCreation(null); }}
     branchError={branchError} disabled={!!creation && !creation.error} />;
   const creationStatus = creation && <CreationStatus progress={creation} mode={workspaceMode} onRetry={() => composerForm.current?.requestSubmit()} />;
+  const sidebarToggle = desktop && <button type="button" className="m-icon-button m-sidebar-toggle" aria-label={sidebarOpen ? "Collapse left sidebar" : "Open left sidebar"} aria-expanded={sidebarOpen} aria-controls="m-left-sidebar" title="Toggle left sidebar (⌘B / Ctrl+B)" onClick={() => setSidebarOpen(open => !open)}><PanelLeft size={20} aria-hidden="true" /></button>;
   const HomeScroller = desktop ? "aside" : "main";
   const renderHome = () => <>
     <header className="m-list-header">
+      {sidebarToggle}
       <h1 className="sr-only">{homeTab === "chats" ? "Chats" : "Bots"}</h1>
       {!desktop && <div className="m-list-header-left">{accountMenu}<HomeSwitch value={homeTab} onChange={chooseHomeTab} chatsUnread={unreadCount(sessions)} /></div>}
       <div className="m-top-actions">
@@ -1472,14 +1484,14 @@ export default function MobileApp() {
     navigate("chat");
   };
 
-  return <div className={`m-shell${window.hermetic ? " m-native" : ""}`} data-theme={theme} ref={shellRef}
+  return <div className={`m-shell${window.hermetic ? " m-native" : ""}${desktop && !sidebarOpen ? " m-sidebar-collapsed" : ""}`} data-theme={theme} ref={shellRef}
     style={window.hermetic ? { "--m-native-titlebar-inset": `${window.hermetic.titlebarInset}px`, "--m-split-width": `${splitWidth}px` } as CSSProperties : { "--m-split-width": `${splitWidth}px` } as CSSProperties}>
     <Toaster theme={theme} position="top-center" toastOptions={{ style: { background: "var(--card)", color: "var(--foreground)", borderColor: "var(--border)" } }} />
     <div className="m-stage">
-      <div className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={!desktop && view !== "bots"} inert={!desktop && view !== "bots"}>
+      <div id="m-left-sidebar" className={`m-view m-home${swiping && !(view === "board" && route.task) ? " m-swipe-preview" : ""}`} ref={view === "board" && route.task ? undefined : swipePreview} aria-hidden={desktop ? !sidebarOpen : view !== "bots"} inert={desktop ? !sidebarOpen : view !== "bots"}>
         {renderHome()}
       </div>
-      {desktop && view === "bots" && <main className="m-desktop-empty"><MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
+      {desktop && view === "bots" && <main className="m-desktop-empty">{!sidebarOpen && sidebarToggle}<MessageSquare size={30} aria-hidden="true" /><h2>{homeTab === "chats" ? "Choose a conversation" : "Choose a bot"}</h2></main>}
       {swiping && view === "board" && route.task && <div className="m-view m-board-swipe-preview m-swipe-preview" ref={swipePreview} aria-hidden="true" inert>
         <header className="m-header"><h1 className="m-page-title">Board</h1></header>
         <main className="m-main"><MobileKanban onSelectTask={() => {}} getSavedScroll={getBoardScroll} onScroll={() => {}} /></main>
@@ -1489,9 +1501,9 @@ export default function MobileApp() {
           variants={{ enter: { x: "100%" }, active: { x: 0 }, exit: (skip: boolean) => ({ x: "100%", transition: { duration: skip || reducedMotion ? 0 : 0.18 } }) }}
           initial="enter" animate="active" exit="exit" transition={{ duration: reducedMotion ? 0 : 0.18, ease: "easeOut" }}>
       <>
-      <header className="m-header">{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
+      <header className="m-header">{sidebarToggle}{(!desktop || view === "board" && !!route.task) && <button type="button" className="m-icon-button" aria-label={route.task ? "Back to board" : "Back to bots"} onClick={() => route.task ? routerNavigate("/m/board") : goBack()}><ArrowLeft size={22} aria-hidden="true" /></button>}
         {view === "chat" && currentBot ? <button type="button" className="m-chat-identity" aria-label={`Open ${name} activity`} onClick={() => setActivityOpen(true)}>{avatar(currentBot)}<span>{name}</span><span className="sr-only" role="status">{status}</span></button> : view === "chat" ? <div className="m-chat-identity" role="status" aria-label="Loading bot"><Skeleton className="m-avatar-skeleton" /><Skeleton className="m-name-skeleton" /></div> : view === "screen" && (profile === "samwise" || profile === "default") ? <div className="m-chat-identity m-screen-identity">{currentBot && avatar(currentBot)}<span>{name}’s computer</span><small role="status" aria-live="polite">{screenState}</small></div> : <h1 className="m-page-title">{{ board: route.task ? "Task" : "Board", screen: `${name} computer`, settings: "Settings", terminal: `${name} terminal`, subscriptions: "Subscriptions", bots: "Bots", chat: name }[view]}</h1>}
-        {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
+        {view === "chat" && <button type="button" className="m-icon-button" aria-label={splitOpen ? "Close right split" : "Open right split"} aria-expanded={splitOpen} aria-controls="m-right-sidebar" title="Toggle right sidebar (⌘⌥B / Ctrl+Alt+B)" onClick={() => setSplitOpen(open => !open)}><PanelRight size={20} aria-hidden="true" /></button>}
       </header>
       {error && <div role="alert" className="m-error">{error}{view === "chat" && !chat?.running && chat?.rows.some(row => row.role === "user") && <button type="button" aria-label="Edit and retry message" onClick={() => {
         const last = [...chat.rows].reverse().find(row => row.role === "user");

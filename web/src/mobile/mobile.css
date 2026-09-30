@@ -396,7 +396,7 @@
   .m-settings, .m-board { width: min(100%, 768px); margin-inline: auto; }
   .m-screen { width: min(100%, 1240px); margin-inline: auto; padding-top: 84px; }
   @media (min-width: 1360px) {
-    .m-shell:has(.m-right-split) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
+    .m-shell:has(.m-right-split[data-open="true"]) .m-terminal-dock:not(.m-terminal-full) { right: var(--m-split-width); }
   }
   @media (hover: hover) {
     .m-shell :is(.m-bot-main, .m-conversation-more, .m-icon-button, .m-add-photo, .m-voice-start):hover { background: var(--secondary); opacity: 1; }
