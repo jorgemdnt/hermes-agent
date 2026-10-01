@@ -11,6 +11,12 @@ import { Platform, PlatformPackager } from 'app-builder-lib'
 import { expect, it, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
+vi.mock('../../../scripts/build/python.mjs', () => ({ runPython: vi.fn() }))
+vi.mock('./sign-nested-chromium.mjs', async importOriginal => ({
+  ...await importOriginal(),
+  resolveSigningIdentity: vi.fn(async () => ({ identity: null, keychain: null }))
+}))
+const { runPython } = await import('../../../scripts/build/python.mjs')
 const desktopRoot = path.resolve(import.meta.dirname, '..')
 // The builder config is electron-builder.config.cjs (package.json carries no `build` block).
 const builderConfig = require(path.join(desktopRoot, 'electron-builder.config.cjs'))
@@ -60,6 +66,10 @@ it('restores app localizations from the filtered framework without copying local
     await mkdir(path.join(framework, 'other'), { recursive: true })
     await configuredHook(ctx)
     await configuredHook(ctx)
+    expect(runPython).toHaveBeenCalledWith([
+      path.resolve(desktopRoot, '../../scripts/build/gateway_launcher.py'),
+      '--app', path.join(root, 'Hermes Preview.app'), '--identity', '-'
+    ], { stdio: 'inherit' })
     expect((await readdir(resources)).filter(name => name.endsWith('.lproj')).sort())
       .toEqual(['en_GB.lproj', 'nb.lproj'])
     expect(await readdir(path.join(resources, 'nb.lproj'))).toEqual([])

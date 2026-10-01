@@ -67,9 +67,18 @@ export default async function afterPack(context) {
   }
   if (platform === 'darwin') {
     await restoreMacLocaleMarkers(context)
+    const { identity, keychain } = await resolveSigningIdentity(context.packager)
+    const gatewayArgs = [
+      path.resolve(import.meta.dirname, '../../../scripts/build/gateway_launcher.py'),
+      '--app', path.dirname(path.dirname(resources)), '--identity', identity || '-'
+    ]
+    // electron-builder Arch: x64=1, arm64=3; universal builds pack each separately.
+    const nativeArch = { 1: 'x86_64', 3: 'arm64' }[context.arch]
+    if (nativeArch) gatewayArgs.push('--arch', nativeArch)
+    if (keychain) gatewayArgs.push('--keychain', keychain)
+    runPython(gatewayArgs, { stdio: 'inherit' })
     if (fs.existsSync(payload)) {
       const entitlements = path.join(import.meta.dirname, '..', 'electron', 'entitlements.mac.inherit.plist')
-      const { identity, keychain } = await resolveSigningIdentity(context.packager)
       const nested = signNestedChromium(payload, { entitlements, identity, keychain })
       console.log(
         `[after-pack] repaired ${nested.repaired} framework links; signed ${nested.signed} nested chromium targets` +

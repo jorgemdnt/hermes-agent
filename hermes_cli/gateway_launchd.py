@@ -362,13 +362,21 @@ def generate_launchd_plist() -> str:
     _gw()._append_node_dir_for_service(priority_dirs)
     sane_path = ":".join(dict.fromkeys(priority_dirs + [p for p in os.environ.get("PATH", "").split(":") if p]))
 
-    # ProgramArguments (incl. --profile); the stderr wrapper keeps launchd restart semantics while timestamping
-    # stderr; the osascript wrapper gives the job a Local Network identity (see launchd_program_arguments).
+    # Retain the platform-binary LAN workaround under a windowless, signed Hermes
+    # responsible app when this profile explicitly registered one.
+    from hermes_cli.gateway_privacy_launcher import BUNDLE_ID, registered_launcher
     stdout_log, stderr_log = log_dir / "gateway.log", log_dir / "gateway.error.log"
     command = _timestamped_stderr_gateway_command(stderr_log, external_supervisor=True)
-    prog_args_xml = "\n        ".join(
-        f"<string>{escape(part)}</string>" for part in launchd_program_arguments(command, stdout_log, stderr_log)
-    )
+    program_arguments = launchd_program_arguments(command, stdout_log, stderr_log)
+    helper = registered_launcher()
+    association = ""
+    if helper is not None:
+        program_arguments = [str(helper), "--gateway", *program_arguments]
+        association = f"""
+    <key>AssociatedBundleIdentifiers</key>
+    <array><string>{BUNDLE_ID}</string></array>
+"""
+    prog_args_xml = "\n        ".join(f"<string>{escape(part)}</string>" for part in program_arguments)
 
     # Persist the configured RLIMIT_NOFILE floor: launchd defaults to soft 256, and every plist
     # rewrite would otherwise strip a manual limit and reintroduce EMFILE crashes.
@@ -398,7 +406,7 @@ def generate_launchd_plist() -> str:
     <array>
         {prog_args_xml}
     </array>
-    
+{association}
     <key>WorkingDirectory</key>
     <string>{working_dir}</string>
     

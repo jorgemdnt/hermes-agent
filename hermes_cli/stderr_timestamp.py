@@ -171,6 +171,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     log_path: Path = args.error_log
+    # The signed native responsible app skips osascript for user signals. Remove
+    # the inherited channel before spawning the gateway; it belongs to this wrapper.
+    signal_fd = os.environ.pop("HERMES_GATEWAY_SIGNAL_FD", None)
 
     try:
         proc = subprocess.Popen(
@@ -180,6 +183,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             env={**os.environ, **_child_launchd_label_env()},
         )
     except OSError as exc:
+        if signal_fd is not None:
+            os.close(int(signal_fd))
         with _open_log(log_path) as log_file:
             _write_timestamped_line(log_file, f"failed to start stderr-timestamped command: {exc}")
         return 127
@@ -188,6 +193,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     stdout_pump = threading.Thread(target=_copy_stdout_with_timestamps, args=(proc.stdout,), daemon=True)
     stdout_pump.start()
     previous_handlers = _install_signal_forwarders(proc)
+    if signal_fd is not None:
+        try:
+            os.write(int(signal_fd), f"{os.getpid()}\n".encode())
+        finally:
+            os.close(int(signal_fd))
     try:
         _copy_stderr_with_timestamps(proc.stderr, log_path)
         # Keep forwarding until the child has actually exited: a signal that lands between

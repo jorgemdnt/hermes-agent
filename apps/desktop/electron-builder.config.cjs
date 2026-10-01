@@ -173,6 +173,7 @@ module.exports = {
     sign: createMacSigner({
       entitlements: path.join(__dirname, 'electron/entitlements.mac.plist'),
       entitlementsInherit: path.join(__dirname, 'electron/entitlements.mac.inherit.plist'),
+      entitlementsLoginHelper: path.join(__dirname, 'native/gateway-entitlements.plist'),
       hardenedRuntime: true,
       ignore: (/** @type {string} */ file) => {
         try {
