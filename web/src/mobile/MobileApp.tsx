@@ -962,8 +962,12 @@ export default function MobileApp() {
     }
   });
 
+  const selectionRequest = useRef(0);
   const selectProfile = async (name: string, targetSession?: string) => {
     if (!profiles.some(p => p.name === name)) return;
+    const request = ++selectionRequest.current;
+    const origin = window.location.href;
+    const current = () => request === selectionRequest.current && window.location.href === origin;
     const botSelection = targetSession === undefined;
     if (botSelection) {
       const known = canonical.current.get(name);
@@ -974,10 +978,12 @@ export default function MobileApp() {
       if (!gw || connection !== "open") { setError("Still connecting. Try again."); return; }
       try {
         const roster = await refreshRoster(gw);
+        if (!current()) return;
         const entry = roster.profiles.find(p => p.name === name)?.canonical_session;
         if (entry) targetSession = entry.resolved_id || entry.id;
         else {
           const existing = await gw.request<{ sessions: Array<{ id: string; resolved_id?: string }> }>("session.list", { profile: name, title: "Bot Chat", include_hidden: true });
+          if (!current()) return;
           targetSession = existing.sessions[0]?.resolved_id || existing.sessions[0]?.id;
           if (!targetSession) {
             const created = await gw.request<SessionSnapshot>("session.create", { profile: name, source: "mobile", title: "Bot Chat", hidden: true, follow_profile_config: true, close_on_disconnect: false });
@@ -991,8 +997,9 @@ export default function MobileApp() {
             }
           }
         }
-      } catch (e) { setError(errorText(e)); return; }
+      } catch (e) { if (current()) setError(errorText(e)); return; }
     }
+    if (!current()) return;
     const session = targetSession;
     if (botSelection) localStorage.setItem(LAST_BOT_KEY, name);
     setCreation(null);

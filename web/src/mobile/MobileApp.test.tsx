@@ -522,6 +522,27 @@ it("restores the bot list scroll after returning through browser history", async
   expect(list.scrollTop).toBe(140);
 });
 
+it.each(["Board", "Settings"])("keeps %s selected when late startup chat discovery finishes", async (destination) => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  const original = mocks.request.getMockImplementation()!;
+  const response = await original("profiles.list");
+  let finish!: (value: typeof response) => void;
+  const roster = new Promise<typeof response>(resolve => { finish = resolve; });
+  mocks.request.mockImplementation(async (method, params) => method === "profiles.list" ? roster : original(method, params));
+  try {
+    await renderApp(); await settle(); await settle();
+    expect(mocks.request.mock.calls.filter(([method]) => method === "profiles.list").length).toBeGreaterThanOrEqual(2);
+    await openDestination(destination);
+    await act(async () => { finish(response); });
+    await settle();
+    expect(window.location.pathname).toBe(`/m/${destination.toLowerCase()}`);
+    expect(mocks.request).not.toHaveBeenCalledWith("session.create", expect.anything());
+  } finally {
+    finish(response);
+    mocks.request.mockImplementation(original);
+  }
+});
+
 it("opens the canonical Bot Chat, not a newer side conversation, and previews that same row", async () => {
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "frodo", is_default: true }, { name: "author", is_default: false }] });
   mocks.rosterPreview.author = "## Canonical **reply**";
