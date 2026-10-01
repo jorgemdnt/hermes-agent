@@ -263,6 +263,13 @@
 .m-card h2 { font-size: 17px; font-weight: 600; line-height: 1.3; margin: 0 0 8px; }
 .m-card p { color: var(--muted-foreground); font-size: 13px; margin: 0 0 12px; }
 .m-card .m-prompt-hint { margin-top: 12px; }
+.m-secret-card .m-secret-reason, .m-secret-card .m-secret-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-secret-help { display: block; width: fit-content; margin-bottom: 8px; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.m-secret-details { margin-top: 12px; color: var(--muted-foreground); font-size: 12px; }
+.m-secret-details summary { cursor: pointer; width: fit-content; }
+.m-secret-details[open] summary { margin-bottom: 10px; }
+.m-secret-details p:last-child { margin-bottom: 0; }
+.m-secret-full-reason { white-space: pre-wrap; }
 .m-card pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--secondary); color: var(--foreground); border-radius: 8px; padding: 12px; max-height: 160px; overflow-y: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, monospace; }
 .m-card fieldset { border: 0; padding: 0; margin: 12px 0; }
 .m-card legend { font-weight: 600; margin-bottom: 8px; }

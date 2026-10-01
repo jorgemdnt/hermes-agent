@@ -1578,7 +1578,7 @@ export default function MobileApp() {
               {chat?.draft && <article className="m-message m-assistant m-streaming"><div className="m-bubble"><Markdown content={chat.draft} streaming /></div></article>}
               {chat?.running && !chatPrompts.length && <div className="m-turn-status" role="status" aria-live="polite"><div className="m-typing" aria-label="Bot is typing"><span /><span /><span /></div><p className="m-thinking">{working || (chat.externalTurn ? externalTurnLabel : chat.draft ? "Writing…" : "Thinking…")}</p></div>}
               <AnimatePresence initial={false}>{chatPrompts.map(p => <motion.div className="m-inline-request" data-method={p.request.method} key={p.request.id}
-                exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}><Badge className="m-request-label">{name} needs your input</Badge><PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
+                exit={{ opacity: 0, height: 0 }} transition={{ duration: reducedMotion ? 0 : 0.18 }}>{!["secret.request", "secret"].includes(p.request.method) && <Badge className="m-request-label">{name} needs your input</Badge>}<PromptCard pending={p} onAnswer={answer} onReceived={received} /></motion.div>)}</AnimatePresence>
               {!!otherPrompts.length && <Button className="m-other-requests" variant="outline" type="button" onClick={() => navigate("bots")}>{otherPrompts.length} request{otherPrompts.length === 1 ? "" : "s"} in other conversations · View requests</Button>}
             </div>
           </div>

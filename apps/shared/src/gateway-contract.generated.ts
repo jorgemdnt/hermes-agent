@@ -4382,6 +4382,9 @@ export interface GeneralSecretParams {
   destination: Record<string, unknown>
   requester: string
   expires_at: number
+  title?: string | null
+  help_url?: string | null
+  hint?: string | null
 }
 export interface VaultUnlockRequestParams {
   session_id: string

@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from hermes_constants import get_hermes_home
 from tools.registry import registry
@@ -199,8 +200,27 @@ def _audit(request_id: str, session: str, dest: dict, sub: str, outcome: str, to
             os.close(fd)
 
 
+def _presentation_fields(title: str | None, help_url: str | None, hint: str | None) -> dict[str, str]:
+    fields = {}
+    for name, value, limit in (("title", title, 64), ("help_url", help_url, 2048), ("hint", hint, 80)):
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > limit or len(value.splitlines()) != 1 or re.search(r"[\r\n\u2028\u2029]", value):
+            raise ValueError(f"{name} must be one non-empty line, at most {limit} characters")
+        fields[name] = value.strip()
+    if help_url is not None:
+        try:
+            url = urlsplit(help_url)
+        except ValueError:
+            raise ValueError("help_url must be a valid HTTPS page URL") from None
+        if url.scheme != "https" or not url.hostname or url.username or url.password or any(c.isspace() for c in help_url):
+            raise ValueError("help_url must be an HTTPS page URL without credentials or whitespace")
+    return fields
+
+
 def secret_request(name: str, reason: str, destination: dict, expires_in: int = 180,
-                   task_id: str | None = None, tool_call_id: str = "") -> str:
+                   task_id: str | None = None, tool_call_id: str = "", *,
+                   title: str | None = None, help_url: str | None = None, hint: str | None = None) -> str:
     from agent.redact import register_vault_redaction_value
     from tui_gateway.secret_requests import request_secret
     try:
@@ -208,8 +228,9 @@ def secret_request(name: str, reason: str, destination: dict, expires_in: int = 
             raise ValueError("name and a brief reason are required")
         if not isinstance(expires_in, int) or isinstance(expires_in, bool) or not 1 <= expires_in <= 600:
             raise ValueError("expiry must be 1–600 seconds")
+        presentation = _presentation_fields(title, help_url, hint)
         dest = validate_destination(destination, name, task_id or "")
-        answer = request_secret(task_id or "", name, reason.strip(), dest, expires_in)
+        answer = request_secret(task_id or "", name, reason.strip(), dest, expires_in, **presentation)
         request_id, value, sub, session = answer
         if not value:
             _audit(request_id, session, dest, sub, "declined", tool_call_id)
@@ -254,14 +275,18 @@ def remove_file_secret(name: str, destination: dict) -> bool:
 
 
 registry.register(name="secret_request", toolset="mobile_secrets",
-    schema={"name": "secret_request", "description": "Ask the signed-in phone user for a secret; only the typed destination receives its value, never this tool result. Requires an authenticated Google phone session.",
+    schema={"name": "secret_request", "description": "Ask the signed-in phone user for a secret. Use a plain-language title and ONE short line of reason. Put setup steps behind help_url, never in a paragraph; hint is one short settings line. Only the typed destination receives the value, never chat history or this result. Requires an authenticated Google phone session.",
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string", "description": "Uppercase variable name for file destinations"},
-            "reason": {"type": "string", "description": "Why the bot needs it (shown to the user)"},
+            "reason": {"type": "string", "maxLength": 500, "description": "ONE short line of why (aim for 80 characters); no setup steps. Legacy long text is tucked into Details."},
+            "title": {"type": "string", "maxLength": 64, "description": "One-line plain words, e.g. GitHub token for jorgemdnt; not an env var name."},
+            "help_url": {"type": "string", "maxLength": 2048, "description": "Exact HTTPS page to create the secret; no credentials or whitespace."},
+            "hint": {"type": "string", "maxLength": 80, "description": "One short line of essential settings, e.g. Contents: read/write · 90 days."},
             "destination": {"type": "object", "description": "Typed destination: env_file {kind,path}, remote_file {kind,path}, vault_item/page_field {kind,origin,label,identifier}", "properties": {
                 "kind": {"type": "string", "enum": list(_KINDS)}, "path": {"type": "string"},
                 "origin": {"type": "string"}, "label": {"type": "string"}, "identifier": {"type": "string"}}, "required": ["kind"], "additionalProperties": False},
             "expires_in": {"type": "integer", "minimum": 1, "maximum": 600}},
         "required": ["name", "reason", "destination"]}},
     handler=lambda args, **kw: secret_request(args.get("name"), args.get("reason"), args.get("destination"),
-        args.get("expires_in", 180), task_id=kw.get("task_id"), tool_call_id=kw.get("tool_call_id", "")))
+        args.get("expires_in", 180), task_id=kw.get("task_id"), tool_call_id=kw.get("tool_call_id", ""),
+        title=args.get("title"), help_url=args.get("help_url"), hint=args.get("hint")))

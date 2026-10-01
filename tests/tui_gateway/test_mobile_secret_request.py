@@ -21,7 +21,11 @@ from tui_gateway.secret_requests import authorized_answer
 from tui_gateway.ws import WSTransport
 
 
-def test_mobile_secret_lifecycle(tmp_path, monkeypatch):
+@pytest.mark.parametrize("presentation", [{}, {
+    "title": "GitHub token for jorgemdnt", "help_url": "https://github.com/settings/personal-access-tokens/new",
+    "hint": "Contents: read/write · 90 days",
+}])
+def test_mobile_secret_lifecycle(tmp_path, monkeypatch, presentation):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
@@ -45,9 +49,10 @@ def test_mobile_secret_lifecycle(tmp_path, monkeypatch):
     server_requests.bind_sinks(frames.append, lambda *a: None, lambda _: True)
     try:
         result = {}
-        thread = threading.Thread(target=lambda: result.setdefault("tool", secret_request(
-            "CANARY_TOKEN", "test file sink", {"kind": "env_file", "path": "~/.hermes/canary.env"},
-            expires_in=5, task_id=key)))
+        thread = threading.Thread(target=lambda: result.setdefault("tool", secrets.registry.dispatch("secret_request", {
+            "name": "CANARY_TOKEN", "reason": "test file sink", "destination": {"kind": "env_file", "path": "~/.hermes/canary.env"},
+            "expires_in": 5, **presentation,
+        }, task_id=key)))
         thread.start()
         deadline = time.monotonic() + 5
         while not frames and time.monotonic() < deadline:
@@ -56,6 +61,8 @@ def test_mobile_secret_lifecycle(tmp_path, monkeypatch):
         frame = frames[0]
         assert frame["method"] == "secret.request"
         assert frame["params"]["destination"]["path"] == "~/.hermes/canary.env"
+        for field in ("title", "help_url", "hint"):
+            assert frame["params"].get(field) == presentation.get(field)
         assert server_requests.resolve_response({"id": frame["id"], "result": {"value": "bad"}}, internal) is False
         canary = "sample_canary_value_not_a_credential"
         assert server_requests.resolve_response({"id": frame["id"], "result": {
@@ -90,6 +97,23 @@ def test_mobile_secret_lifecycle(tmp_path, monkeypatch):
         with server._sessions_lock:
             server._sessions.pop(sid, None)
         loop.close()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("title", "x" * 65), ("hint", "x" * 81), ("help_url", "https://example.com/" + "x" * 2048),
+    ("title", "two\nlines"), ("hint", "two\rlines"), ("title", "trailing\n"), ("hint", "one\u2028two"), ("title", ""), ("hint", 12),
+    ("help_url", "javascript:alert(1)"), ("help_url", "https://[bad"), ("help_url", "http://example.com/new"),
+    ("help_url", "https://user:password@example.com/new"), ("help_url", "https://example.com/ new"),
+])
+def test_short_fields_refuse_invalid_copy_before_request(tmp_path, monkeypatch, field, value):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    result = json.loads(secrets.registry.dispatch("secret_request", {
+        "name": "CANARY_TOKEN", "reason": "Need access", "destination": {"kind": "env_file", "path": "~/.hermes/canary.env"},
+        field: value,
+    }, task_id="no-live-session"))
+    assert result["stored"] is False
+    assert field in result["error"]
+    assert not (tmp_path / "canary.env").exists()
 
 
 def test_remote_env_round_trips_apostrophe_and_named_removal(tmp_path, monkeypatch):

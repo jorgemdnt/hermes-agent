@@ -12,7 +12,8 @@ def _session_for_tool(task_id: str):
                      if session.get("session_key") == task_id and session.get("source") == "mobile"), None)
 
 
-def request_secret(task_id: str, name: str, reason: str, destination: dict, expires_in: int) -> tuple[str, str, str, str]:
+def request_secret(task_id: str, name: str, reason: str, destination: dict, expires_in: int, *,
+                   title: str | None = None, help_url: str | None = None, hint: str | None = None) -> tuple[str, str, str, str]:
     """The running mobile agent owns this session. The response supplies only a value."""
     from tui_gateway import server_requests
     from hermes_constants import get_hermes_home, get_process_hermes_home, profile_name_for_home
@@ -27,7 +28,9 @@ def request_secret(task_id: str, name: str, reason: str, destination: dict, expi
     answer = server_requests.send("secret.request", sid, {
         "name": name, "reason": reason, "destination": destination,
         "requester": profile_name_for_home(home) or "Hermes",
-        "expires_at": time.time() + expires_in}, timeout=expires_in, receipt=receipt)
+        "expires_at": time.time() + expires_in,
+        **{key: value for key, value in (("title", title), ("help_url", help_url), ("hint", hint)) if value is not None},
+    }, timeout=expires_in, receipt=receipt)
     value = (answer or {}).get("value")
     return receipt.get("id", ""), value if isinstance(value, str) else "", receipt.get("sub", ""), task_id
 
