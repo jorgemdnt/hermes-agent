@@ -44,7 +44,6 @@ vi.mock('@hermes/plugin-sdk', async () => {
 })
 
 vi.mock('./shared', () => ({
-  $pendingBotOpen: { get: vi.fn(() => null), set: vi.fn() },
   bumpBotOpenGeneration: vi.fn(),
   getBotOpenGeneration: vi.fn(),
   getPluginCtx: () => ({ storage: storageMock }),
@@ -59,7 +58,6 @@ vi.mock('./canonical-chat', () => ({
   openBotCanonicalChat: vi.fn(),
   prepareBotSource: vi.fn()
 }))
-vi.mock('./cached-bot-paint', () => ({ paintCachedLocalBotChat: vi.fn() }))
 vi.mock('./group-chat', async () => {
   const { atom } = await import('nanostores')
 
@@ -123,20 +121,6 @@ describe('new activity after the seed', () => {
 
     expect(hostMock.notify).toHaveBeenCalledTimes(1)
     expect(hostMock.notify.mock.calls[0][0]).toMatchObject({ kind: 'info', message: 'a plain update' })
-  })
-
-  it('opens that bot from the toast, without pinning a session id', async () => {
-    const { $activityToasts, $selectedBot, trackInboundActivity } = await loadActions()
-
-    $activityToasts.set(true)
-    trackInboundActivity([chatting('researcher', 5000)])
-    trackInboundActivity([chatting('researcher', 6000, 'a plain update')])
-
-    const toast = hostMock.notify.mock.calls[0][0] as { onOpen?: () => void; sessionId?: string }
-
-    expect(toast.sessionId).toBeUndefined()
-    toast.onOpen?.()
-    expect($selectedBot.get()).toBe('researcher')
   })
 
   it('titles a bot-to-bot delivery differently from ordinary activity', async () => {
@@ -207,25 +191,9 @@ describe('new activity after the seed', () => {
     expect(hostMock.notify).not.toHaveBeenCalled()
   })
 
-  it('does not badge the bot for a newer Sessions thread on the same profile', async () => {
-    const { trackInboundActivity } = await loadActions()
-
-    const sideThread = (lastActive: number) =>
-      ({
-        canonical_session: { id: 'bot-chat', last_active: 1000, preview: 'old' },
-        last_session: { id: 'scratch', last_active: lastActive, preview: 'new session' },
-        name: 'default'
-      }) as RosterRow
-
-    trackInboundActivity([sideThread(1000)])
-    trackInboundActivity([sideThread(9000)])
-
-    expect(markUnreadMock).not.toHaveBeenCalled()
-    expect(hostMock.notify).not.toHaveBeenCalled()
-  })
-
   it('sees a DM delivered into the hidden Bot Chat that last_session cannot', async () => {
-    // A stale visible session must not hold the watermark and swallow the DM.
+    // The whole reason watermarks follow botActivitySession: a stale visible
+    // session would otherwise hold the watermark and swallow the DM.
     const { trackInboundActivity } = await loadActions()
 
     const withStaleVisible = (lastActive: number) =>
@@ -273,44 +241,5 @@ describe('the toast preference', () => {
     })
     expect(() => setActivityToasts(false)).not.toThrow()
     expect($activityToasts.get()).toBe(false)
-  })
-})
-
-describe('openRosterBot paints before it waits', () => {
-  it('paints the cached chat before prepareBotSource settles', async () => {
-    const { openRosterBot } = await loadActions()
-    const paint = (await import('./cached-bot-paint')).paintCachedLocalBotChat as ReturnType<typeof vi.fn>
-    const prepare = (await import('./canonical-chat')).prepareBotSource as ReturnType<typeof vi.fn>
-    const order: string[] = []
-    let release: () => void = () => undefined
-
-    paint.mockImplementation(() => {
-      order.push('paint')
-
-      return true
-    })
-    prepare.mockImplementation(
-      () =>
-        new Promise<void>(resolve => {
-          release = () => {
-            order.push('prepare')
-            resolve()
-          }
-        })
-    )
-
-    const bot = {
-      canonical_session: { id: 'frodo-chat' },
-      connectionId: 'local',
-      name: 'frodo',
-      sourceScoped: true
-    } as RosterRow
-    const opened = openRosterBot(bot)
-    await Promise.resolve()
-
-    expect(order).toEqual(['paint'])
-    release()
-    await opened
-    expect(order).toEqual(['paint', 'prepare'])
   })
 })

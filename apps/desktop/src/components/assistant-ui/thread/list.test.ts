@@ -13,12 +13,9 @@ import {
   RUN_START_SNAP_THRESHOLD_PX,
   shouldAnchorBeforePrepend,
   shouldClampTranscriptBudget,
-  prependAnchorFromBottom,
   shouldRePinOnTranscriptReload,
-  shouldResettleTranscript,
   shouldSnapOnRunStart,
   subscribeToThreadForeground,
-  transcriptSettleAdvance,
   transcriptPaneBudget
 } from './list'
 
@@ -494,58 +491,50 @@ describe('resolveThreadScrollTarget while selecting', () => {
   })
 })
 
-describe('shouldResettleTranscript', () => {
-  it('re-settles only when a hot-hidden pane becomes visible again', () => {
-    expect(shouldResettleTranscript('hot-hidden', 'visible')).toBe(true)
-    expect(shouldResettleTranscript('visible', 'hot-hidden')).toBe(false)
-    expect(shouldResettleTranscript('visible', 'visible')).toBe(false)
-    expect(shouldResettleTranscript('parked', 'visible')).toBe(false)
-  })
-})
+// Regression guard for #90473 / #96606 / #96875: after "Show earlier" has paged
+// a session to its very top, the opening user message must still be rendered
+// and head the visible set — it must never be swallowed by the hidden-slice
+// cut. The store window keeps at least TRANSCRIPT_WINDOW_MIN_MESSAGES (30) and
+// the DOM budget only hides a contiguous prefix, so for a light transcript that
+// fits the budget the first user message is the first visible group.
+describe('first user message is never swallowed (Show-earlier paging)', () => {
+  it('keeps the opening user greeting visible when the render budget covers the whole transcript', () => {
+    const groups = buildGroups(
+      signature([
+        ['u1', 'user', 1],
+        ['a1', 'assistant', 4],
+        ['a2', 'assistant', 2],
+        ['u2', 'user', 1],
+        ['a3', 'assistant', 3]
+      ])
+    )
 
-describe('prependAnchorFromBottom', () => {
-  it('pins to the bottom while a load or tab-reveal has not settled', () => {
-    expect(prependAnchorFromBottom(false, 4000, 0)).toBe(0)
-  })
+    // A render budget at or above the total weight hides nothing — the state
+    // after "Show earlier" has paged to the top of a light session.
+    const totalWeight = groups.reduce((sum, g) => sum + g.weight, 0)
+    const hidden = firstVisibleGroupIndex(groups, totalWeight)
 
-  it('preserves a settled reading position through a prepend', () => {
-    expect(prependAnchorFromBottom(true, 800, 200)).toBe(600)
-    expect(prependAnchorFromBottom(true, 800, 0)).toBe(800)
-  })
-})
-
-describe('transcriptSettleAdvance', () => {
-  const filled = {
-    clientHeight: 800,
-    frame: 4,
-    lastHeight: 12_000,
-    paneBudget: 600,
-    renderBudget: 600,
-    scrollHeight: 12_000,
-    stableFrames: 1
-  }
-
-  it('does not settle while the window is still 0-tall (app reopen / boot)', () => {
-    const next = transcriptSettleAdvance({
-      ...filled,
-      clientHeight: 0,
-      frame: 20,
-      lastHeight: 0,
-      scrollHeight: 0,
-      stableFrames: 8
-    })
-
-    expect(next.done).toBe(false)
-    expect(next.frame).toBe(20)
+    expect(hidden).toBe(0)
+    // The first user message is the head of the visible set, not dropped.
+    expect(groups[0]?.id).toBe('u1')
   })
 
-  it('does not settle while first-paint backfill is still catching up', () => {
-    const next = transcriptSettleAdvance({ ...filled, renderBudget: 20, stableFrames: 2 })
+  it('a leading assistant message (tool-only opening turn) does not hide the first user message', () => {
+    const groups = buildGroups(
+      signature([
+        ['a0', 'assistant', 2],
+        ['u1', 'user', 1],
+        ['a1', 'assistant', 4],
+        ['u2', 'user', 1],
+        ['a2', 'assistant', 3]
+      ])
+    )
 
-    expect(next.done).toBe(false)
-  })
+    const totalWeight = groups.reduce((sum, g) => sum + g.weight, 0)
+    const hidden = firstVisibleGroupIndex(groups, totalWeight)
 
-  it('settles once the pane is filled and height holds', () => {
-    expect(transcriptSettleAdvance(filled).done).toBe(true)
+    expect(hidden).toBe(0)
+    // The first user message survives as a distinct visible group.
+    expect(groups.some(g => g.id === 'u1')).toBe(true)
   })
 })

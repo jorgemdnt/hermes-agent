@@ -19,7 +19,7 @@ interface PreviewStatusRowProps {
 }
 
 /** One detected artifact, single line, always visible: filename + open + close. */
-export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss, sessionId }: PreviewStatusRowProps) {
+export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss }: PreviewStatusRowProps) {
   const { t } = useI18n()
   const openSources = useStore($previewTabSources)
   const [opening, setOpening] = useState(false)
@@ -50,7 +50,7 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
     setOpening(true)
 
     try {
-      openPreview(renderedHtmlTarget(await resolveTarget()), 'tool-result', sessionId)
+      openPreview(renderedHtmlTarget(await resolveTarget()))
     } catch (error) {
       notifyError(error, t.preview.unavailable)
     } finally {
@@ -69,7 +69,7 @@ export const PreviewStatusRow = memo(function PreviewStatusRow({ item, onDismiss
       // (Remote HTML stays on openPreviewTargetInBrowser, which stages a
       // sanitized local copy before opening it.)
       if (target.kind === 'file' && target.previewKind !== 'html' && isDesktopFsRemoteMode()) {
-        openPreview(target, 'tool-result', sessionId)
+        openPreview(target)
 
         return
       }

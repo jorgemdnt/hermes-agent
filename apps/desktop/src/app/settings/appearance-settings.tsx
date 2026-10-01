@@ -21,6 +21,7 @@ import { selectableCardClass } from '@/lib/selectable-card'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 import { $backdrop, setBackdrop } from '@/store/backdrop'
+import { $chatTextScale, CHAT_TEXT_SCALE_PRESETS, setChatTextScale } from '@/store/chat-text-scale'
 import { $composerPopoutGesturesEnabled, setComposerPopoutGesturesEnabled } from '@/store/composer-popout'
 import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedMode } from '@/store/embed-consent'
 import {
@@ -433,6 +434,7 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
   const panesFlipped = useStore($panesFlipped)
   const profileRailVisible = useStore($profileRailVisible)
   const zoomPercent = useStore($zoomPercent)
+  const chatTextScale = useStore($chatTextScale)
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
   const composerPopoutGesturesEnabled = useStore($composerPopoutGesturesEnabled)
@@ -691,6 +693,22 @@ export function AppearanceSettings({ subpage }: AppearanceSettingsProps = {}) {
                 description={a.uiScaleDesc(zoomPercent)}
                 id={settingElementId(ids.uiScale)}
                 title={a.uiScaleTitle}
+              />
+
+              <ListRow
+                action={
+                  <SegmentedControl
+                    onChange={value => {
+                      triggerHaptic('selection')
+                      setChatTextScale(Number(value))
+                    }}
+                    options={CHAT_TEXT_SCALE_PRESETS.map(value => ({ id: String(value), label: `${value}%` }))}
+                    value={String(chatTextScale)}
+                  />
+                }
+                description={a.chatTextScaleDesc}
+                id={settingElementId(ids.chatTextScale)}
+                title={a.chatTextScaleTitle}
               />
 
               <div id={settingElementId(ids.chatFont)}>

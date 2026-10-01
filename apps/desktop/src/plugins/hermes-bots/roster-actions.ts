@@ -18,8 +18,7 @@ import {
   rosterWatermarks,
   saveSelectedRosterBot
 } from './bot-state'
-import { paintCachedLocalBotChat } from './cached-bot-paint'
-import { CANONICAL_CHAT_TITLE, notifyBotOpenFailure, openBotCanonicalChat, prepareBotSource } from './canonical-chat'
+import { isStaleBotChatTile, notifyBotOpenFailure, openBotCanonicalChat, prepareBotSource } from './canonical-chat'
 import { $botMeta, botRosterKey, botSelectionKey, newBotChat } from './data'
 import { $groupChats, $groupChatWorkspace } from './group-chat'
 import { openGroupChat } from './group-chat-view'
@@ -51,11 +50,11 @@ export function setActivityToasts(enabled: boolean) {
   }
 }
 
-/** Detect new inbound activity from a fresh roster: the canonical Bot Chat's
- *  last_active moved past the watermark, and that chat isn't on screen ->
- *  unread + toast. A newer Sessions thread on the same profile is not a
- *  message to this bot. last_session never enters the watermark, or a side
- *  thread on the home profile badges the bot for work that never arrived.
+/** Detect new inbound activity from a fresh roster: last_active moved past
+ *  the watermark for a bot whose chat isn't on screen -> unread + toast.
+ *  Watermarks follow the canonical Bot Chat —
+ *  last_session alone never sees the hidden Bot Chat, so DMs delivered
+ *  there would neither badge nor toast.
  *
  *  This poll is the ONLY unread signal a canonical Bot Chat can have: it is
  *  unconditionally hidden, so it never reaches the session list the backend's
@@ -127,11 +126,7 @@ export function trackInboundActivity(roster: RosterRow[]) {
         kind: 'info',
         title: inbound ? `\uD83E\uDD16 New message for ${label}` : `${label} has new activity`,
         message: preview.slice(0, 140) || 'Open the chat to see it.',
-        // Roster door, not a stored session id. Canonical identity is the
-        // Bot Chat title registry; a pin dangles.
-        onOpen: () => {
-          void openRosterBot(bot)
-        }
+        onOpen: () => { void openRosterBot(bot) }
       })
     }
   }
@@ -203,13 +198,12 @@ function focusExistingBotTab(bot: RosterRow): null | { registryId: string; store
     return null
   }
 
-  const isStaleTile = (tile: { storedSessionId: string; workspaceTabTitle?: string }) =>
-    typeof tile.workspaceTabTitle === 'string' &&
-    tile.workspaceTabTitle === CANONICAL_CHAT_TITLE &&
-    !canonicalIds.includes(String(tile.storedSessionId))
-
   try {
-    const focused = host.focusOpenWorkspaceSession(botWorkspaceOwnerKey(bot), isStaleTile, canonicalIds)
+    const focused = host.focusOpenWorkspaceSession(
+      botWorkspaceOwnerKey(bot),
+      isStaleBotChatTile(canonicalIds),
+      canonicalIds
+    )
 
     return typeof focused === 'string' && focused
       ? { registryId: String(canonical!.id), storedSessionId: focused }
@@ -302,10 +296,6 @@ export async function openRosterBot(bot: RosterRow): Promise<boolean> {
 
     return true
   }
-
-  // Same frame as the click, before any backend wait. Local bots already have
-  // their last transcript in the tail cache; reconcile rides the warm primary.
-  paintCachedLocalBotChat(bot)
 
   // The click missed an already-open tab. Publish the target before the cold
   // backend start so the row can acknowledge it in this same turn (#120277).

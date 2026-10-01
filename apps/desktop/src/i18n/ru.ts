@@ -441,7 +441,7 @@ export const ru = defineLocale({
       'composer.reasoningUp': 'Повысить уровень размышлений',
       'composer.reasoningDown': 'Понизить уровень размышлений',
       'view.toggleSidebar': 'Показать / скрыть панель сеансов',
-      'view.toggleRightSidebar': 'Показать / скрыть правую панель',
+      'view.toggleRightSidebar': 'Показать / скрыть браузер файлов',
       'view.toggleReview': 'Показать / скрыть панель ревью',
       'view.toggleStatusbar': 'Показать / скрыть строку состояния',
       'view.toggleTabStrip': 'Показать / скрыть вкладки',
@@ -589,7 +589,6 @@ export const ru = defineLocale({
       sessions: 'Сеансы',
       about: 'О программе',
       billing: 'Оплата',
-      usage: 'Использование',
       notifications: 'Уведомления'
     },
     plugins: {
@@ -721,6 +720,9 @@ export const ru = defineLocale({
       system: { label: 'Системная', description: 'Следовать настройкам ОС' }
     },
     appearance: {
+      chatTextScaleTitle: 'Размер текста чата',
+      chatTextScaleDesc:
+        'Масштабирует текст беседы и поле ввода относительно масштаба интерфейса. Размер боковых панелей и элементов управления не меняется.',
       title: 'Внешний вид',
       intro: 'Только для приложения. Режим — это яркость, тема — палитра и оформление чата.',
       colorMode: 'Цветовой режим',
@@ -750,7 +752,7 @@ export const ru = defineLocale({
       tabStripAlways: 'Всегда',
       tabStripNever: 'Никогда',
       appActionsTitle: 'Действия приложения',
-      appActionsDesc: 'Где в заголовке окна сидят Настройки и HUD. Справа оставляют место для вкладок слева.',
+      appActionsDesc: 'Где в заголовке окна сидят Настройки, Макет и HUD. Справа оставляют место для вкладок слева.',
       appActionsLeft: 'Слева',
       appActionsRight: 'Справа',
       terminalFontTitle: 'Шрифт терминала',
@@ -1080,7 +1082,8 @@ export const ru = defineLocale({
       fileReadMaxChars: 'Максимальное число символов, которые Hermes может прочитать из одного запроса к файлу.',
       approvals: {
         mode: 'Как Hermes обрабатывает команды, требующие явного подтверждения.',
-        timeout: 'Как долго запросы подтверждения ждут перед тайм-аутом.'
+        timeout:
+          'Как долго запросы подтверждения в мессенджерах ждут перед тайм-аутом. Приложение и терминал ждут вашего ответа.'
       },
       security: {
         redactSecrets: 'Скрывать обнаруженные секреты из видимого для модели содержимого, когда это возможно.'
@@ -3614,6 +3617,10 @@ export const ru = defineLocale({
       editModels: 'Изменить модели…',
       followDefault: 'Использовать модель по умолчанию из настроек',
       refreshModels: 'Обновить модели',
+      favorites: 'Избранное',
+      addFavorite: 'Добавить в избранное',
+      removeFavorite: 'Убрать из избранного',
+      favoriteShortcut: '⇧ Клик',
       fast: 'Быстрая',
       free: 'бесплатно',
       cacheRead: 'чтение из кэша',
@@ -4061,6 +4068,8 @@ export const ru = defineLocale({
       skipped: 'Пропущено',
       noAnswer: 'Нет ответа',
       confirmAndContinueLabel: 'Подтвердить и продолжить',
+      singleSelectHint: 'Выберите один',
+      multiSelectHint: 'Выберите все подходящие',
       questionProgress: (answered, total) => `Ответ дан на ${answered} из ${total}`,
       notDelivered:
         'Этот вопрос не дошёл до приложения, поэтому ответить здесь нельзя. Нажмите «Стоп», чтобы завершить ход, и ответьте в чате.'
