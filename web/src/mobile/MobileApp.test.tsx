@@ -1062,7 +1062,7 @@ it("reorders pinned bots from their options and persists that order across mount
   storage.set(PIN_STORAGE_KEY, JSON.stringify(names));
   mocks.getProfiles.mockResolvedValue({ profiles: names.map((name, i) => ({ name, is_default: i === 0 })) });
   await renderApp(); await settle();
-  await act(async () => (host.querySelector('[aria-label="Options for Gandalf"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })));
   await act(async () => (Array.from(host.querySelectorAll(".m-pin-choice")).find(button => button.textContent === "Move pin left") as HTMLButtonElement).click());
   expect(Array.from(host.querySelectorAll(".m-pinned-bot > span:last-of-type")).map(label => label.textContent)).toEqual(["Gandalf", "Frodo", "Samwise", "Gimli", "Author"]);
   expect(JSON.parse(storage.get(PIN_STORAGE_KEY)!)).toEqual(["gandalf", "frodo", "samwise", "gimli", "author"]);
@@ -1070,7 +1070,7 @@ it("reorders pinned bots from their options and persists that order across mount
   root = createRoot(host);
   await renderApp(); await settle();
   expect(host.querySelector(".m-pinned-bot > span:last-of-type")?.textContent).toBe("Gandalf");
-  await act(async () => (host.querySelector('[aria-label="Options for Gandalf"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('[aria-label="Gandalf"]') as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })));
   await act(async () => (Array.from(host.querySelectorAll(".m-pin-choice")).find(button => button.textContent === "Unpin bot") as HTMLButtonElement).click());
   expect(host.querySelectorAll(".m-pinned-bot")).toHaveLength(4);
   expect(storage.get(PIN_STORAGE_KEY)).not.toContain("gandalf");
@@ -1082,7 +1082,7 @@ it("persists a pin action and moves a bot out of the unpinned list", async () =>
   mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: 'frodo', is_default: true }, { name: 'gandalf', is_default: false }, { name: 'author', is_default: false }] });
   await renderApp(); await settle();
   expect(host.querySelector('.m-bot-row')?.textContent).toContain('Author');
-  await act(async () => (host.querySelector('.m-bot-more') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('.m-bot-main') as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })));
   await act(async () => (host.querySelector('.m-pin-choice') as HTMLButtonElement).click());
   expect(host.querySelector('.m-bot-row')).toBeNull();
   expect(values.get(PIN_STORAGE_KEY)).toContain('author');
@@ -1558,4 +1558,27 @@ it("creates a project worktree on first send, shows failure and retries without 
   expect(mocks.request).toHaveBeenCalledWith('prompt.submit', { profile: 'frodo', session_id: 'new-runtime', text: 'Test first send' });
   expect(host.querySelector('.m-creation-progress')?.textContent).toContain('Bot is working');
   expect(attempts).toBe(2);
+});
+
+it("keeps bot and chat options in a cursor ContextMenu on desktop, with no row ellipsis or sheet", async () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 768px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  mocks.getProfiles.mockResolvedValueOnce({ profiles: [{ name: "frodo", is_default: true }, { name: "author", is_default: false }] });
+  await renderApp(); await settle(); await settle();
+  expect(host.querySelector(".m-bot-row")?.textContent).toContain("Author");
+  expect(document.querySelector('.m-bot-more, .m-pinned-more, [aria-label^="Options for"]')).toBeNull();
+  const author = host.querySelector(".m-bot-main") as HTMLButtonElement;
+  await act(async () => author.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 140, clientY: 220 })));
+  const menu = document.querySelector('[role="menu"]') as HTMLElement;
+  expect(menu?.getAttribute("aria-label")).toBe("Author options");
+  expect(Array.from(menu.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)).toEqual(["Pin bot", "Terminal"]);
+  expect(document.querySelector(".m-activity")).toBeNull();
+  await act(async () => (Array.from(menu.querySelectorAll('[role="menuitem"]')).find(item => item.textContent === "Pin bot") as HTMLElement).click());
+  expect(storage.get(PIN_STORAGE_KEY)).toContain("author");
+  expect(host.querySelector(".m-bot-row")).toBeNull();
+  expect(window.location.pathname).not.toContain("/author");
+  const tile = host.querySelector('[aria-label="Author"]') as HTMLButtonElement;
+  await act(async () => { tile.focus(); tile.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true })); });
+  const tileMenu = document.querySelector('[role="menu"]') as HTMLElement;
+  expect(Array.from(tileMenu.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)).toEqual(["Unpin bot", "Move pin left", "Terminal"]);
+  expect(document.querySelector(".m-activity")).toBeNull();
 });

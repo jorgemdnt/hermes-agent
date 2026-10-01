@@ -43,6 +43,8 @@ import { showBotScreen, type BotTerminalCapabilities } from "./bot-terminal-rule
 import { chatPath, mobileRoute, taskPath, type MobileView } from "./mobile-routes";
 import { HomeSwitch, type HomeTab } from "./HomeSwitch";
 import { ChatsPanel, ChatsToolbar } from "./ChatsPanel";
+import { ActionList, RowContextMenu, useRowGestures } from "./context-menu";
+import { botActions, conversationActions, type ConversationChange } from "./row-actions";
 import { CreationStatus, NewChatHero, NewChatToolbar, type CreationProgress, type ProjectChoice, type WorkspaceMode } from "./NewChatSetup";
 import { ShortcutHelp } from "./ShortcutHelp";
 import { adjacentChat, chatKeyOf, chatLayout, filterChats, loadStringSet, unreadCount, type ChatSort } from "./chat-list";
@@ -330,23 +332,8 @@ export default function MobileApp() {
     return next;
   });
   const [pinMenu, setPinMenu] = useState("");
-  const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pinTriggered = useRef(false);
-  const startPinPress = (name: string) => {
-    clearTimeout(pinTimer.current ?? undefined);
-    pinTriggered.current = false;
-    pinTimer.current = setTimeout(() => { pinTriggered.current = true; setPinMenu(name); }, 550);
-  };
-  const stopPinPress = () => { clearTimeout(pinTimer.current ?? undefined); pinTimer.current = null; };
-  const pinClick = (name: string) => {
-    if (pinTriggered.current) { pinTriggered.current = false; return; }
-    void selectProfile(name);
-  };
-  const pinKey = (event: React.KeyboardEvent, name: string) => {
-    if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) {
-      event.preventDefault(); setPinMenu(name);
-    }
-  };
+  const [chatMenu, setChatMenu] = useState<Conversation | null>(null);
+  const rowGestures = useRowGestures(!desktop);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ profile: string; session: string; title: string; preview: string; pinned: boolean }>>([]);
@@ -387,7 +374,7 @@ export default function MobileApp() {
   const [conversationTitle, setConversationTitle] = useState("");
   const [conversationBusy, setConversationBusy] = useState(false);
   const [conversationError, setConversationError] = useState("");
-  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !desktop && !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
+  const { swiping, preview: swipePreview, finish: finishSwipe } = useStandaloneSwipeBack(shellRef, view, goBack, !desktop && !activityOpen && !conversationsOpen && !profileMenuOpen && !newChatOpen && !pinMenu && !chatMenu, panX, () => { skipBackAnimation.current = true; if (view !== "bots") swipeSource.current = view; });
   useEffect(() => {
     let edge: { x: number; y: number } | null = null;
     let lastEdgeSwipe = 0;
@@ -546,22 +533,21 @@ export default function MobileApp() {
   useEffect(() => {
     if (conversationsOpen && archivedOpen) void refreshArchived().catch(e => setConversationError(errorText(e)));
   }, [conversationsOpen, archivedOpen]);
-  const changeConversation = async (action: "rename" | "archive" | "pin") => {
-    if (!conversationAction || conversationBusy) return;
-    const target = conversationAction;
+  const changeConversation = async (action: ConversationChange, target = conversationAction, archivedView = archivedOpen) => {
+    if (!target || conversationBusy) return;
     const title = conversationTitle.trim();
     if (action === "rename" && (!title || title === target.title)) return;
     setConversationBusy(true); setConversationError("");
     try {
       if (action === "rename") await api.renameSession(target.id, title, target.profile);
-      else if (action === "archive") await api.setSessionArchived(target.id, !archivedOpen, target.profile);
+      else if (action === "archive") await api.setSessionArchived(target.id, !archivedView, target.profile);
       else await api.setSessionPinned(target.id, !target.pinned, target.profile);
       await Promise.all([refreshConversations(), refreshArchived()]);
       setConversationAction(null);
-      if (action === "archive" && !archivedOpen && profile === target.profile && selected === target.id) {
+      if (action === "archive" && !archivedView && profile === target.profile && selected === target.id) {
         setConversationsOpen(false); navigate("bots");
       }
-      const feedback = { rename: "Conversation renamed", pin: target.pinned ? "Conversation unpinned" : "Conversation pinned", archive: archivedOpen ? "Conversation restored" : "Conversation archived" };
+      const feedback = { rename: "Conversation renamed", pin: target.pinned ? "Conversation unpinned" : "Conversation pinned", archive: archivedView ? "Conversation restored" : "Conversation archived" };
       toast.success(feedback[action]);
     } catch (e) { setConversationError(errorText(e)); }
     finally { setConversationBusy(false); }
@@ -1263,11 +1249,21 @@ export default function MobileApp() {
     homeActivity[bot] = { session: waiting.session_key, preview: previous?.preview || "", lastActive: Math.max(waiting.last_active || 0, previous?.lastActive || 0) };
   }
   const { pinned, others } = orderedBots(profiles, pins, homeActivity);
-  const pinIndex = pinned.findIndex(p => p.name === pinMenu);
-  const reorderPin = (direction: -1 | 1) => {
-    const neighbour = pinned[pinIndex + direction];
-    if (neighbour) setPins(current => movePin(current, pinMenu, neighbour.name, profiles.find(p => p.is_default)?.name || "default"));
-  };
+  const pinnedNames = pinned.map(p => p.name);
+  const actionsForBot = (name: string) => botActions(name, pinnedNames, {
+    togglePin: () => setPins(current => pinnedNames.includes(name)
+      ? current.filter(p => p !== name && !(p === "default" && name === profiles.find(bot => bot.is_default)?.name))
+      : [...current, name]),
+    move: direction => {
+      const neighbour = pinnedNames[pinnedNames.indexOf(name) + direction];
+      if (neighbour) setPins(current => movePin(current, name, neighbour, profiles.find(p => p.is_default)?.name || "default"));
+    },
+    terminal: () => routerNavigate(`/m/terminal/${encodeURIComponent(name)}${name === profile && selected ? `/${encodeURIComponent(selected)}` : ""}`),
+  });
+  const actionsForChat = (chat: Conversation) => conversationActions(chat, false, conversationBusy, {
+    rename: () => { setConversationAction(chat); setConversationTitle(chat.title); setConversationError(""); setArchivedOpen(false); setConversationsOpen(true); },
+    change: action => void changeConversation(action, chat, false),
+  });
   const { suggestions, onKeyDown: onSuggestionKeyDown, open: suggestionsOpen } = useComposerSuggestions({ scope: composerKey, text, setText, cursor, gateway: screenGateway, sessionId: chat?.runtimeId, profile, profiles, input: composerInput, onPickSkill: (start, end, name) => composerInput.current?.insertSkill(start, end, name) });
   const chooseHomeTab = (tab: HomeTab) => {
     if (tab === "board") { routerNavigate(boardPath); return; }
@@ -1397,16 +1393,12 @@ export default function MobileApp() {
     if (waiting) return `Needs your input: ${previewText(waiting.title || waiting.preview || "Open conversation")}`;
     return activityByBot[p.name]?.preview || "";
   };
-  const botGesture = (name: string) => ({
-    onTouchStart: () => { startPinPress(name); void warmProfile(name).catch(() => undefined); },
-    onTouchMove: stopPinPress,
-    onTouchEnd: stopPinPress,
-    onTouchCancel: stopPinPress,
-    onContextMenu: (event: React.MouseEvent) => { event.preventDefault(); stopPinPress(); setPinMenu(name); },
-    onKeyDown: (event: React.KeyboardEvent) => pinKey(event, name),
-    onMouseEnter: () => { void warmProfile(name).catch(() => undefined); },
-    onClick: () => pinClick(name),
-  });
+  const botGesture = (name: string) => {
+    const gesture = rowGestures(() => setPinMenu(name), () => void selectProfile(name));
+    const warm = () => { void warmProfile(name).catch(() => undefined); };
+    return { ...gesture, onTouchStart: () => { gesture.onTouchStart(); warm(); }, onMouseEnter: warm };
+  };
+  const botMenu = (p: ProfileInfo, trigger: React.ReactElement) => <RowContextMenu actions={actionsForBot(p.name)} label={`${botName(p)} options`} container={shellContainer} disabled={!desktop}>{trigger}</RowContextMenu>;
   const renderMessage = (row: ChatRow, previous: ChatRow | undefined, key: string) => {
     const id = reactionKey(row.role, row.timestamp, row.text);
     return <MobileMessage key={`${composerKey}:${key}`} profile={profile} row={row} previous={previous} onAction={text => setMessageAction({ text, key: id, scope: composerKey })}
@@ -1447,6 +1439,7 @@ export default function MobileApp() {
       {sidebarTab === "board" ? <BoardSidebar selected={boardSlug} /> : homeTab === "chats" ? <>
         <ChatsToolbar sort={chatSort} onSort={chooseSort} grouped={chatsGrouped} onGrouped={chooseGrouped} />
         <ChatsPanel groups={chatView.groups} grouped={chatsGrouped} collapsed={collapsedGroups} onToggleGroup={toggleGroup} currentKey={view === "chat" ? chatKey(profile, selected) : ""} onOpen={openChat}
+          menu={{ actions: actionsForChat, container: shellContainer, sheetMode: !desktop, openSheet: setChatMenu }}
           onNewInProject={group => { void (async () => {
             const bot = group.chats[0]?.profile;
             if (!bot) return;
@@ -1463,17 +1456,15 @@ export default function MobileApp() {
       </> : <>
       {!!pinned.filter(matching).length && <div className="m-pinned-wrap">
         <div className="m-pinned" aria-label="Pinned bots">{pinned.filter(matching).map(p => <div className="m-pinned-item" key={p.name}>
-          <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} {...botGesture(p.name)}>
+          {botMenu(p, <button type="button" className="m-pinned-bot" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-label={`${botName(p)}${waitingByBot[p.name] || p.name === profile && !!activePrompts.length ? ", needs your input" : ""}`} aria-haspopup="menu" {...botGesture(p.name)}>
             {avatar(p)}<span title={botName(p)}>{botName(p)}</span>
-          </button>
-          <button type="button" className="m-pinned-more" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><MoreHorizontal size={17} aria-hidden="true" /></button>
+          </button>)}
         </div>)}</div>
       </div>}
       <div className="m-bot-rows">{others.filter(matching).map(p => <div className="m-bot-row" key={p.name}>
-        <button type="button" className="m-bot-main" aria-current={view === "chat" && p.name === profile ? "page" : undefined} {...botGesture(p.name)}>
+        {botMenu(p, <button type="button" className="m-bot-main" aria-current={view === "chat" && p.name === profile ? "page" : undefined} aria-haspopup="menu" {...botGesture(p.name)}>
           {avatar(p)}<span className="m-bot-copy"><span className="m-bot-heading"><strong>{botName(p)}</strong><time>{activityTime(activityByBot[p.name]?.lastActive || 0)}</time></span><small>{botPreview(p) || "Start a conversation"}</small></span>
-        </button>
-        <button type="button" className="m-bot-more" aria-label={`Options for ${botName(p)}`} onClick={() => setPinMenu(p.name)}><MoreHorizontal size={19} aria-hidden="true" /></button>
+        </button>)}
       </div>)}</div>
       {!profiles.length && <div className="m-loading" role="status" aria-label="Finding your bots"><Skeleton /><Skeleton /><Skeleton /></div>}
       {searchOpen && searchQuery.trim() && <section className="m-search-results" aria-label="Matching conversations">
@@ -1664,12 +1655,11 @@ export default function MobileApp() {
     </Sheet>}
     {!!pinMenu && <Sheet open={!!pinMenu} onClose={() => setPinMenu("")} label="Bot options">
       <div className="m-activity-head"><h2>{profiles.find(p => p.name === pinMenu)?.display_name || pinMenu}</h2><button type="button" className="m-icon-button" aria-label="Close bot options" onClick={() => setPinMenu("")}><X size={20} aria-hidden="true" /></button></div>
-      <button type="button" className="m-pin-choice" onClick={() => { setPins(current => pinIndex >= 0
-        ? current.filter(p => p !== pinMenu && !(p === "default" && pinMenu === profiles.find(bot => bot.is_default)?.name))
-        : [...current, pinMenu]); setPinMenu(""); }}>{pinIndex >= 0 ? "Unpin bot" : "Pin bot"}</button>
-      {pinIndex > 0 && <button type="button" className="m-pin-choice" onClick={() => reorderPin(-1)}>Move pin left</button>}
-      {pinIndex >= 0 && pinIndex < pinned.length - 1 && <button type="button" className="m-pin-choice" onClick={() => reorderPin(1)}>Move pin right</button>}
-      <button type="button" className="m-pin-choice" onClick={() => { routerNavigate(`/m/terminal/${encodeURIComponent(pinMenu)}${pinMenu === profile && selected ? `/${encodeURIComponent(selected)}` : ""}`); setPinMenu(""); }}>Terminal</button>
+      <ActionList actions={actionsForBot(pinMenu)} onDone={() => setPinMenu("")} />
+    </Sheet>}
+    {chatMenu && <Sheet open onClose={() => setChatMenu(null)} label="Conversation options">
+      <div className="m-activity-head"><h2>{chatMenu.title}</h2><button type="button" className="m-icon-button" aria-label="Close conversation options" onClick={() => setChatMenu(null)}><X size={20} aria-hidden="true" /></button></div>
+      <ActionList actions={actionsForChat(chatMenu)} onDone={() => setChatMenu(null)} />
     </Sheet>}
     {messageAction?.scope === composerKey && <Sheet open onClose={() => setMessageAction(null)} label="Message actions">
       <div className="m-activity-head"><h2>Message</h2><button type="button" className="m-icon-button" aria-label="Close message actions" onClick={() => setMessageAction(null)}><X size={20} aria-hidden="true" /></button></div>

@@ -5,8 +5,10 @@ import { Avatar } from "./ui";
 import { CHAT_SORTS, chatKeyOf, type ChatGroup, type ChatSort } from "./chat-list";
 import type { Conversation } from "./conversations";
 import { activityTime } from "./home-data";
+import { RowContextMenu, useRowGestures, type MenuAction } from "./context-menu";
 
 interface Bots { label: (profile: string) => string; avatar: (profile: string) => string | undefined }
+interface RowMenu { actions: (chat: Conversation) => MenuAction[]; container: HTMLElement | null; sheetMode: boolean; openSheet: (chat: Conversation) => void }
 
 export function ChatsToolbar({ sort, onSort, grouped, onGrouped }: { sort: ChatSort; onSort: (sort: ChatSort) => void; grouped: boolean; onGrouped: (grouped: boolean) => void }) {
   return <div className="m-chats-toolbar">
@@ -24,19 +26,22 @@ export function ChatsToolbar({ sort, onSort, grouped, onGrouped }: { sort: ChatS
   </div>;
 }
 
-function ChatRow({ chat, bots, current, onOpen }: { chat: Conversation; bots: Bots; current: boolean; onOpen: (chat: Conversation) => void }) {
+function ChatRow({ chat, bots, current, onOpen, menu }: { chat: Conversation; bots: Bots; current: boolean; onOpen: (chat: Conversation) => void; menu: RowMenu }) {
   const label = bots.label(chat.profile);
-  return <button type="button" className="m-chat-row" data-unread={chat.unread || undefined} aria-current={current ? "page" : undefined} onClick={() => onOpen(chat)}>
+  const gestures = useRowGestures(menu.sheetMode);
+  return <RowContextMenu actions={menu.actions(chat)} label={`${chat.title} options`} container={menu.container} disabled={menu.sheetMode}>
+  <button type="button" className="m-chat-row" data-unread={chat.unread || undefined} aria-current={current ? "page" : undefined} aria-haspopup="menu" {...gestures(() => menu.openSheet(chat), () => onOpen(chat))}>
     <span className="m-bot-copy">
       <span className="m-bot-heading">{chat.unread ? <i className="m-unread-dot" role="img" aria-label="Unread" /> : null}<strong title={chat.title}>{chat.title}</strong><span className="m-chat-row-trailing"><Avatar src={bots.avatar(chat.profile)} name={label} /><time>{activityTime(chat.lastActive)}</time></span></span>
       <span className="m-chat-row-meta"><small>{label}{chat.preview ? ` · ${chat.preview}` : ""}</small></span>
     </span>
-  </button>;
+  </button>
+  </RowContextMenu>;
 }
 
-export function ChatsPanel({ groups, grouped, collapsed, onToggleGroup, bots, currentKey, onOpen, onNewInProject, empty }: {
+export function ChatsPanel({ groups, grouped, collapsed, onToggleGroup, bots, currentKey, onOpen, onNewInProject, empty, menu }: {
   groups: ChatGroup[]; grouped: boolean; collapsed: ReadonlySet<string>; onToggleGroup: (key: string) => void;
-  bots: Bots; currentKey: string; onOpen: (chat: Conversation) => void; onNewInProject: (group: ChatGroup) => void; empty: ReactNode;
+  bots: Bots; currentKey: string; onOpen: (chat: Conversation) => void; onNewInProject: (group: ChatGroup) => void; empty: ReactNode; menu: RowMenu;
 }) {
   if (!groups.some(group => group.chats.length)) return <div className="m-chats-empty">{empty}</div>;
   return <div className="m-chats">
@@ -46,7 +51,7 @@ export function ChatsPanel({ groups, grouped, collapsed, onToggleGroup, bots, cu
         {grouped && <div className="m-chat-group-label"><button type="button" className="m-chat-group-head" aria-expanded={open} onClick={() => onToggleGroup(group.key)}>
           <ChevronDown size={14} aria-hidden="true" /><span title={group.key}>{group.label}</span>
         </button><button type="button" className="m-chat-group-new" aria-label={`New conversation in ${group.label}`} onClick={() => onNewInProject(group)}><Plus size={16} aria-hidden="true" /></button></div>}
-        {open && group.chats.map(chat => <ChatRow key={chatKeyOf(chat)} chat={chat} bots={bots} current={chatKeyOf(chat) === currentKey} onOpen={onOpen} />)}
+        {open && group.chats.map(chat => <ChatRow key={chatKeyOf(chat)} chat={chat} bots={bots} current={chatKeyOf(chat) === currentKey} onOpen={onOpen} menu={menu} />)}
       </section>;
     })}
   </div>;
