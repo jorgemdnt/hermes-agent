@@ -79,15 +79,6 @@ _RESPAWN_GUARD_SUCCESS_WINDOW = 3600  # 1 hour
 # ``HERMES_KANBAN_RATE_LIMIT_COOLDOWN_SECONDS``.
 DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS = 300  # 5 minutes
 
-# Within this window a GitHub PR URL in a comment blocks re-spawn.
-_RESPAWN_GUARD_PR_WINDOW = 86400  # 24 hours
-
-_RESPAWN_GUARD_PR_URL_RE = re.compile(
-    r"https?://github\.com/[^/\s]+/[^/\s]+/pull/\d+",
-    re.IGNORECASE,
-)
-
-
 @dataclass
 class DispatchResult:
     """Outcome of a single ``dispatch`` pass.
@@ -140,7 +131,8 @@ class DispatchResult:
     respawn_guarded: list[tuple[str, str]] = field(default_factory=list)
     """``(task_id, reason)`` skipped by the respawn guard: ``"blocker_auth"``
     (quota/auth error — also auto-blocked), ``"recent_success"`` (completed run
-    within guard window), ``"active_pr"`` (GitHub PR URL in a recent comment)."""
+    within guard window), ``"active_pr"`` (this card's worker published an open
+    PR), ``"pr_state_unavailable"`` (that PR's GitHub state could not be read)."""
     rate_limited: list[str] = field(default_factory=list)
     """Task ids whose workers bailed on a provider rate-limit / quota wall
     (EX_TEMPFAIL sentinel exit) and were released to ``ready`` WITHOUT counting
@@ -1524,6 +1516,7 @@ def _clear_failure_counter(conn: sqlite3.Connection, task_id: str) -> None:
 
 def check_respawn_guard(
     conn: sqlite3.Connection, task_id: str, *, lane: str = "ready",
+    pr_details: Optional[dict] = None,
 ) -> Optional[str]:
     """Return a guard reason if ``task_id`` should NOT be re-spawned, else None.
 
@@ -1537,9 +1530,9 @@ def check_respawn_guard(
     (quota/auth pattern; the breaker still trips eventually), then for the
     ready lane only ``"recent_success"`` (completed run within the window, unless
     a re-queue event arrived after it — a deliberate re-run) and ``"active_pr"``
-    (PR URL in a recent comment; re-spawning risks a duplicate PR — unless a
-    handoff event followed the comment: the named profile must work on that
-    PR). The review lane skips the last two: they are the *inputs* to a review
+    (a run-owned published PR is still open; re-spawning risks a duplicate PR
+    unless a handoff followed publication). Unknown GitHub state holds with
+    ``"pr_state_unavailable"`` rather than risking a duplicate. The review lane skips the last two: they are the *inputs* to a review
     handoff. Stale / dead claim locks are NOT a guard reason — the reclaim
     passes own those.
     """
@@ -1570,17 +1563,10 @@ def check_respawn_guard(
             if ended_at is not None and (now - int(ended_at)) < rl_cooldown:
                 return "infrastructure_cooldown"
     if latest_run is not None and latest_run["outcome"] == "rate_limited":
-        if rl_cooldown <= 0:
-            # Cooldown disabled — respawn immediately, skipping blocker_auth so
-            # the stamped rate-limit text doesn't re-trap the task.
-            return None
         ended_at = latest_run["ended_at"]
-        if ended_at is not None and (now - int(ended_at)) < rl_cooldown:
+        if rl_cooldown > 0 and ended_at is not None and (now - int(ended_at)) < rl_cooldown:
             return "rate_limit_cooldown"
-        # Cooldown elapsed — return early so blocker_auth doesn't catch the
-        # stamped rate-limit text; this path intentionally retries forever
-        # (spaced by the cooldown) until quota returns or a real run supersedes it.
-        return None
+        # Recovery skips the stamped quota error, not duplicate-PR protection.
 
     # 2. Quota / auth blocker: retrying immediately will not help.  A plain
     # crash is different: its persisted error includes the worker's last
@@ -1588,7 +1574,7 @@ def check_respawn_guard(
     # benign commands such as ``claude auth status`` (#117097).
     err = _kb._lossy_text(row["last_failure_error"])
     latest_outcome = latest_run["outcome"] if latest_run is not None else None
-    if err and latest_outcome != "crashed" and _RESPAWN_BLOCKER_RE.search(err):
+    if err and latest_outcome not in {"crashed", "rate_limited"} and _RESPAWN_BLOCKER_RE.search(err):
         return "blocker_auth"
 
     # Review-lane spawns stop here: a recent completed run and a fresh PR URL
@@ -1619,33 +1605,15 @@ def check_respawn_guard(
         if not requeued_after:
             return "recent_success"
 
-    # 4. GitHub PR URL in a recent comment — prior worker already opened a PR.
-    #    Exception: a handoff AFTER the newest PR comment (operator reassign,
-    #    reviewer changes_requested, review reopen) names the profile that must
-    #    now work on THAT PR — a closer or the implementer finishing it, not a
-    #    duplicate implementation (#111910). A crash/reclaim is not a handoff,
-    #    so the worker that opened the PR is still not re-spawned against it.
-    pr_cutoff = now - _RESPAWN_GUARD_PR_WINDOW
-    for c in conn.execute(
-        "SELECT body, created_at FROM task_comments "
-        "WHERE task_id = ? AND created_at >= ? ORDER BY created_at DESC",
-        (task_id, pr_cutoff),
-    ).fetchall():
-        body = _kb._lossy_text(c["body"])
-        if not (body and _RESPAWN_GUARD_PR_URL_RE.search(body)):
-            continue
-        events = conn.execute(
-            # Strictly after: a same-second tie stays guarded (fail closed).
-            "SELECT kind, payload FROM task_events "
-            "WHERE task_id = ? AND created_at > ? "
-            "AND kind IN ('assigned', 'changes_requested', 'review_reopened')",
-            (task_id, int(c["created_at"] or 0)),
-        ).fetchall()
-        if any(_is_handoff_event(e["kind"], e["payload"]) for e in events):
-            return None
-        return "active_pr"
+    from hermes_cli.kanban_pr_guard import published_pr_guard
 
-    return None
+    guarded = published_pr_guard(conn, task_id)
+    if guarded is None:
+        return None
+    reason, publication = guarded
+    if pr_details is not None:
+        pr_details.update(pr_url=publication.url, run_id=publication.run_id)
+    return reason
 
 
 def _is_handoff_event(kind: str, payload: Optional[str]) -> bool:
@@ -2070,19 +2038,13 @@ def _dispatch_lane_task(
         if current >= per_profile_cap:
             result.skipped_per_profile_capped.append((task_id, assignee, current))
             return False
-    guard_reason = check_respawn_guard(conn, task_id, lane=lane)
+    pr_details: dict = {}
+    guard_reason = check_respawn_guard(conn, task_id, lane=lane, pr_details=pr_details)
     if guard_reason is not None:
         result.respawn_guarded.append((task_id, guard_reason))
-        # Event so ``hermes kanban tail`` shows why the task looks stuck.
-        # Honour kanban.default_assignee: when the dispatcher hits an unassigned ready task and an
-        # operator-configured fallback exists, persist the assignment and proceed. This removes the
-        # dashboard footgun where a task created without an assignee parks in 'ready' forever even though
-        # the operator's intent ("default") was perfectly clear (#27145). Mutating the row (not just the
-        # in-memory view) keeps diagnostics and the board state consistent: the task is now legitimately
-        # owned by ``kanban.default_assignee``, not "unassigned but secretly routed".
         if not dry_run:
-            with _kb.write_txn(conn):
-                _kb._append_event(conn, task_id, "respawn_guarded", {"reason": guard_reason})
+            from hermes_cli.kanban_pr_guard import record_guard
+            record_guard(conn, task_id, guard_reason, **pr_details)
         return False
 
     def _count_spawn(name: str) -> None:
