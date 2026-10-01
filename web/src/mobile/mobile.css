@@ -44,6 +44,8 @@
 .m-shell .m-button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .m-shell button:disabled { opacity: .48; cursor: default; }
 .m-shell :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+/* shadcn v4: border-ring + ring-[3px] ring-ring/50, without an offset. */
+.m-shell :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"]), textarea, .m-skill-editor):focus-visible { outline: none; outline-offset: 0; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent); }
 .m-shell :is(input, select, textarea) { background: var(--card); color: var(--foreground); border: 1px solid var(--input); border-radius: 12px; padding: 12px 16px; width: 100%; min-height: 44px; }
 .m-shell :is(input, textarea)::placeholder { color: var(--placeholder); }
 .m-shell label { display: block; color: var(--muted-foreground); font-size: 13px; }
@@ -489,7 +491,6 @@
 
 /* Selected bot: a quiet tint on its container, stronger than hover. */
 .m-shell .m-composer .m-skill-editor { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; height: auto; line-height: 24px; cursor: text; }
-.m-shell .m-composer .m-skill-editor:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .m-skill-editor:empty::before { content: attr(data-placeholder); color: var(--muted-foreground); pointer-events: none; }
 .m-skill-pill { display: inline-flex; height: 1.41em; max-width: 100%; align-items: center; vertical-align: middle; gap: .33em; margin: 0 2px; padding: 0 .5em; border: 1px solid var(--accent-border); border-radius: .5em; background: var(--accent-subtle); color: var(--accent-text); font-size: .86em; font-weight: 500; line-height: 1; white-space: nowrap; user-select: all; }
 .m-skill-pill-icon, .m-skill-pill-icon svg { display: block; width: 1.17em; height: 1.17em; flex: none; }
@@ -503,7 +504,7 @@
 .m-shell .m-composer .m-stop { background: var(--secondary); color: var(--foreground); }
 
 .m-shell .m-bot-main[aria-current="page"] { color: var(--accent-text); background: var(--accent-subtle); border-radius: 10px; opacity: 1; }
-.m-shell .m-pinned-bot[aria-current="page"] { background: var(--accent-subtle); color: var(--accent-text); border-color: var(--ring); opacity: 1; }
+.m-shell .m-pinned-bot[aria-current="page"] { background: var(--accent-subtle); color: var(--accent-text); opacity: 1; }
 
 /* Markdown inside chat bubbles: inline code and tables follow the bubble's own colours
    and wrap inside it instead of spilling past the right edge. */
@@ -618,7 +619,6 @@
 .m-shell .m-new-branch { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1; color: var(--muted-foreground); }
 .m-new-branch svg { flex: none; }
 .m-shell .m-new-branch input { width: 100%; min-width: 0; height: 44px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--foreground); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.m-shell .m-new-branch input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .m-new-branch input[aria-invalid="true"] { color: var(--destructive); }
 .m-new-validation, .m-new-hint { margin: 8px 0 0; color: var(--destructive); font-size: 12px; overflow-wrap: anywhere; }
 .m-creation-progress { list-style: none; max-width: 370px; padding: 14px 20px; margin: 0 auto 18px; border: 1px solid var(--border); border-radius: 12px; color: var(--muted-foreground); font-size: 13px; text-align: left; }
