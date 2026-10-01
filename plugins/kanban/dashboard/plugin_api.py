@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterator, Optional
 
 from fastapi import (
     APIRouter, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status as http_status)
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from hermes_cli import kanban_db
@@ -395,6 +395,29 @@ def get_task(
                 {"id": c.id, "title": c.title, "status": c.status, "latest_summary": child_summaries.get(c.id), "result": c.result}
                 for c in children],
             "runs": [asdict(r) for r in kanban_db.list_runs(conn, task_id, state_type=run_state_type, state_name=run_state_name)]}
+
+
+@router.get("/tasks/{task_id}/transcript")
+def get_task_transcript(task_id: str, board: Optional[str] = Query(None),
+                       run_id: Optional[int] = Query(None),
+                       limit: int = Query(100, ge=1, le=500),
+                       offset: int = Query(0, ge=0)):
+    from hermes_cli.kanban_db_sessions import backfill_run_sessions
+    from hermes_cli.kanban_transcript import run_transcript
+
+    with _board_conn(board) as (_, conn):
+        _require_task(conn, task_id)
+        runs = kanban_db.list_runs(conn, task_id)
+        if run_id is None:
+            run = max(runs, key=lambda item: item.id, default=None)
+        else:
+            run = next((item for item in runs if item.id == run_id), None)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Worker run not found")
+        if run.session_id is None:
+            backfill_run_sessions(conn, task_id=task_id)
+            run = _require_run(conn, run.id)
+    return JSONResponse(run_transcript(run, limit=limit, offset=offset), headers={"Cache-Control": "no-store"})
 
 
 # --- POST /tasks ------------------------------------------------------------

@@ -852,6 +852,7 @@ _NOTIFY_SUB_COLUMNS = (
 )
 
 _TASK_RUN_COLUMNS = (
+    ("session_id", "session_id TEXT"),
     # Spawn-time start fingerprint of the run's worker_pid (PID-reuse guard for the
     # terminal-worker reaper; NULL = legacy row, never signalled).
     ("worker_started_at", "worker_started_at INTEGER"),
@@ -928,11 +929,14 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
                     "WHERE platform != 'tui'"
                 )
 
+    recover_run_sessions = False
     if _table_exists(conn, "task_runs"):
         run_cols = _column_names(conn, "task_runs")
         for name, ddl in _TASK_RUN_COLUMNS:
             if name not in run_cols:
-                _add_column_if_missing(conn, "task_runs", name, ddl)
+                added = _add_column_if_missing(conn, "task_runs", name, ddl)
+                if name == "session_id":
+                    recover_run_sessions = added
         _backfill_legacy_inflight_runs(conn)
 
     # One-shot event-kind rename: old names still worked but were awkward on
@@ -945,6 +949,10 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE task_events SET kind = ? WHERE kind = ?", (new, old))
 
     _rebuild_drifted_tables(conn)
+
+    if recover_run_sessions:
+        from hermes_cli.kanban_db_sessions import backfill_run_sessions
+        backfill_run_sessions(conn)
 
 
 def _backfill_legacy_inflight_runs(conn: sqlite3.Connection) -> None:
@@ -1030,7 +1038,7 @@ _REBUILD_SPECS = {
     "task_runs": (
         "CREATE TABLE task_runs ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " task_id TEXT NOT NULL, profile TEXT, step_key TEXT,"
+        " task_id TEXT NOT NULL, profile TEXT, session_id TEXT, step_key TEXT,"
         " status TEXT NOT NULL, claim_lock TEXT, claim_expires INTEGER,"
         " worker_pid INTEGER, worker_started_at INTEGER, max_runtime_seconds INTEGER,"
         " last_heartbeat_at INTEGER, started_at INTEGER NOT NULL,"

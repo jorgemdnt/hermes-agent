@@ -797,6 +797,9 @@ class Run:
     metadata: Optional[dict]
     error: Optional[str]
 
+    # Worker transcript, not tasks.session_id (the card's originating conversation).
+    session_id: Optional[str] = None
+
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Run":
         return cls(
@@ -810,6 +813,7 @@ class Run:
             started_at=int(row["started_at"]),
             ended_at=_opt_int(row["ended_at"]),
             metadata=_json_or(_lossy_text(row["metadata"])),
+            session_id=_lossy_text(_row_get(row, "session_id")),
         )
 
 
@@ -1009,6 +1013,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id             TEXT NOT NULL,
     profile             TEXT,
+    session_id          TEXT,
     step_key            TEXT,
     status              TEXT NOT NULL,
     -- status: running | done | blocked | crashed | timed_out | failed | released

@@ -710,6 +710,14 @@ def _session_is_untitled(session_db, session_id: str) -> bool:
         return False
 
 
+def kanban_session_title(title: str) -> str:
+    """The stored card-title projection, shared by workers and legacy run recovery."""
+    from hermes_state import SessionDB
+    title = " ".join((title or "").split())
+    cap = SessionDB.MAX_TITLE_LENGTH - 4
+    return title[:cap - 1].rstrip() + "…" if len(title) > cap else title
+
+
 def _kanban_task_title() -> Optional[str]:
     """Kanban worker: the card's title, or ``Kanban task <id>`` when the board can't be read; None elsewhere
     (including delegate_task children of the worker, which inherit the env var but are not the card)."""
@@ -718,15 +726,9 @@ def _kanban_task_title() -> Optional[str]:
         return None
     try:
         from hermes_cli import kanban_db, kanban_db_connect
-        from hermes_state import SessionDB
         with kanban_db_connect.connect_closing() as conn:
             task = kanban_db.get_task(conn, task_id)
-        title = " ".join((task.title or "").split()) if task is not None else ""
-        # Cards have no length cap; the title store rejects past MAX_TITLE_LENGTH (and the ``#N``
-        # retry suffix needs room), which would leave the worker nameless.
-        cap = SessionDB.MAX_TITLE_LENGTH - 4
-        if len(title) > cap:
-            title = title[: cap - 1].rstrip() + "…"
+        title = kanban_session_title(task.title) if task is not None else ""
     except Exception:
         logger.debug("Kanban task %s unreadable; naming the session after its id", task_id, exc_info=True)
         title = ""

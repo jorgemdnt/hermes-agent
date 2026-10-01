@@ -349,9 +349,14 @@ class AIAgent(
 
     def _ensure_db_session(self) -> None:
         """Create the session DB row on first use; a transient failure leaves it to retry next turn."""
-        if getattr(self, "_persist_disabled", False) or self._session_db_created or not self._session_db:
+        if getattr(self, "_persist_disabled", False) or not self._session_db:
             return
         source = _session_source_for_agent(self.platform)
+        if self._session_db_created:
+            if source == "kanban":
+                from hermes_cli.kanban_db_sessions import record_worker_session
+                record_worker_session(self.session_id, parent_session_id=self._parent_session_id)
+            return
         try:
             # Persist the profile name explicitly, including "default": profile-keyed consumers treat NULL
             # as unowned.
@@ -381,6 +386,10 @@ class AIAgent(
         except Exception as e:
             # Transient failure (e.g. SQLite lock): _session_db_created stays False so the next turn retries.
             logger.warning("Session DB creation failed (will retry next turn): %s", e)
+
+        if self._session_db_created and source == "kanban":
+            from hermes_cli.kanban_db_sessions import record_worker_session
+            record_worker_session(self.session_id, parent_session_id=self._parent_session_id)
 
     def _transition_context_engine_session(
         self, *, old_session_id: Optional[str] = None, new_session_id: Optional[str] = None,
