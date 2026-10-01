@@ -19,6 +19,26 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function shortLine(value: string, limit = 80): string {
+  const line = value.replace(/\s+/g, " ").trim();
+  return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
+}
+
+function secretTitle(name: string): string {
+  const title = name.toLowerCase().replace(/_/g, " ").replace(/\bgithub\b/g, "GitHub");
+  return shortLine(title ? title[0].toUpperCase() + title.slice(1) : "Secret", 64);
+}
+
+function helpUrl(value: unknown): string | undefined {
+  try {
+    const raw = text(value);
+    const url = new URL(raw);
+    return raw.length <= 2048 && !/\s/.test(raw) && url.protocol === "https:" && !url.username && !url.password ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function questionsOf(params: Record<string, unknown>): Question[] {
   if (Array.isArray(params.questions)) {
     return params.questions.filter((q): q is Question =>
@@ -95,23 +115,44 @@ export default function PromptCard({ pending, onAnswer, onReceived }: Props) {
     </form>;
   }
 
+  if (request.method === "secret.request" || request.method === "secret") {
+    const name = text(p.name) || text(p.env_var);
+    const title = shortLine(text(p.title), 64) || secretTitle(name);
+    const reason = text(p.reason) || text(p.prompt);
+    const hint = shortLine(text(p.hint));
+    const url = helpUrl(p.help_url);
+    const destination = p.destination && typeof p.destination === "object" ? p.destination as Record<string, unknown> : null;
+    return <form className="m-card m-secret-card" onSubmit={submit} aria-label={title}>
+      <h2>{title}</h2>
+      {reason && <p className="m-secret-reason">{shortLine(reason)}</p>}
+      {url && <a className="m-secret-help" href={url} target="_blank" rel="noopener noreferrer">Create it ↗</a>}
+      {hint && <p className="m-secret-hint">{hint}</p>}
+      <Input aria-label={title} placeholder="Paste token" type="password" autoComplete="off" value={value} onChange={e => setValue(e.target.value)} required />
+      <div className="m-actions"><Button variant="primary" type="submit">Save</Button><Button variant="outline" type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</Button></div>
+      <details className="m-secret-details">
+        <summary>Details</summary>
+        <p>{text(p.requester)}{p.requester ? " · " : ""}{name}</p>
+        {reason && <p className="m-secret-full-reason">{reason}</p>}
+        {hint && <p>{text(p.hint)}</p>}
+        {destination && <p>Destination: <strong>{text(destination.kind)} · {text(destination.path) || text(destination.origin)}</strong>{destination.label ? ` · ${text(destination.label)}` : ""}{destination.identifier ? ` · ${text(destination.identifier)}` : ""}{destination.kind === "env_file" || destination.kind === "remote_file" ? " (file mode 0600)" : ""}.</p>}
+        <p>This value is sent directly to Hermes; it is not added to chat history. Clear your clipboard after pasting.</p>
+      </details>
+    </form>;
+  }
+
   const config: Record<string, { title: string; label: string; hint: string }> = {
     sudo: { title: "Sudo password", label: "Password", hint: text(p.command) },
-    secret: { title: "Secret requested", label: text(p.env_var) || "Secret", hint: text(p.prompt) },
-    "secret.request": { title: "Secret requested", label: text(p.name) || "Secret", hint: `${text(p.requester)} asks for ${text(p.name)}. Reason: ${text(p.reason)}` },
     "vault.unlock_prompt": { title: "Unlock password manager", label: "Master password", hint: text(p.display_name) },
     "vault.save_login": { title: "Save site login", label: "Password", hint: `${text(p.site)} · ${text(p.origin)}` },
     "vault.code": { title: "Verification code", label: "Code", hint: `${text(p.site)} · ${text(p.hint)}` },
   };
   const details = config[request.method];
   if (!details) return null;
-  const destination = p.destination && typeof p.destination === "object" ? p.destination as Record<string, unknown> : null;
   return <form className="m-card" onSubmit={submit} aria-label={details.title}>
     <h2>{details.title}</h2><p>{details.hint}</p>
-    {request.method === "secret.request" && <p>Destination: <strong>{text(destination?.kind)} · {text(destination?.path) || text(destination?.origin)}</strong>{destination?.label ? ` · ${text(destination.label)}` : ""}{destination?.identifier ? ` · ${text(destination.identifier)}` : ""}{destination?.kind === "env_file" || destination?.kind === "remote_file" ? " (file mode 0600)" : ""}.</p>}
     {request.method === "vault.save_login" && <label>Username or email<Input autoComplete="username" value={identifier} onChange={e => setIdentifier(e.target.value)} required /></label>}
     <label>{details.label}<Input type={request.method === "vault.code" ? "text" : "password"} autoComplete={request.method === "vault.code" ? "one-time-code" : request.method === "vault.save_login" ? "new-password" : "off"} value={value} onChange={e => setValue(e.target.value)} required /></label>
-    <p className="m-muted m-prompt-hint">This value is sent directly to Hermes; it is not added to chat history.{request.method === "secret.request" ? " Clear your clipboard after pasting." : ""}</p>
-    <div className="m-actions"><Button variant="primary" type="submit">{request.method === "vault.save_login" || request.method === "secret.request" ? "Save" : "Send"}</Button><Button variant="outline" type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</Button></div>
+    <p className="m-muted m-prompt-hint">This value is sent directly to Hermes; it is not added to chat history.</p>
+    <div className="m-actions"><Button variant="primary" type="submit">{request.method === "vault.save_login" ? "Save" : "Send"}</Button><Button variant="outline" type="button" onClick={() => { respond({ value: "" }); setValue(""); }}>Decline</Button></div>
   </form>;
 }

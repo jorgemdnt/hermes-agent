@@ -122,6 +122,9 @@ class GeneralSecretParams(ServerRequestParams):
     destination: dict[str, JsonValue]
     requester: str
     expires_at: float
+    title: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[^\r\n]+$")
+    help_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    hint: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[^\r\n]+$")
 
 server_request("secret.request", params=GeneralSecretParams, result=ValueResult,
                doc="One-time authenticated phone secret, bound to the server-side destination.")

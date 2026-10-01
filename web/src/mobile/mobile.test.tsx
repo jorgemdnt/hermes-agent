@@ -64,6 +64,42 @@ describe("mobile prompt answers", () => {
     expect(respond).toHaveBeenCalledWith("srq-123", { value: JSON.stringify({ identifier: "user", password: "canary" }) });
   });
 
+  it("keeps the compact secret form useful without exposing storage or boilerplate", () => {
+    const { respond } = renderPrompt("secret.request", {
+      name: "GITHUB_PERSONAL_TOKEN", title: "GitHub token for jorgemdnt",
+      reason: "So Samwise can push to your personal repos", requester: "Samwise",
+      help_url: "https://github.com/settings/personal-access-tokens/new", hint: "Contents: read/write · 90 days",
+      destination: { kind: "remote_file", path: "/home/hermes/.hermes/secrets/github-personal.env" },
+    });
+    expect(host.querySelector("h2")?.textContent).toBe("GitHub token for jorgemdnt");
+    const link = host.querySelector("a")!;
+    expect(link.href).toBe("https://github.com/settings/personal-access-tokens/new");
+    expect(link.rel).toContain("noopener");
+    const disclosure = host.querySelector("details")!;
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.textContent).toContain("0600");
+    expect(disclosure.textContent).toContain("not added to chat history");
+    expect(host.textContent).not.toContain("Secret requested");
+    const input = host.querySelector("input")!;
+    expect(input.placeholder).toBe("Paste token");
+    expect(input.getAttribute("aria-label")).toBe("GitHub token for jorgemdnt");
+    act(() => setInputValue(input, "declined-canary"));
+    act(() => (Array.from(host.querySelectorAll("button")).find(b => b.textContent === "Decline")!).click());
+    expect(respond).toHaveBeenCalledWith("srq-123", { value: "" });
+    expect(input.value).toBe("");
+  });
+
+  it.each(["secret.request", "secret"])("clips legacy %s copy but retains the full request in Details", method => {
+    const reason = "A long legacy explanation with setup steps.\n" + "Keep the full instructions accessible. ".repeat(12);
+    renderPrompt(method, { name: "GITHUB_PERSONAL_TOKEN", env_var: "GITHUB_PERSONAL_TOKEN", reason, prompt: reason, help_url: "javascript:alert(1)" });
+    expect(host.querySelector("h2")?.textContent).toBe("GitHub personal token");
+    const summary = host.querySelector(".m-secret-reason")!;
+    expect(summary.textContent!.length).toBeLessThanOrEqual(80);
+    expect(summary.textContent).not.toContain("\n");
+    expect(host.querySelector("details")?.textContent).toContain(reason);
+    expect(host.querySelector("a")).toBeNull();
+  });
+
   it("shows the server-bound destination and keeps the secret out of page text", () => {
     const { respond } = renderPrompt("secret.request", {
       session_id: "live", name: "CANARY_TOKEN", reason: "test flow", requester: "Frodo",

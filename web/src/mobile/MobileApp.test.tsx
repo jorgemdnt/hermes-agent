@@ -177,7 +177,7 @@ it.each([false, true])("keeps secret answers only in their owning chat (desktop=
   await renderApp(); await settle(); await settle();
   const respond = vi.fn();
   await act(async () => { for (const handler of mocks.requests) handler({ id: "srq-secret", method: "secret.request", params: {
-    session_id: "other-runtime", name: "CANARY_TOKEN", reason: "UI regression", requester: "Frodo",
+    session_id: "other-runtime", name: "CANARY_TOKEN", title: "Canary token", reason: "UI regression", requester: "Frodo",
     destination: { kind: "env_file", path: "fixture/canary.env" }, expires_at: Date.now() / 1000 + 180,
   }, respond, fail: vi.fn() }); });
   expect(host.querySelector('input[type="password"]')).toBeNull();
@@ -188,12 +188,13 @@ it.each([false, true])("keeps secret answers only in their owning chat (desktop=
   expect(fields).toHaveLength(1);
   expect(fields[0].closest('.m-messages')).not.toBeNull();
   expect(host.querySelector('.m-home form')).toBeNull();
+  expect(host.querySelector('.m-messages .m-request-label')).toBeNull();
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(fields[0], "ui-canary");
     fields[0].dispatchEvent(new Event("input", { bubbles: true }));
   });
   expect(host.querySelector('.m-messages')?.textContent).not.toContain("ui-canary");
-  await act(async () => (host.querySelector('form[aria-label="Secret requested"]') as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  await act(async () => (host.querySelector('form[aria-label="Canary token"]') as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   expect(respond).toHaveBeenCalledExactlyOnceWith({ value: "ui-canary" });
   expect(mocks.request).not.toHaveBeenCalledWith("prompt.submit", expect.anything());
 });
