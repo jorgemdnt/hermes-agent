@@ -51,12 +51,15 @@ export function useRowGestures(sheetMode: boolean) {
   });
 }
 
+// Focus returns to the row on close, unless another row's menu already opened: Radix restores focus a
+// tick after unmount, which would otherwise pull focus out of the newer menu and dismiss it.
 // shadcn v4 ContextMenu composition (Root → Trigger asChild → Portal → Content → Item), styled with the shell's dropdown tokens.
 export function RowContextMenu({ actions, label, container, disabled, children }: { actions: MenuAction[]; label: string; container: HTMLElement | null; disabled: boolean; children: ReactElement }) {
   return <ContextMenuPrimitive.Root modal={false}>
     <ContextMenuPrimitive.Trigger asChild disabled={disabled}>{children}</ContextMenuPrimitive.Trigger>
     <ContextMenuPrimitive.Portal container={container}>
-      <ContextMenuPrimitive.Content data-slot="context-menu-content" className="m-dropdown m-context-menu" aria-label={label} collisionPadding={8}>
+      <ContextMenuPrimitive.Content data-slot="context-menu-content" className="m-dropdown m-context-menu" aria-label={label} collisionPadding={8}
+        onCloseAutoFocus={event => { if (document.querySelector('[data-slot="context-menu-content"][data-state="open"]')) event.preventDefault(); }}>
         {actions.map(action => <ContextMenuPrimitive.Item key={action.id} data-slot="context-menu-item" disabled={action.disabled} onSelect={action.onSelect}>{action.label}</ContextMenuPrimitive.Item>)}
       </ContextMenuPrimitive.Content>
     </ContextMenuPrimitive.Portal>
