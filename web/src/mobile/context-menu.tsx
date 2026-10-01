@@ -14,9 +14,11 @@ export interface MenuAction {
 const isMenuKey = (event: KeyboardEvent) => event.key === "ContextMenu" || event.key === "F10" && event.shiftKey;
 
 // Radix opens a ContextMenu from a contextmenu event's coordinates; keyboard users get it beside the focused row.
+// Dispatched after the keydown handler returns: React 19.3 drops a contextmenu nested inside its own keydown dispatch.
 function openMenuFromKeyboard(event: KeyboardEvent<HTMLElement>) {
-  const rect = event.currentTarget.getBoundingClientRect();
-  event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 16, clientY: rect.top + rect.height / 2 }));
+  const row = event.currentTarget;
+  const rect = row.getBoundingClientRect();
+  queueMicrotask(() => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 16, clientY: rect.top + rect.height / 2 })));
 }
 
 // Row gestures for both menu surfaces. sheetMode (phone) opens the touch sheet on long-press, contextmenu

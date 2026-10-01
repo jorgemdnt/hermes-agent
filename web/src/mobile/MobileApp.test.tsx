@@ -1576,8 +1576,10 @@ it("keeps bot and chat options in a cursor ContextMenu on desktop, with no row e
   expect(storage.get(PIN_STORAGE_KEY)).toContain("author");
   expect(host.querySelector(".m-bot-row")).toBeNull();
   expect(window.location.pathname).not.toContain("/author");
+  await act(async () => { await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull()); });
   const tile = host.querySelector('[aria-label="Author"]') as HTMLButtonElement;
   await act(async () => { tile.focus(); tile.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true })); });
+  await act(async () => { await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull()); });
   const tileMenu = document.querySelector('[role="menu"]') as HTMLElement;
   expect(Array.from(tileMenu.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)).toEqual(["Unpin bot", "Move pin left", "Terminal"]);
   expect(document.querySelector(".m-activity")).toBeNull();
