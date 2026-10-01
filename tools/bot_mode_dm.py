@@ -708,7 +708,10 @@ def _spawn_delivery(command: str, label: str, *, dm_file: Optional[str] = None, 
     try:
         from tools.terminal_tool import terminal_tool
 
+        # Admission transfers the message to the recipient. Reclaiming the sender's
+        # viewer must not SIGTERM that recipient mid-turn; explicit Stop still kills it.
         raw = terminal_tool(command, background=True, notify_on_complete=True, task_id=task_id,
+                            persist_on_release=True,
                             workdir=str(Path(__file__).resolve().parent.parent), _host_local=True,
                             _completion_output_chars=REPLY_COMPLETION_CHARS)
         try:

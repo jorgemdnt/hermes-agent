@@ -356,6 +356,10 @@ def _finalize_session(session: dict | None, end_reason: str = "tui_close") -> No
     if not session or session.get("_finalized"):
         return
     session["_finalized"] = True
+    logger.info("Finalizing session ui=%s durable=%s source=%s end_reason=%s running=%s",
+                _lifecycle_own_sid(session),
+                getattr(session.get("agent"), "session_id", None) or session.get("session_key", ""),
+                _session_source(session), end_reason, bool(session.get("running")))
     _lock_vault_managers(session)
     if (history_ready := session.get("resume_history_ready")) is not None and not history_ready.is_set():
         session["resume_history_error"] = "session resume cancelled"
