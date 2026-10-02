@@ -1610,10 +1610,10 @@ def check_respawn_guard(
     guarded = published_pr_guard(conn, task_id)
     if guarded is None:
         return None
-    reason, publication = guarded
     if pr_details is not None:
-        pr_details.update(pr_url=publication.url, run_id=publication.run_id)
-    return reason
+        pr_details.update(pr_url=guarded.publication.url, run_id=guarded.publication.run_id,
+                          read_error=guarded.read_error)
+    return guarded.reason
 
 
 def _is_handoff_event(kind: str, payload: Optional[str]) -> bool:

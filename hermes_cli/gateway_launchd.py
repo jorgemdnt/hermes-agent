@@ -356,11 +356,12 @@ def generate_launchd_plist() -> str:
     log_dir.mkdir(parents=True, exist_ok=True)
     label = _gw().get_launchd_label()
 
-    # launchd's default PATH misses Homebrew, nvm, cargo…; prepend venv/bin + node dirs (as in the
-    # systemd unit) so node stays resolvable even if the shell PATH changes, then the shell PATH.
+    # Reinstallation can run inside launchd's minimal PATH, not a login shell.
+    from hermes_platform.resolver.known_dirs import homebrew_dirs
     priority_dirs = _gw()._build_service_path_dirs()
     _gw()._append_node_dir_for_service(priority_dirs)
-    sane_path = ":".join(dict.fromkeys(priority_dirs + [p for p in os.environ.get("PATH", "").split(":") if p]))
+    sane_path = ":".join(dict.fromkeys(priority_dirs + list(homebrew_dirs()) +
+                                    [p for p in os.environ.get("PATH", "").split(":") if p]))
 
     # Retain the platform-binary LAN workaround under a windowless, signed Hermes
     # responsible app when this profile explicitly registered one.

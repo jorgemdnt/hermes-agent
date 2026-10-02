@@ -44,7 +44,29 @@ def _publications(conn, task_id: str) -> list[Publication]:
     return sorted(publications, key=lambda p: (p.published_at, p.run_id), reverse=True)
 
 
-def published_pr_guard(conn, task_id: str) -> tuple[str, Publication] | None:
+@dataclass(frozen=True)
+class Guard:
+    reason: str
+    publication: Publication
+    read_error: str | None = None
+
+
+def _describe_read_error(exc: BaseException) -> str:
+    # Never persist gh stderr, response bodies or arbitrary exception text.
+    if isinstance(exc, github._GateAuthError):
+        return str(exc)
+    if isinstance(exc, FileNotFoundError):
+        return "gh executable not found on the service PATH or in known installation directories."
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"gh api timed out after {exc.timeout} seconds."
+    if isinstance(exc, subprocess.CalledProcessError):
+        return f"gh api exited with status {exc.returncode}."
+    if isinstance(exc, OSError):
+        return f"gh api could not start (OS error {exc.errno})."
+    return f"GitHub returned incomplete or invalid PR state ({type(exc).__name__})."
+
+
+def published_pr_guard(conn, task_id: str) -> Guard | None:
     from hermes_cli.kanban_db_dispatch import _is_handoff_event
 
     seen = set()
@@ -69,15 +91,15 @@ def published_pr_guard(conn, task_id: str) -> tuple[str, Publication] | None:
                 continue
             if state["state"] != "open":
                 raise ValueError("Unknown PR state")
-        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, github._GateAuthError):
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, github._GateAuthError) as exc:
             # A failed state read is not proof the published PR went away.
-            return "pr_state_unavailable", publication
-        return "active_pr", publication
+            return Guard("pr_state_unavailable", publication, _describe_read_error(exc))
+        return Guard("active_pr", publication)
     return None
 
 
 def record_guard(conn, task_id: str, reason: str, *, pr_url: str | None = None,
-                 run_id: int | None = None) -> None:
+                 run_id: int | None = None, read_error: str | None = None) -> None:
     from hermes_cli import kanban_db as kb
 
     payload = {"reason": reason}
@@ -90,3 +112,14 @@ def record_guard(conn, task_id: str, reason: str, *, pr_url: str | None = None,
         ).fetchone()
         if last is None or kb._json_dict(last["payload"]) != payload or last["run_id"] != run_id:
             kb._append_event(conn, task_id, "guarded", payload, run_id=run_id)
+        if reason == "pr_state_unavailable" and pr_url and read_error:
+            body = (f"Dispatcher is holding this card to avoid a duplicate of [Published pull request]({pr_url}).\n"
+                    f"GitHub state read failed: {read_error}\n"
+                    "Check gh installation and the assignee profile's GitHub credentials/API access. "
+                    "The dispatcher will retry the state read automatically.")
+            if not conn.execute(
+                "SELECT 1 FROM task_comments WHERE task_id = ? AND author = 'dispatcher' AND body = ?",
+                (task_id, body),
+            ).fetchone():
+                # Task-scoped: a dispatcher notice is not worker publication evidence.
+                kb.add_comment(conn, task_id, author="dispatcher", body=body)

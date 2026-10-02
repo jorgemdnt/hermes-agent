@@ -39,6 +39,16 @@ def github_token_from_env(env=os.environ) -> Optional[str]:
     return None
 
 
+def github_cli_path(env=None) -> str:
+    """Resolve gh even when launchd or a GUI did not inherit the shell PATH."""
+    from hermes_platform.resolver import LookupContext, locate_command
+    from hermes_platform.resolver.known_dirs import homebrew_dirs, user_local_bin
+
+    context = LookupContext(path=env.get("PATH", "") if env is not None else None)
+    resolution = locate_command("gh", context, known_dirs=(*homebrew_dirs(), *user_local_bin()))
+    return (resolution.command or ("gh",))[0]
+
+
 def _gh_cli_token() -> Optional[str]:
     global _gh_cli_cache, _gh_cli_probed
     if _gh_cli_probed:
@@ -47,7 +57,7 @@ def _gh_cli_token() -> Optional[str]:
     from hermes_cli._subprocess_compat import windows_hide_flags
     try:
         result = subprocess.run(
-            ["gh", "auth", "token"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+            [github_cli_path(), "auth", "token"], capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=_GH_CLI_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
