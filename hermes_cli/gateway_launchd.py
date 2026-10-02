@@ -357,11 +357,21 @@ def generate_launchd_plist() -> str:
     label = _gw().get_launchd_label()
 
     # Reinstallation can run inside launchd's minimal PATH, not a login shell.
-    from hermes_platform.resolver.known_dirs import homebrew_dirs
+    from hermes_platform.resolver.known_dirs import homebrew_dirs, user_local_bin
     priority_dirs = _gw()._build_service_path_dirs()
     _gw()._append_node_dir_for_service(priority_dirs)
-    sane_path = ":".join(dict.fromkeys(priority_dirs + list(homebrew_dirs()) +
+    user_dirs = [str(Path(directory).expanduser()) for directory in user_local_bin()]
+    sane_path = ":".join(dict.fromkeys(priority_dirs + user_dirs + list(homebrew_dirs()) +
                                     [p for p in os.environ.get("PATH", "").split(":") if p]))
+    # HOME is the login user's home, not HERMES_HOME (which may name a profile).
+    # Claude's macOS keychain lookup also needs USER; neither value can depend
+    # on the shell that regenerated this plist from a minimal launchd context.
+    if os.name == "posix":
+        import pwd
+        login_user = pwd.getpwuid(os.getuid()).pw_name
+    else:
+        import getpass
+        login_user = getpass.getuser()  # Tests also parse the plist on non-macOS hosts.
 
     # Retain the platform-binary LAN workaround under a windowless, signed Hermes
     # responsible app when this profile explicitly registered one.
@@ -415,6 +425,10 @@ def generate_launchd_plist() -> str:
     <dict>
         <key>PATH</key>
         <string>{sane_path}</string>
+        <key>HOME</key>
+        <string>{escape(str(Path.home()))}</string>
+        <key>USER</key>
+        <string>{escape(login_user)}</string>
 
         <key>HERMES_HOME</key>
         <string>{hermes_home}</string>
