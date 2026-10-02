@@ -30,10 +30,7 @@ def validate_contract(value: str | None) -> str:
 
 def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
          profile_home: str | None = None):
-    from hermes_cli.github_api import github_cli_path
-
-    env = _gh_env(profile_home)
-    command = [github_cli_path(env), "api", endpoint, "--hostname", "github.com"]
+    command = ["gh", "api", endpoint, "--hostname", "github.com"]
     if query is not None:
         command += ["-f", "query=" + query]
     if paginate:
@@ -41,7 +38,7 @@ def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
                                 text=True, encoding="utf-8", errors="replace", timeout=30,
-                                check=True, env=env)
+                                check=True, env=_gh_env(profile_home))
     except subprocess.CalledProcessError as exc:
         # 401/403/404 = the login cannot see this repository (wrong profile identity
         # or missing grant), not a transient API failure. Persist only the status

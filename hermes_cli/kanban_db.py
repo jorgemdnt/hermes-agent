@@ -1771,10 +1771,7 @@ def task_graph_context(conn: sqlite3.Connection, task_id: str) -> dict:
 
 # --- Comments & events ---
 
-def add_comment(
-    conn: sqlite3.Connection, task_id: str, author: str, body: str, *,
-    expected_run_id: Optional[int] = None,
-) -> int:
+def add_comment(conn: sqlite3.Connection, task_id: str, author: str, body: str) -> int:
     if not body or not body.strip():
         raise ValueError("comment body is required")
     if not author or not author.strip():
@@ -1784,17 +1781,12 @@ def add_comment(
     # compose comment writes under one outer commit.
     with write_txn(conn, allow_nested=True):
         _require_task(conn, task_id)
-        if expected_run_id is not None and _current_run_id(conn, task_id) != expected_run_id:
-            raise ValueError("comment refused: worker no longer owns the current run")
         cur = conn.execute(
             "INSERT INTO task_comments (task_id, author, body, created_at) "
             "VALUES (?, ?, ?, ?)", (task_id, author.strip(), body.strip(), now),
         )
-        comment_id = int(cur.lastrowid or 0)
-        _append_event(conn, task_id, "commented",
-                      {"author": author, "len": len(body), "comment_id": comment_id},
-                      run_id=expected_run_id)
-        return comment_id
+        _append_event(conn, task_id, "commented", {"author": author, "len": len(body)})
+        return int(cur.lastrowid or 0)
 
 
 def _require_task(conn: sqlite3.Connection, task_id: str) -> None:

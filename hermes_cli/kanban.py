@@ -754,13 +754,9 @@ def _cmd_comment(args: argparse.Namespace) -> int:
         if len(body) > args.max_len:
             suffix = f"\n\n[trimmed to {args.max_len} chars by --max-len]"
             body = body[: max(0, args.max_len - len(suffix))].rstrip() + suffix
-    from agent.delegation_context import owned_kanban_task
-
     author = args.author or _profile_author()
     with kbc.connect_closing() as conn:
-        kb.add_comment(conn, args.task_id, author, body,
-                       expected_run_id=(_worker_run_id_for(args.task_id)
-                                        if owned_kanban_task() == args.task_id else None))
+        kb.add_comment(conn, args.task_id, author, body)
     print(f"Comment added to {args.task_id}")
     return 0
 

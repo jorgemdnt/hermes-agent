@@ -422,28 +422,8 @@ def test_review_dispatch_gate_prevents_phantom_reviewer(
         assert tid in [s[0] for s in res_on.spawned]
 
 
-@pytest.fixture
-def open_pr(kanban_home, monkeypatch):
-    from hermes_cli import kanban_pr_acceptance
-
-    monkeypatch.setattr(kanban_pr_acceptance, "_api", lambda *a, **kw: {"state": "open", "merged": False})
-    for name in ("worker", "dev", "closer", "reviewer"):
-        home = kanban_home / "profiles" / name
-        home.mkdir(parents=True)
-        (home / "config.yaml").write_text("{}")
-
-
-def _published_comment(conn, tid, body):
-    claimed = kb.claim_task(conn, tid)
-    assert claimed is not None
-    kb.add_comment(conn, tid, author=claimed.assignee, body=body,
-                   expected_run_id=claimed.current_run_id)
-    kbd._record_task_failure(conn, tid, "worker exited", outcome="crashed",
-                             release_claim=True, end_run=True, failure_limit=10)
-
-
 def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr,
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """B2 regression: a fresh PR-URL comment must not block reviewer spawns.
 
@@ -468,15 +448,14 @@ def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
         review_id = kb.create_task(conn, title="review me", assignee="reviewer")
         claimed = kb.claim_task(conn, review_id)
         assert claimed is not None
-        kb.add_comment(conn, review_id, author="worker", body=pr_comment,
-                       expected_run_id=claimed.current_run_id)
+        kb.add_comment(conn, review_id, author="worker", body=pr_comment)
         assert kb.request_review(
             conn, review_id, summary="PR ready",
             expected_run_id=claimed.current_run_id,
         )
         # Ready-lane task with the same fresh PR comment.
         ready_id = kb.create_task(conn, title="already PRed", assignee="worker")
-        _published_comment(conn, ready_id, pr_comment)
+        kb.add_comment(conn, ready_id, author="worker", body=pr_comment)
 
         assert kbd.check_respawn_guard(conn, ready_id) == "active_pr"
         assert kbd.check_respawn_guard(conn, review_id, lane="review") is None
@@ -515,7 +494,7 @@ def _backdate_comments(conn, tid, seconds=60):
 
 
 def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr,
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A ready card whose PR is open spawns the profile it was handed to.
 
@@ -536,9 +515,9 @@ def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
 
     with kbc.connect() as conn:
         dev_id = kb.create_task(conn, title="dev own pr", assignee="dev")
-        _published_comment(conn, dev_id, pr_comment)
+        kb.add_comment(conn, dev_id, author="dev", body=pr_comment)
         closer_id = kb.create_task(conn, title="closer recovery", assignee="dev")
-        _published_comment(conn, closer_id, pr_comment)
+        kb.add_comment(conn, closer_id, author="dev", body=pr_comment)
         _backdate_comments(conn, closer_id)
         assert kb.assign_task(conn, closer_id, "closer") is True
 
@@ -549,12 +528,15 @@ def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
         assert closer_id in [s[0] for s in res.spawned]
         assert dict(res.respawn_guarded).get(dev_id) == "active_pr"
 
-        _published_comment(conn, closer_id, "Pushed to https://github.com/example/repo/pull/44")
+        kb.add_comment(
+            conn, closer_id, author="closer",
+            body="Pushed to https://github.com/example/repo/pull/44",
+        )
         assert kbd.check_respawn_guard(conn, closer_id) == "active_pr"
 
 
 def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr,
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Only a handoff to a DIFFERENT profile lifts ``active_pr``.
 
@@ -571,7 +553,7 @@ def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
     pr_comment = "Opened https://github.com/example/repo/pull/44 for review."
     with kbc.connect() as conn:
         tid = kb.create_task(conn, title="same assign", assignee="dev")
-        _published_comment(conn, tid, pr_comment)
+        kb.add_comment(conn, tid, author="dev", body=pr_comment)
         _backdate_comments(conn, tid)
         assert kb.assign_task(conn, tid, "dev") is True
         assert kbd.check_respawn_guard(conn, tid) == "active_pr"
@@ -592,7 +574,7 @@ def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
 
 
 def test_active_pr_guard_lifts_for_implementer_after_changes_requested(
-    kanban_home: Path, open_pr,
+    kanban_home: Path,
 ) -> None:
     """Reviewer CHANGES_REQUESTED routes the card back to ``ready`` for the
     implementer to fix the SAME PR; ``active_pr`` must not hold it (#111910).
@@ -601,9 +583,7 @@ def test_active_pr_guard_lifts_for_implementer_after_changes_requested(
     with kbc.connect() as conn:
         tid = kb.create_task(conn, title="changes requested", assignee="dev")
         claimed = kb.claim_task(conn, tid)
-        kb.add_comment(conn, tid, author="dev", body=pr_comment,
-                       expected_run_id=claimed.current_run_id)
-        assert kbd.check_respawn_guard(conn, tid) == "active_pr"
+        kb.add_comment(conn, tid, author="dev", body=pr_comment)
         _backdate_comments(conn, tid)
         assert kb.request_review(
             conn, tid, summary="PR ready", reviewer="reviewer",
