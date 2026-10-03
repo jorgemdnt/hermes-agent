@@ -26,8 +26,8 @@ import {
 } from '@/store/navigation-history'
 import { $browserPages, $previewTabs, commitBrowserTabLocation } from '@/store/preview'
 import { $activeProfile, switchProfile } from '@/store/profile'
-import { $focusedTreePaneId } from '@/store/session-focus'
-import { $focusedStoredSessionId, focusedSessionWorkspaceScope } from '@/store/session-states'
+import { $focusedStoredSessionId, $focusedTreePaneId } from '@/store/session-focus'
+import { focusedSessionWorkspaceScope } from '@/store/session-states'
 
 /** Pane focus and guest locations join router navigation, including Bot tabs. */
 export function useNavigationHistory() {
