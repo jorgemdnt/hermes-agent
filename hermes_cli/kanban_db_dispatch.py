@@ -1516,6 +1516,7 @@ def _clear_failure_counter(conn: sqlite3.Connection, task_id: str) -> None:
 
 def check_respawn_guard(
     conn: sqlite3.Connection, task_id: str, *, lane: str = "ready",
+    assignee: Optional[str] = None,
 ) -> Optional[str]:
     """Return a guard reason if ``task_id`` should NOT be re-spawned, else None.
 
@@ -1628,7 +1629,8 @@ def check_respawn_guard(
         return None
     from hermes_cli.kanban_pr_acceptance import is_open_pr
 
-    return "active_pr" if is_open_pr(url, assignee=row["assignee"]) else None
+    effective_assignee = assignee if assignee is not None else row["assignee"]
+    return "active_pr" if is_open_pr(url, assignee=effective_assignee) else None
 
 
 def _task_published_pr(conn: sqlite3.Connection, task_id: str, row) -> Optional[tuple[str, int]]:
@@ -1660,7 +1662,7 @@ def _task_published_pr(conn: sqlite3.Connection, task_id: str, row) -> Optional[
         # A failed completion can bind the contract before run metadata is saved.
         for event in conn.execute(
             "SELECT payload, created_at FROM task_events "
-            "WHERE task_id = ? AND kind = 'pr_acceptance' ORDER BY id ASC", (task_id,),
+            "WHERE task_id = ? AND kind = 'pr_published' ORDER BY id ASC", (task_id,),
         ).fetchall():
             if _kb._json_dict(event["payload"]).get("pr_url") == contract:
                 return contract, int(event["created_at"])
@@ -2090,7 +2092,7 @@ def _dispatch_lane_task(
         if current >= per_profile_cap:
             result.skipped_per_profile_capped.append((task_id, assignee, current))
             return False
-    guard_reason = check_respawn_guard(conn, task_id, lane=lane)
+    guard_reason = check_respawn_guard(conn, task_id, lane=lane, assignee=assignee)
     if guard_reason is not None:
         result.respawn_guarded.append((task_id, guard_reason))
         # Event so ``hermes kanban tail`` shows why the task looks stuck.

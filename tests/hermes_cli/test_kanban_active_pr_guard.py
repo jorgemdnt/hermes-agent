@@ -183,6 +183,40 @@ def test_native_review_reopen_resumes_same_owner_without_a_fake_block(board, mon
     assert not [event for event in kb.list_events(board, tid) if event.kind in {"blocked", "block_loop_detected"}]
 
 
+def test_failed_acceptance_of_exact_contract_preserves_earlier_handoff(board, monkeypatch):
+    tid = kb.create_task(board, title="known PR", assignee="dev", completion_contract=PR)
+    with kb.write_txn(board):
+        board.execute("UPDATE tasks SET created_at=created_at-120 WHERE id=?", (tid,))
+    assert kb.assign_task(board, tid, "closer")
+    with kb.write_txn(board):
+        board.execute("UPDATE task_events SET created_at=created_at-60 WHERE task_id=?", (tid,))
+    monkeypatch.setattr(acceptance, "_api", Mock(side_effect=subprocess.TimeoutExpired("gh", 30)))
+    assert not kb.complete_task(board, tid, summary="check pending", metadata={"published_pr": PR})
+    with kb.write_txn(board):
+        board.execute("UPDATE tasks SET last_failure_error=NULL WHERE id=?", (tid,))
+    api = Mock(return_value={"state": "open", "merged": False})
+    monkeypatch.setattr(acceptance, "_api", api)
+    assert kbd.check_respawn_guard(board, tid) is None
+    api.assert_not_called()
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_default_assignment_uses_effective_profile_for_github(board, monkeypatch, dry_run):
+    def api(endpoint, *, profile_home):
+        if profile_home != "/profiles/dev":
+            raise acceptance._GateAuthError("No ambient access to private PR")
+        return {"state": "open", "merged": False}
+    read = Mock(side_effect=api)
+    monkeypatch.setattr(acceptance, "_api", read)
+    tid = kb.create_task(board, title="private PR", completion_contract=PR)
+    result = kbd.dispatch_once(board, dry_run=dry_run, default_assignee="dev")
+    assert dict(result.respawn_guarded).get(tid) == "active_pr"
+    assert not result.spawned
+    read.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    task = kb.get_task(board, tid)
+    assert task is not None and task.assignee == (None if dry_run else "dev")
+
+
 def test_review_lane_does_not_query_github(board, monkeypatch):
     api = Mock(side_effect=AssertionError("Review handoff must still run"))
     monkeypatch.setattr(acceptance, "_api", api)
