@@ -45,7 +45,9 @@ def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
         # code + endpoint, never gh's stderr (credentials/host details).
         denied = re.search(r"HTTP (40[134])", exc.stderr or "")
         if denied:
-            raise _GateAuthError(f"HTTP {denied[1]} on {endpoint.split('?')[0]}") from None
+            error = _GateAuthError(f"HTTP {denied[1]} on {endpoint.split('?')[0]}")
+            error.plan_restricted = denied[1] == "403" and _PLAN_RESTRICTED in (exc.stderr or "")
+            raise error from None
         if exc.returncode == 4:  # gh's authentication-required exit: this profile has no login
             raise _GateAuthError(f"gh has no login for {endpoint.split('?')[0]}") from None
         raise
@@ -59,6 +61,33 @@ class _GateAuthError(RuntimeError):
     """gh was refused at HTTP 401/403/404 (or GraphQL returned no repository):
     this profile's login cannot see the repo — an identity problem to fix, not
     an infrastructure blip to retry."""
+
+    plan_restricted = False
+
+
+# GitHub's exact refusal when the repository's plan lacks rulesets (private repo on Free).
+_PLAN_RESTRICTED = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+
+
+def _branch_rules(repo: str, branch: str, profile_home: str | None) -> list:
+    """Ruleset pages for ``branch``. A plan without rulesets has none to report, but
+    only when the same login also reads the branch as unprotected with no required
+    checks; any other refusal stays an auth failure."""
+    endpoint = f"repos/{repo}/branches/{quote(branch, safe='')}"
+    try:
+        return _api(f"repos/{repo}/rules/branches/{quote(branch, safe='')}?per_page=100",
+                    paginate=True, profile_home=profile_home)
+    except _GateAuthError as exc:
+        if not exc.plan_restricted:
+            raise
+        refused = exc
+    state = _api(endpoint, profile_home=profile_home)
+    checks = ((state.get("protection") or {}).get("required_status_checks") or {})
+    if (state.get("name") != branch or state.get("protected") is not False
+            or (state.get("protection") or {}).get("enabled") is not False
+            or checks.get("checks") or checks.get("contexts")):
+        raise refused
+    return []
 
 
 def _gh_env(profile_home: str | None) -> dict[str, str] | None:
@@ -135,8 +164,7 @@ def collect_acceptance(contract: str, published_pr: str | None,
             raise ValueError("PR is closed or current head is unavailable")
         protection = (pr.get("baseRef") or {}).get("branchProtectionRule") or {}
         required = {(r["context"], (r.get("app") or {}).get("databaseId")) for r in protection.get("requiredStatusChecks", [])}
-        rules = _api(f"repos/{repo}/rules/branches/{quote(branch, safe='')}?per_page=100",
-                     paginate=True, profile_home=profile_home)
+        rules = _branch_rules(repo, branch, profile_home)
         for page in rules:
             for rule in page:
                 if rule["type"] == "required_status_checks":

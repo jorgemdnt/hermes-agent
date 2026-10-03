@@ -216,6 +216,93 @@ def test_assignee_without_own_gh_login_never_falls_through_to_ambient_login(tmp_
     assert "GH_TOKEN" not in captured and "GITHUB_TOKEN" not in captured
 
 
+_PLAN_403 = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+
+
+def _rules_403_gh(tmp_path, monkeypatch, *, rules_message, branch, required):
+    """gh shim: GraphQL reports ``required`` classic checks, the rules API answers
+    HTTP 403 with ``rules_message``, the branch read returns ``branch``, and the
+    single required check is green on the PR head."""
+    sha = "a" * 40
+    graphql = {"data": {"repository": {"pullRequest": {
+        "headRefOid": sha, "baseRefName": "main", "state": "OPEN",
+        "baseRef": {"branchProtectionRule": {"requiredStatusChecks": required} if required else None}}}}}
+    replies = {
+        "graphql": (0, graphql),
+        "rules/branches": (1, rules_message),
+        "branches/main": (0, branch),
+        "check-runs": (0, [{"total_count": 1, "check_runs": [{"id": 42, "name": "required",
+            "head_sha": sha, "app": {"id": 1}, "status": "completed", "conclusion": "success",
+            "html_url": "https://github.com/acme/repo/actions/runs/42"}]}]),
+        "statuses": (0, [[]]),
+        "pulls/": (0, {"head": {"sha": sha}, "base": {"ref": "main"}, "state": "open"}),
+    }
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    gh = shim / "gh"
+    gh.write_text(f"#!{sys.executable}\nimport json, sys\nreplies = {json.dumps(replies)!r}\n"
+                  "replies = json.loads(replies)\nendpoint = sys.argv[2]\n"
+                  "for key in replies:\n"
+                  "    if key in endpoint:\n"
+                  "        code, value = replies[key]\n"
+                  "        if code:\n"
+                  "            print(json.dumps([{'message': value, 'status': '403'}]))\n"
+                  "            sys.stderr.write('gh: ' + value + ' (HTTP 403)\\n')\n"
+                  "            sys.exit(code)\n"
+                  "        print(json.dumps(value))\n"
+                  "        sys.exit(0)\n"
+                  "sys.stderr.write('gh: Not Found (HTTP 404)\\n')\nsys.exit(1)\n")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", str(shim) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+
+
+_UNPROTECTED = {"name": "main", "protected": False, "protection": {"enabled": False,
+                "required_status_checks": {"checks": [], "contexts": [], "enforcement_level": "off"}}}
+
+
+def _collect(**kwargs):
+    from hermes_cli.kanban_pr_acceptance import collect_acceptance
+    return collect_acceptance("https://github.com/acme/repo/pull/7", None)
+
+
+@pytest.mark.platforms("posix")
+def test_plan_restricted_rules_api_on_unprotected_branch_is_not_an_auth_failure(tmp_path, monkeypatch):
+    """Private repos on GitHub Free answer the rules API with HTTP 403 "Upgrade to GitHub Pro".
+    That is an unsupported feature, not a credential problem: with a verified unprotected
+    base branch there are no rulesets, so acceptance proceeds on the classic evidence."""
+    _rules_403_gh(tmp_path, monkeypatch, rules_message=_PLAN_403, branch=_UNPROTECTED,
+                  required=[{"context": "required", "app": {"databaseId": 1}}])
+    receipt = _collect()
+    assert receipt["classification"] == "success" and receipt["ok"] is True
+    assert receipt["required"] == [{"context": "required", "app_id": 1}]
+
+
+@pytest.mark.platforms("posix")
+def test_plan_restricted_rules_api_without_required_checks_keeps_the_no_ci_verdict(tmp_path, monkeypatch):
+    _rules_403_gh(tmp_path, monkeypatch, rules_message=_PLAN_403, branch=_UNPROTECTED, required=None)
+    receipt = _collect()
+    assert receipt["ok"] is False and receipt["classification"] == "missing"
+    assert "No repository-required checks" in receipt["detail"]
+
+
+@pytest.mark.platforms("posix")
+@pytest.mark.parametrize("message, branch", [
+    ("Resource not accessible by integration", _UNPROTECTED),     # a real permission failure
+    ("Must have admin rights to Repository.", _UNPROTECTED),
+    (_PLAN_403, {**_UNPROTECTED, "protected": True}),               # protection it cannot read
+    (_PLAN_403, {**_UNPROTECTED, "protection": {"enabled": False, "required_status_checks": {
+        "checks": [], "contexts": ["ci"], "enforcement_level": "non_admins"}}}),
+])
+def test_rules_403_still_fails_closed_unless_feature_is_unsupported_and_branch_unprotected(
+        tmp_path, monkeypatch, message, branch):
+    _rules_403_gh(tmp_path, monkeypatch, rules_message=message, branch=branch,
+                  required=[{"context": "required", "app": {"databaseId": 1}}])
+    receipt = _collect()
+    assert receipt["ok"] is False and receipt["classification"] == "auth"
+    assert "HTTP 403 on repos/acme/repo/rules/branches/main" in receipt["detail"]
+
+
 def test_assigned_card_with_unresolvable_profile_is_auth_not_ambient(tmp_path, monkeypatch):
     """A card assigned to a profile that no longer exists must not run gh as the completing
     process's ambient login: classification `auth` naming the profile, gh never invoked."""
