@@ -72,6 +72,7 @@ _RESPAWN_BLOCKER_RE = re.compile(
 
 # Within this window a completed run counts as "recent proof"; don't re-spawn.
 _RESPAWN_GUARD_SUCCESS_WINDOW = 3600  # 1 hour
+_RESPAWN_PR_CHECK_BUDGET_SECONDS = 5.0
 
 # Cooldown after a rate-limited (quota-wall) requeue before re-spawning. Without
 # it the task would re-spawn on the very next tick and bounce off the same quota
@@ -1517,6 +1518,7 @@ def _clear_failure_counter(conn: sqlite3.Connection, task_id: str) -> None:
 def check_respawn_guard(
     conn: sqlite3.Connection, task_id: str, *, lane: str = "ready",
     assignee: Optional[str] = None,
+    pr_check_deadline: Optional[float] = None,
 ) -> Optional[str]:
     """Return a guard reason if ``task_id`` should NOT be re-spawned, else None.
 
@@ -1629,8 +1631,13 @@ def check_respawn_guard(
         return None
     from hermes_cli.kanban_pr_acceptance import is_open_pr
 
+    timeout = _RESPAWN_PR_CHECK_BUDGET_SECONDS
+    if pr_check_deadline is not None:
+        timeout = min(timeout, pr_check_deadline - time.monotonic())
+        if timeout <= 0:
+            return None
     effective_assignee = assignee if assignee is not None else row["assignee"]
-    return "active_pr" if is_open_pr(url, assignee=effective_assignee) else None
+    return "active_pr" if is_open_pr(url, assignee=effective_assignee, timeout=timeout) else None
 
 
 def _task_published_pr(conn: sqlite3.Connection, task_id: str, row) -> Optional[tuple[str, int]]:
@@ -2058,6 +2065,7 @@ def _dispatch_lane_task(
     spawn_fn,
     per_profile_cap: Optional[int],
     per_profile_running: dict[str, int],
+    pr_check_deadline: float,
 ) -> bool:
     """Guard, claim, resolve the workspace and spawn one ready/review row.
     Returns True when a spawn slot was consumed (real or ``dry_run``); every
@@ -2092,7 +2100,9 @@ def _dispatch_lane_task(
         if current >= per_profile_cap:
             result.skipped_per_profile_capped.append((task_id, assignee, current))
             return False
-    guard_reason = check_respawn_guard(conn, task_id, lane=lane, assignee=assignee)
+    guard_reason = check_respawn_guard(
+        conn, task_id, lane=lane, assignee=assignee, pr_check_deadline=pr_check_deadline,
+    )
     if guard_reason is not None:
         result.respawn_guarded.append((task_id, guard_reason))
         # Event so ``hermes kanban tail`` shows why the task looks stuck.
@@ -2416,6 +2426,7 @@ def _dispatch_once_locked(
         dry_run=dry_run, ttl_seconds=ttl_seconds, board=board,
         failure_limit=failure_limit, spawn_fn=spawn_fn,
         per_profile_cap=per_profile_cap, per_profile_running=per_profile_running,
+        pr_check_deadline=time.monotonic() + _RESPAWN_PR_CHECK_BUDGET_SECONDS,
     )
     default_assignee = _resolve_default_assignee(default_assignee)
     spawned = 0

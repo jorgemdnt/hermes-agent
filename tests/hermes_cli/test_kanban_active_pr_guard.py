@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import subprocess
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import pytest
 
@@ -55,7 +55,7 @@ def test_guard_tracks_own_pr_state(board, monkeypatch, source, state, merged):
     result = kbd.dispatch_once(board, dry_run=True)
     assert dict(result.respawn_guarded).get(tid) == ("active_pr" if state == "open" else None)
     assert (tid in [s[0] for s in result.spawned]) is (state != "open")
-    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=ANY)
 
 
 def test_someone_elses_comment_pr_does_not_block_or_query_github(board, monkeypatch):
@@ -75,7 +75,7 @@ def test_comment_cannot_substitute_for_merged_own_pr(board, monkeypatch):
     tid = kb.create_task(board, title="own merged PR", assignee="dev", completion_contract=PR)
     kb.add_comment(board, tid, author="reviewer", body=f"Another open PR: {OTHER_PR}")
     assert kbd.check_respawn_guard(board, tid) is None
-    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=ANY)
 
 
 def test_old_metadata_still_guards_an_open_pr_after_newer_run(board, monkeypatch):
@@ -105,7 +105,7 @@ def test_exact_contract_wins_over_other_metadata(board, monkeypatch):
     tid = kb.create_task(board, title="bound PR", assignee="dev", completion_contract=PR)
     publish_metadata(board, tid, value=OTHER_PR)
     assert kbd.check_respawn_guard(board, tid) is None
-    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=ANY)
 
 
 @pytest.mark.parametrize("error", [subprocess.TimeoutExpired("gh", 30), acceptance._GateAuthError("HTTP 403")])
@@ -143,7 +143,7 @@ def test_repo_contract_accepts_own_publication_metadata(board, monkeypatch):
     tid = kb.create_task(board, title="correct repo", assignee="dev", completion_contract="example/repo")
     publish_metadata(board, tid)
     assert kbd.check_respawn_guard(board, tid) == "active_pr"
-    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=ANY)
 
 
 def test_failed_acceptance_binding_is_newer_than_an_earlier_handoff(board, monkeypatch):
@@ -163,7 +163,7 @@ def test_failed_acceptance_binding_is_newer_than_an_earlier_handoff(board, monke
     api = Mock(return_value={"state": "open", "merged": False})
     monkeypatch.setattr(acceptance, "_api", api)
     assert kbd.check_respawn_guard(board, tid) == "active_pr"
-    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/closer")
+    api.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/closer", timeout=ANY)
 
 
 def test_native_review_reopen_resumes_same_owner_without_a_fake_block(board, monkeypatch):
@@ -202,7 +202,7 @@ def test_failed_acceptance_of_exact_contract_preserves_earlier_handoff(board, mo
 
 @pytest.mark.parametrize("dry_run", [True, False])
 def test_default_assignment_uses_effective_profile_for_github(board, monkeypatch, dry_run):
-    def api(endpoint, *, profile_home):
+    def api(endpoint, *, profile_home, timeout):
         if profile_home != "/profiles/dev":
             raise acceptance._GateAuthError("No ambient access to private PR")
         return {"state": "open", "merged": False}
@@ -212,7 +212,7 @@ def test_default_assignment_uses_effective_profile_for_github(board, monkeypatch
     result = kbd.dispatch_once(board, dry_run=dry_run, default_assignee="dev")
     assert dict(result.respawn_guarded).get(tid) == "active_pr"
     assert not result.spawned
-    read.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev")
+    read.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=ANY)
     task = kb.get_task(board, tid)
     assert task is not None and task.assignee == (None if dry_run else "dev")
 
@@ -223,3 +223,44 @@ def test_review_lane_does_not_query_github(board, monkeypatch):
     tid = kb.create_task(board, title="review me", assignee="dev", completion_contract=PR)
     assert kbd.check_respawn_guard(board, tid, lane="review") is None
     api.assert_not_called()
+
+
+def test_dispatch_bounds_pr_reads_and_still_dispatches_unrelated_work(board, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(kbd.time, "monotonic", lambda: clock[0])
+
+    def api(endpoint, *, profile_home, timeout):
+        assert timeout == pytest.approx(5.0)
+        clock[0] += timeout
+        return {"state": "open", "merged": False}
+
+    read = Mock(side_effect=api)
+    monkeypatch.setattr(acceptance, "_api", read)
+    own_open = kb.create_task(board, title="slow open PR", assignee="dev", completion_contract=PR, priority=10)
+    unknown = kb.create_task(board, title="budget exhausted", assignee="dev", completion_contract=OTHER_PR)
+    unrelated = kb.create_task(board, title="no PR ownership", assignee="dev")
+    for _ in range(2):
+        result = kbd.dispatch_once(board, dry_run=True)
+        assert dict(result.respawn_guarded) == {own_open: "active_pr"}
+        assert {s[0] for s in result.spawned} == {unknown, unrelated}
+    assert read.call_count == 2
+
+
+def test_guard_passes_only_remaining_tick_budget_to_github(board, monkeypatch):
+    monkeypatch.setattr(kbd.time, "monotonic", lambda: 100.0)
+    read = Mock(return_value={"state": "open", "merged": False})
+    monkeypatch.setattr(acceptance, "_api", read)
+    tid = kb.create_task(board, title="remaining budget", assignee="dev", completion_contract=PR)
+    assert kbd.check_respawn_guard(board, tid, pr_check_deadline=100.5) == "active_pr"
+    read.assert_called_once_with("repos/example/repo/pulls/44", profile_home="/profiles/dev", timeout=0.5)
+    read.reset_mock()
+    assert kbd.check_respawn_guard(board, tid, pr_check_deadline=100.0) is None
+    read.assert_not_called()
+
+
+def test_is_open_pr_bounds_the_github_subprocess(monkeypatch):
+    monkeypatch.setattr(acceptance, "_assignee_profile_home", lambda name: None)
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, '{"state":"open","merged":false}'))
+    monkeypatch.setattr(acceptance.subprocess, "run", run)
+    assert acceptance.is_open_pr(PR)
+    assert run.call_args.kwargs["timeout"] == 5.0
