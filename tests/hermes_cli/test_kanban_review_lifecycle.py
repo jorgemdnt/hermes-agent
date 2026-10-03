@@ -422,15 +422,19 @@ def test_review_dispatch_gate_prevents_phantom_reviewer(
         assert tid in [s[0] for s in res_on.spawned]
 
 
-def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """B2 regression: a fresh PR-URL comment must not block reviewer spawns.
+@pytest.fixture
+def open_pr(monkeypatch):
+    from hermes_cli import kanban_pr_acceptance as acceptance
 
-    A task parked in ``review`` with a PR link younger than 24h is the
-    CANONICAL review handoff (worker opened a PR then requested review) —
-    the review-lane dispatch must still claim/spawn it. The same comment on
-    a ready-lane task is a duplicate-work signal and stays deferred.
+    monkeypatch.setattr(acceptance, "_assignee_profile_home", lambda name: None)
+    monkeypatch.setattr(acceptance, "_api", lambda *a, **kw: {"state": "open", "merged": False})
+
+
+def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr
+) -> None:
+    """An owned open PR blocks ready dispatch, but never the review handoff.
+
     Rate-limit cooldown still applies in the review lane.
     """
     import hermes_cli.config as cfgmod
@@ -445,7 +449,8 @@ def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
 
     with kbc.connect() as conn:
         # Review-lane task with a fresh PR comment.
-        review_id = kb.create_task(conn, title="review me", assignee="reviewer")
+        review_id = kb.create_task(conn, title="review me", assignee="reviewer",
+                                   completion_contract="https://github.com/example/repo/pull/123")
         claimed = kb.claim_task(conn, review_id)
         assert claimed is not None
         kb.add_comment(conn, review_id, author="worker", body=pr_comment)
@@ -454,7 +459,8 @@ def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
             expected_run_id=claimed.current_run_id,
         )
         # Ready-lane task with the same fresh PR comment.
-        ready_id = kb.create_task(conn, title="already PRed", assignee="worker")
+        ready_id = kb.create_task(conn, title="already PRed", assignee="worker",
+                                  completion_contract="https://github.com/example/repo/pull/123")
         kb.add_comment(conn, ready_id, author="worker", body=pr_comment)
 
         assert kbd.check_respawn_guard(conn, ready_id) == "active_pr"
@@ -483,26 +489,23 @@ def test_active_pr_guard_skipped_for_review_lane_but_defers_ready_lane(
         ) == "rate_limit_cooldown"
 
 
-def _backdate_comments(conn, tid, seconds=60):
-    """Second-granularity timestamps: make the PR comment older than the
-    handoff that follows it in the same test."""
+def _backdate_publication(conn, tid, seconds=60):
+    """Make declared publication older than the handoff in the same test."""
     with kb.write_txn(conn):
-        conn.execute(
-            "UPDATE task_comments SET created_at = created_at - ? WHERE task_id = ?",
-            (seconds, tid),
-        )
+        conn.execute("UPDATE tasks SET created_at=created_at-? WHERE id=?", (seconds, tid))
+        conn.execute("UPDATE task_runs SET ended_at=ended_at-? WHERE task_id=?", (seconds, tid))
 
 
 def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr
 ) -> None:
     """A ready card whose PR is open spawns the profile it was handed to.
 
     #111910: ``active_pr`` exists to stop the implementer from opening a
     duplicate PR; it must not stop the closer/recovery profile an operator
-    assigned AFTER the PR comment — that handoff is why the PR must be worked.
-    The un-reassigned implementer stays guarded; a newer PR comment posted
-    after the handoff (the closer's own run) guards again.
+    assigned AFTER publication — that handoff is why the PR must be worked.
+    The un-reassigned implementer stays guarded; comments do not republish a
+    PR, but the closer's newer publication metadata guards again.
     """
     import hermes_cli.config as cfgmod
     import hermes_cli.profiles as profmod
@@ -514,11 +517,13 @@ def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
     pr_comment = "Opened https://github.com/example/repo/pull/44 for review."
 
     with kbc.connect() as conn:
-        dev_id = kb.create_task(conn, title="dev own pr", assignee="dev")
+        dev_id = kb.create_task(conn, title="dev own pr", assignee="dev",
+                                completion_contract="https://github.com/example/repo/pull/44")
         kb.add_comment(conn, dev_id, author="dev", body=pr_comment)
-        closer_id = kb.create_task(conn, title="closer recovery", assignee="dev")
+        closer_id = kb.create_task(conn, title="closer recovery", assignee="dev",
+                                   completion_contract="https://github.com/example/repo/pull/44")
         kb.add_comment(conn, closer_id, author="dev", body=pr_comment)
-        _backdate_comments(conn, closer_id)
+        _backdate_publication(conn, closer_id)
         assert kb.assign_task(conn, closer_id, "closer") is True
 
         assert kbd.check_respawn_guard(conn, dev_id) == "active_pr"
@@ -532,11 +537,16 @@ def test_active_pr_guard_lifts_for_profile_handed_the_card_after_the_pr(
             conn, closer_id, author="closer",
             body="Pushed to https://github.com/example/repo/pull/44",
         )
+        assert kbd.check_respawn_guard(conn, closer_id) is None
+        assert kb.request_review(
+            conn, closer_id, summary="Updated the PR",
+            metadata={"published_pr": "https://github.com/example/repo/pull/44"},
+        )
         assert kbd.check_respawn_guard(conn, closer_id) == "active_pr"
 
 
 def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
-    kanban_home: Path, monkeypatch: pytest.MonkeyPatch,
+    kanban_home: Path, monkeypatch: pytest.MonkeyPatch, open_pr,
 ) -> None:
     """Only a handoff to a DIFFERENT profile lifts ``active_pr``.
 
@@ -552,9 +562,10 @@ def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
     monkeypatch.setattr(cfgmod, "load_config", lambda *a, **k: {})
     pr_comment = "Opened https://github.com/example/repo/pull/44 for review."
     with kbc.connect() as conn:
-        tid = kb.create_task(conn, title="same assign", assignee="dev")
+        tid = kb.create_task(conn, title="same assign", assignee="dev",
+                             completion_contract="https://github.com/example/repo/pull/44")
         kb.add_comment(conn, tid, author="dev", body=pr_comment)
-        _backdate_comments(conn, tid)
+        _backdate_publication(conn, tid)
         assert kb.assign_task(conn, tid, "dev") is True
         assert kbd.check_respawn_guard(conn, tid) == "active_pr"
         assert kb.reassign_task(conn, tid, "dev", reclaim_first=True) is True
@@ -574,17 +585,18 @@ def test_active_pr_guard_holds_through_same_profile_reassign_and_unassign(
 
 
 def test_active_pr_guard_lifts_for_implementer_after_changes_requested(
-    kanban_home: Path,
+    kanban_home: Path, open_pr,
 ) -> None:
     """Reviewer CHANGES_REQUESTED routes the card back to ``ready`` for the
     implementer to fix the SAME PR; ``active_pr`` must not hold it (#111910).
     ``recent_success`` is untouched by the handoff exemption."""
     pr_comment = "Opened https://github.com/example/repo/pull/44 for review."
     with kbc.connect() as conn:
-        tid = kb.create_task(conn, title="changes requested", assignee="dev")
+        tid = kb.create_task(conn, title="changes requested", assignee="dev",
+                             completion_contract="https://github.com/example/repo/pull/44")
         claimed = kb.claim_task(conn, tid)
         kb.add_comment(conn, tid, author="dev", body=pr_comment)
-        _backdate_comments(conn, tid)
+        _backdate_publication(conn, tid)
         assert kb.request_review(
             conn, tid, summary="PR ready", reviewer="reviewer",
             expected_run_id=claimed.current_run_id,

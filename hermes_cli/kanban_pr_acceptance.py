@@ -29,7 +29,7 @@ def validate_contract(value: str | None) -> str:
 
 
 def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
-         profile_home: str | None = None):
+         profile_home: str | None = None, timeout: float = 30):
     command = ["gh", "api", endpoint, "--hostname", "github.com"]
     if query is not None:
         command += ["-f", "query=" + query]
@@ -37,7 +37,7 @@ def _api(endpoint: str, *, query: str | None = None, paginate: bool = False,
         command += ["--paginate", "--slurp"]
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
-                                text=True, encoding="utf-8", errors="replace", timeout=30,
+                                text=True, encoding="utf-8", errors="replace", timeout=timeout,
                                 check=True, env=_gh_env(profile_home))
     except subprocess.CalledProcessError as exc:
         # 401/403/404 = the login cannot see this repository (wrong profile identity
@@ -131,6 +131,22 @@ def _assignee_profile_home(assignee: str | None) -> str | None:
         return resolve_profile_env(normalize_profile_name(assignee))
     except (FileNotFoundError, ValueError):
         raise _GateAuthError(f"assignee profile {assignee!r} cannot be resolved") from None
+
+
+def is_open_pr(url: str, assignee: str | None = None, *, timeout: float = 5.0) -> bool:
+    """A live GitHub read, using the same profile identity as PR acceptance.
+
+    An unavailable read is not evidence of an open PR; the next tick retries.
+    """
+    match = _PR.fullmatch(url)
+    if not match:
+        return False
+    try:
+        pr = _api(f"repos/{match[1]}/pulls/{match[2]}",
+                  profile_home=_assignee_profile_home(assignee), timeout=timeout)
+        return isinstance(pr, dict) and pr.get("state") == "open" and not pr.get("merged")
+    except (_GateAuthError, OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return False
 
 
 def collect_acceptance(contract: str, published_pr: str | None,

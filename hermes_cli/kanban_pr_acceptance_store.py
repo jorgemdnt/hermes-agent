@@ -23,10 +23,13 @@ def prepare_acceptance(conn, task_id, expected_run_id, metadata):
     match = _PR.fullmatch(published_pr) if isinstance(published_pr, str) else None
     # Publication binds once. Retrying cannot replace the task's PR with a green sibling.
     if match and contract == match[1]:
+        from hermes_cli.kanban_db import _append_event
+
         with write_txn(conn):
             if _snapshot(conn, task_id) != snapshot:
                 return False
             conn.execute("UPDATE tasks SET completion_contract=? WHERE id=?", (published_pr, task_id))
+            _append_event(conn, task_id, "pr_published", {"pr_url": published_pr}, run_id=run_id)
         snapshot = (run_id, status, published_pr)
         contract = published_pr
     # The assignee profile's gh login owns the repo: acceptance must not run as
