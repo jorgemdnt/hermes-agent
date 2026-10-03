@@ -21,6 +21,7 @@ it('restores the selected chat offset after browser relayout, not another mounte
     newSessionTarget: null,
     browserOpen: false
   }
+
   const { container } = render(
     <>
       <div data-session-anchor="workspace">
@@ -31,6 +32,7 @@ it('restores the selected chat offset after browser relayout, not another mounte
       </div>
     </>
   )
+
   const viewports = container.querySelectorAll<HTMLElement>('[data-slot="aui_thread-viewport"]')
   const selected = viewports[1]
   Object.defineProperty(selected, 'checkVisibility', { value: () => true })
@@ -45,16 +47,19 @@ it('restores the selected chat offset after browser relayout, not another mounte
   const cancel = vi.fn()
   vi.stubGlobal('cancelAnimationFrame', cancel)
   const settled = vi.fn()
+
   const restoreOwner = vi.fn((top: number) => {
     selected.scrollTop = top
   })
+
   let ownerElement: HTMLElement | null = null
   const unsubscribe = subscribeNavigationScrollRestore(() => ownerElement, restoreOwner)
   // The callback ref arrives after the subscription, without a new effect.
   ownerElement = selected
   const stop = restoreNavigationScroll(entry, settled)
   selected.scrollTop = 500
-  while (frames.length) frames.shift()!(0)
+
+  while (frames.length) {frames.shift()!(0)}
   expect(selected.scrollTop).toBe(123)
   expect(viewports[0].scrollTop).toBe(0)
   expect(settled).toHaveBeenCalledOnce()

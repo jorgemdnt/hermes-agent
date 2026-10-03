@@ -287,6 +287,7 @@ function MarkdownLink({ children, className, href, ...props }: ComponentProps<'a
   if (cardReference(href)) {
     return <CardLink href={href!} />
   }
+
   const mediaPath = mediaPathFromMarkdownHref(href)
 
   if (mediaPath) {

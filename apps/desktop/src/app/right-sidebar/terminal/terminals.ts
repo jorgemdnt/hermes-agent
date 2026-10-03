@@ -292,6 +292,7 @@ function loadTerminalBuckets(): { activeId: null | string; terminals: TerminalEn
           }
 
           const record = value as Record<string, unknown>
+
           const terminals = Array.isArray(record.terminals)
             ? record.terminals
                 .map(sanitizePersistedTerminal)

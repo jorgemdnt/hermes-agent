@@ -55,6 +55,7 @@ export function travelNavigation(direction: -1 | 1): void {
   if (!entry || !replay) {
     return
   }
+
   navigationReplayKey = navigationEntryKey(entry)
   publishNavigationAvailability()
   replay(entry)
@@ -74,6 +75,7 @@ export function recordNavigation(entry: NavigationEntry): void {
   if (current && navigationEntryKey(current) === navigationEntryKey(entry)) {
     entry = { ...entry, scrollTop: entry.scrollTop ?? current.scrollTop }
   }
+
   navigationHistory.record(entry)
   publishNavigationAvailability()
 }

@@ -1130,6 +1130,7 @@ export function KanbanBoardPage() {
     if (slug) {
       query.set('board', slug)
     }
+
     navigate(`/kanban${query.size ? `?${query}` : ''}`)
   }
 

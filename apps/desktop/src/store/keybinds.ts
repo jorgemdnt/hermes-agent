@@ -75,6 +75,7 @@ export function buildComboIndex(bindings: KeybindBindings): Map<string, string[]
     const id = `sidebar.row.${slot}`
     const key = canonicalizeCombo(`mod+${slot}`)
     const actions = index.get(key)
+
     if (actions?.includes(id)) {
       index.set(key, [id, ...actions.filter(action => action !== id)])
     }
@@ -82,6 +83,7 @@ export function buildComboIndex(bindings: KeybindBindings): Map<string, string[]
 
   const terminal = canonicalizeCombo(MOD_J)
   index.set(terminal, ['view.showTerminal', ...(index.get(terminal) ?? []).filter(id => id !== 'view.showTerminal')])
+
   return index
 }
 

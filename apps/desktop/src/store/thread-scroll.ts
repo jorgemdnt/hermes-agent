@@ -111,7 +111,8 @@ export const requestScrollToBottom = (sessionId: string | null = null) => {
 /** Sessions | Bots tab switch: land on the newest messages. */
 export function pinChatToLatest(sessionId: string | null | undefined) {
   const id = String(sessionId || '').trim()
-  if (!id) return
+
+  if (!id) {return}
   saveThreadScrollPosition(id, THREAD_SCROLL_BOTTOM)
   requestScrollToBottom(id)
 }

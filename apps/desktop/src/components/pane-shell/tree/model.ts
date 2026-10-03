@@ -595,7 +595,8 @@ function mapRetiredPanes(panes: string[]): string[] {
 
   for (const id of panes) {
     if (id === 'files') {
-      if (!next.includes('work')) next.push('work')
+      if (!next.includes('work')) {next.push('work')}
+
       continue
     }
 

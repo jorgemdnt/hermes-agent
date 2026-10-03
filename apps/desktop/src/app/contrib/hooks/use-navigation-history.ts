@@ -12,14 +12,14 @@ import {
   $workspaceOwnerKey,
   setWorkspaceScope
 } from '@/components/pane-shell/workspace-scope'
-import { $activeConnectionId } from '@/store/connections'
 import { captureNavigationScroll, restoreNavigationScroll } from '@/lib/navigation-scroll'
+import { $activeConnectionId } from '@/store/connections'
 import { $fileBrowserOpen, $rightRailActiveTabId, selectRightRailTab, setFileBrowserOpen } from '@/store/layout'
 import {
   bindNavigationReplay,
+  type NavigationEntry,
   navigationHistory,
   navigationReplayKey,
-  type NavigationEntry,
   recordNavigation,
   resetNavigationHistory,
   travelNavigation
@@ -51,6 +51,7 @@ export function useNavigationHistory() {
     !isWorkspacePageRoute(location.pathname) && browserOpen && tab && isPaneVisible(`preview-tile:${tab.id}`)
       ? tab.id
       : undefined
+
   const browserUrl = tab ? pages[tab.id]?.url || tab.target.url || '' : ''
 
   const route = `${location.pathname}${location.search}`
@@ -84,12 +85,14 @@ export function useNavigationHistory() {
     let cancelScroll = () => {}
     let restoring = false
     let generation = 0
+
     const capture = () => {
       const entry = navigationHistory.current
 
       if (!entry || restoring || navigationReplayKey !== null || isWorkspacePageRoute(entry.route.split('?')[0])) {
         return
       }
+
       // A layout commit precedes recordNavigation's effect. Its resize events
       // belong to the destination, never the chat entry we just left.
       if (
@@ -100,33 +103,40 @@ export function useNavigationHistory() {
       ) {
         return
       }
+
       const scrollTop = captureNavigationScroll(entry)
 
       if (scrollTop !== undefined) {
         navigationHistory.update({ ...entry, scrollTop })
       }
     }
+
     const stopRestore = () => {
       cancelScroll()
       restoring = false
     }
+
     const unbind = bindNavigationReplay(entry => {
       stopRestore()
       restoring = true
       const token = ++generation
+
       void (async () => {
         if (entry.profile !== $activeProfile.get()) {
           await switchProfile(entry.profile)
         }
+
         if (token !== generation) {
           return
         }
+
         applyEntry(entry)
         cancelScroll = restoreNavigationScroll(entry, () => {
           restoring = false
         })
       })()
     })
+
     document.addEventListener('scroll', capture, true)
     document.addEventListener('pointerdown', capture, true)
     document.addEventListener('wheel', stopRestore, true)
@@ -180,6 +190,7 @@ export function useNavigationHistory() {
       if (direction === null) {
         return
       }
+
       event.preventDefault()
       event.stopImmediatePropagation()
       travelNavigation(direction)

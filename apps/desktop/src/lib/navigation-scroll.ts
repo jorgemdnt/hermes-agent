@@ -8,10 +8,12 @@ export function subscribeNavigationScrollRestore(
 ): () => void {
   const onRestore = (event: Event) => {
     const element = surface()
+
     if (element && element === event.target) {
       restore((event as CustomEvent<number>).detail, element)
     }
   }
+
   // use-stick-to-bottom's callback ref can acquire its element after effects
   // subscribe. Delegate by live DOM identity, not the first render's null ref.
   document.addEventListener(RESTORE_EVENT, onRestore, true)
@@ -23,7 +25,9 @@ function viewport(entry: NavigationEntry): HTMLElement | null {
   const anchors = entry.pane?.startsWith('session-tile:')
     ? [entry.pane]
     : [entry.pane, `session-tile:${entry.session}`, 'workspace']
+
   const surfaces = Array.from(document.querySelectorAll<HTMLElement>('[data-session-anchor]'))
+
   const surface = anchors
     .map(anchor => surfaces.find(element => element.dataset.sessionAnchor === anchor))
     .find(element => element && !element.closest('[data-pane-hidden]'))
@@ -48,10 +52,12 @@ export function restoreNavigationScroll(entry: NavigationEntry, onSettled: () =>
 
     return () => {}
   }
+
   let frame = 0
   let stableFrames = 0
   let lastHeight = -1
   let request = 0
+
   const restore = () => {
     const element = viewport(entry)
 
@@ -61,6 +67,7 @@ export function restoreNavigationScroll(entry: NavigationEntry, onSettled: () =>
       stableFrames = height === lastHeight && element.scrollTop === top ? stableFrames + 1 : 0
       lastHeight = height
     }
+
     // Match the transcript's bounded settle window; don't freeze a live stream.
     if (++frame < 90 && stableFrames < 3) {
       request = requestAnimationFrame(restore)
@@ -68,6 +75,7 @@ export function restoreNavigationScroll(entry: NavigationEntry, onSettled: () =>
       onSettled()
     }
   }
+
   request = requestAnimationFrame(restore)
 
   return () => cancelAnimationFrame(request)

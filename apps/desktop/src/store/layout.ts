@@ -4,10 +4,10 @@ import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '@/app/layout-constants'
 import { PANE_TOGGLE_REVEAL_EVENT } from '@/components/pane-shell'
 import { allPaneIds, type GroupNode } from '@/components/pane-shell/tree/model'
 import {
-  isWorkLayout,
   $collapsedTreeSides,
   $hiddenTreePanes,
   $layoutTree,
+  isWorkLayout,
   layoutHasRootSide,
   paneRootSide,
   restoreHiddenTreeSideTabs,

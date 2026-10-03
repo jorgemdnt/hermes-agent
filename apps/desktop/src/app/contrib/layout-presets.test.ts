@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { allPaneIds } from '@/components/pane-shell/tree/model'
+import { treeLooksLikeWork } from '@/components/pane-shell/tree/work-layout'
 import { clampWorkSlotWidth, FILE_BROWSER_DEFAULT_WIDTH, workSlotSizing } from '@/store/layout'
 
 import { DEFAULT_TREE, WORK_LAYOUT_ID, WORK_TREE } from './layout-presets'
-import { treeLooksLikeWork } from '@/components/pane-shell/tree/work-layout'
 
 describe('DEFAULT_TREE', () => {
   it('stays stock: files on the right, not the work slot', () => {
@@ -20,6 +20,7 @@ describe('WORK_TREE', () => {
     expect(WORK_LAYOUT_ID).toBe('work')
     expect(treeLooksLikeWork(WORK_TREE)).toBe(true)
     expect(treeLooksLikeWork(DEFAULT_TREE)).toBe(false)
+
     const main = WORK_TREE.children
       .flatMap(child => (child.type === 'split' ? child.children : [child]))
       .find(child => child.type === 'group' && child.panes.includes('workspace'))

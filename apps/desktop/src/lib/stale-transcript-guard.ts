@@ -183,12 +183,14 @@ export function messagesIfTranscriptBehind(
 
   const localTip = lastDurableRowId(localMessages)
   const remoteTip = lastDurableRowId(remoteChat)
+
   if (localTip !== undefined && localTip === remoteTip) {
     return null
   }
 
   const grafted = graftRefreshedTailOntoBackfill(remoteChat, localMessages)
   const ahead = aheadOfNewestDurableRow(localMessages, remoteChat)
+
   return (ahead ?? authoredMessageCount(grafted) > authoredMessageCount(localMessages)) ? grafted : null
 }
 

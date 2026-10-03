@@ -3107,6 +3107,7 @@ export const $openStoredSessionIds = computed([$selectedStoredSessionId, $sessio
     for (const id of next) {
       if (!openStoredSessionIdsCache.has(id)) {
         same = false
+
         break
       }
     }

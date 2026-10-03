@@ -6,18 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // Test harness drives the host's request scope, as a connection switch does.
 // eslint-disable-next-line no-restricted-imports
 import { setApiRequestConnection, setApiRequestProfile } from '@/api/client'
-// Test harness supplies the host's locale registration, as plugin loading does.
-// eslint-disable-next-line no-restricted-imports
-import { registerPluginLocales } from '@/i18n/plugin-i18n'
 // Test harness resolves the host's translated navigation labels.
 // eslint-disable-next-line no-restricted-imports
 import { en as hostEn } from '@/i18n/en'
-// Test harness reads the host's toast stack.
+// Test harness supplies the host's locale registration, as plugin loading does.
 // eslint-disable-next-line no-restricted-imports
-import { $notifications, clearNotifications } from '@/store/notifications'
+import { registerPluginLocales } from '@/i18n/plugin-i18n'
 // Test harness drives the app history, not a private dialog stack.
 // eslint-disable-next-line no-restricted-imports
 import { bindNavigationReplay, recordNavigation, resetNavigationHistory } from '@/store/navigation-history'
+// Test harness reads the host's toast stack.
+// eslint-disable-next-line no-restricted-imports
+import { $notifications, clearNotifications } from '@/store/notifications'
 
 import { bindApi, taskKey } from './api'
 import { TaskDrawer } from './drawer'
@@ -102,6 +102,7 @@ function openDrawer() {
 it('keeps app back and forward controls inside the modal card header', async () => {
   detail = { ...legacyDetail, attachments: [] }
   resetNavigationHistory()
+
   const chat = {
     route: '/chat',
     pane: null,
@@ -112,11 +113,13 @@ it('keeps app back and forward controls inside the modal card header', async () 
     newSessionTarget: null,
     browserOpen: false
   }
+
   const card = { ...chat, route: '/kanban?task=t_example' }
   recordNavigation(chat)
   recordNavigation(card)
   const replay = vi.fn()
   const unbind = bindNavigationReplay(replay)
+
   try {
     openDrawer()
     const dialog = await screen.findByRole('dialog', { name: legacyDetail.task.title })

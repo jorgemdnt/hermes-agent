@@ -14,6 +14,7 @@ vi.mock('@/app/routes', () => ({ isWorkspacePageRoute: (path: string) => path.st
 vi.mock('@/components/pane-shell/tree/store', () => ({ isPaneVisible: () => true, revealTreePane: vi.fn() }))
 vi.mock('@/components/pane-shell/workspace-scope', async () => {
   const { atom } = await import('nanostores')
+
   return {
     $workspaceMode: atom('bots'),
     $workspaceOwnerKey: atom(null),
@@ -40,6 +41,7 @@ vi.mock('@/store/session-states', async () => ({
 }))
 vi.mock('@/store/layout', async () => {
   const { atom } = await import('nanostores')
+
   return {
     $fileBrowserOpen: atom(false),
     $rightRailActiveTabId: atom('browser'),
@@ -49,6 +51,7 @@ vi.mock('@/store/layout', async () => {
 })
 vi.mock('@/store/preview', async () => {
   const { atom } = await import('nanostores')
+
   return { $browserPages: atom({}), $previewTabs: atom([]), commitBrowserTabLocation: vi.fn() }
 })
 
@@ -65,14 +68,18 @@ it('keeps the pending restore alive when HashRouter changes navigate identity du
   let id = 0
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     frames.set(++id, callback)
+
     return id
   })
   vi.stubGlobal('cancelAnimationFrame', (frame: number) => frames.delete(frame))
+
   function Host() {
     useNavigationHistory()
     const navigate = useNavigate()
+
     return <button onClick={() => navigate('/kanban?task=t_12345678')}>Open card</button>
   }
+
   const surface = document.createElement('div')
   surface.dataset.sessionAnchor = 'workspace'
   const element = document.createElement('div')
@@ -82,16 +89,20 @@ it('keeps the pending restore alive when HashRouter changes navigate identity du
   Object.defineProperty(element, 'scrollHeight', { value: 1000 })
   surface.append(element)
   document.body.append(surface)
+
   const restore = vi.fn((top: number) => {
     element.scrollTop = top
   })
+
   const unsubscribe = subscribeNavigationScrollRestore(() => element, restore)
+
   try {
     const view = render(
       <HashRouter>
         <Host />
       </HashRouter>
     )
+
     await act(() => vi.advanceTimersByTimeAsync(0))
     navigationHistory.update({ ...navigationHistory.current!, scrollTop: 123 })
     fireEvent.click(view.getByRole('button', { name: 'Open card' }))
@@ -125,11 +136,13 @@ it('keeps the pending restore alive when HashRouter changes navigate identity du
     expect(focusPane).not.toHaveBeenCalled()
     expect(forward.defaultPrevented).toBe(true)
     expect(window.location.hash).toContain('/kanban')
+
     for (const type of ['pointerup', 'mouseup', 'auxclick']) {
       const release = new MouseEvent(type, { button: 4, bubbles: true, cancelable: true })
       await act(() => element.dispatchEvent(release))
       expect(release.defaultPrevented).toBe(true)
     }
+
     expect(window.location.hash).toContain('/kanban')
   } finally {
     unsubscribe()

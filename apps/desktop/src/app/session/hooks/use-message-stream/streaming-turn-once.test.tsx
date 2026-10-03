@@ -41,6 +41,7 @@ it('paints one streaming turn when the sealed answer and tool results are replay
   send('tool.complete', { name: 'read_file', result: 'board', tool_id: 'call-read' })
 
   const messages = stream.state(SID).messages
+
   const painted = messages
     .filter(message => message.role === 'assistant' && !message.hidden)
     .map(message => chatMessageText(message))

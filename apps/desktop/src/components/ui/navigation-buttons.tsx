@@ -11,6 +11,7 @@ import { Codicon } from './codicon'
 export function NavigationButtons(props: ComponentProps<'div'>) {
   const { t } = useI18n()
   const history = useStore($navigationAvailability)
+
   const actions = [
     { label: t.preview.web.goBack, icon: 'arrow-left', available: history.back, direction: -1 },
     { label: t.preview.web.goForward, icon: 'arrow-right', available: history.forward, direction: 1 }

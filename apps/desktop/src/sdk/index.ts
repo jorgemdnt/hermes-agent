@@ -1801,7 +1801,6 @@ export type { FloatingAnchor } from '@/components/pane-shell/tree/renderer/float
 export { StatusDot, type StatusTone } from '@/components/status-dot'
 export { Badge } from '@/components/ui/badge'
 export { Button } from '@/components/ui/button'
-export { NavigationButtons } from '@/components/ui/navigation-buttons'
 export { Checkbox } from '@/components/ui/checkbox'
 export { Codicon } from '@/components/ui/codicon'
 /** THE color picker — swatch grid plus a clear row that means "back to the
@@ -1855,6 +1854,7 @@ export { Kbd, KbdGroup } from '@/components/ui/kbd'
  *  page loads) — the same one every core page uses. */
 export { Loader, type LoaderType } from '@/components/ui/loader'
 export { LogView } from '@/components/ui/log-view'
+export { NavigationButtons } from '@/components/ui/navigation-buttons'
 export { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 /** Full-row / region click target. Imposes NO styling — the caller keeps its own
  *  layout classes — it just bakes in `type="button"` and a stable `data-slot`.

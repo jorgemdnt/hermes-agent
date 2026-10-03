@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { listCredentialPool, removeCredentialPoolEntry, setCredentialPoolStrategy, type CredentialPoolProvider } from '@/api/config'
+import { type CredentialPoolProvider, listCredentialPool, removeCredentialPoolEntry, setCredentialPoolStrategy } from '@/api/config'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { useI18n } from '@/i18n'
@@ -54,8 +54,10 @@ export function PoolAccounts({
       destructive: true,
       title: copy.removeConfirm(label)
     })
-    if (!ok) return
+
+    if (!ok) {return}
     setRemoving(`${provider}:${index}`)
+
     try {
       await removeCredentialPoolEntry(provider, index, profile)
       await load()
@@ -73,10 +75,12 @@ export function PoolAccounts({
 
   const names = new Map(connected.map(item => [item.id, item.name ?? item.id]))
   const known = new Map(providers.map(group => [group.provider, group]))
+
   for (const item of connected) {
-    if (!CAN_ADD_SUBSCRIPTION.has(item.id) || known.has(item.id)) continue
+    if (!CAN_ADD_SUBSCRIPTION.has(item.id) || known.has(item.id)) {continue}
     known.set(item.id, { entries: [], provider: item.id, strategy: 'fill_first' })
   }
+
   const groups = [...known.values()]
 
   return (

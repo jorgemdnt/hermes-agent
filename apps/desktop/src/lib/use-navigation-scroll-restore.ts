@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { type RefObject, useEffect } from 'react'
 
 import type { ThreadScrollState } from '@/store/thread-scroll'
 

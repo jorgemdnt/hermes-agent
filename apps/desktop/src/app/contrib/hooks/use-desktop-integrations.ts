@@ -503,8 +503,10 @@ export function useDesktopIntegrations({
     const unsubscribe = window.hermesDesktop?.onPreviewNav?.(command => {
       if (command === 'back' || command === 'forward') {
         travelNavigation(command === 'back' ? -1 : 1)
+
         return
       }
+
       if (commandFocusedTerminal(command)) {
         return
       }

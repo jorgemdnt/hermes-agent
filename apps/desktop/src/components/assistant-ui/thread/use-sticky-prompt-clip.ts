@@ -38,8 +38,10 @@ export function seatedPromptTop(input: {
   stickyOffset: number
 }): number {
   const stickLine = input.viewportTop + input.stickyOffset
+
   const previousStillInView =
     input.previousBottom != null && input.previousBottom > stickLine + 1 && input.previousTop < input.viewportBottom
+
   const promptReached = input.promptTop <= stickLine + 1 && input.promptBottom > stickLine + 1
 
   if (previousStillInView || !promptReached) {
@@ -85,6 +87,7 @@ function syncStickyEngagement(prompt: HTMLElement, viewport: HTMLElement) {
   const previous = prompt.closest<HTMLElement>(GROUP)?.previousElementSibling
   const previousRect = previous instanceof HTMLElement ? previous.getBoundingClientRect() : null
   const offset = stickyOffsetOf(prompt)
+
   const seat = seatedPromptTop({
     promptTop: promptRect.top,
     promptBottom: promptRect.bottom,
@@ -96,6 +99,7 @@ function syncStickyEngagement(prompt: HTMLElement, viewport: HTMLElement) {
     viewportBottom: viewportRect.bottom,
     stickyOffset: offset
   })
+
   const engaged = seat <= viewportRect.top + offset + 1 && promptRect.top <= viewportRect.top + offset + 1
   const next = engaged ? 'true' : 'false'
 
@@ -265,6 +269,7 @@ function observeStickyPromptClip(viewport: HTMLElement, content: HTMLElement) {
     for (const prompt of engaged) {
       const group = prompt.closest<HTMLElement>(GROUP)
       const groupRect = group?.getBoundingClientRect()
+
       const onScreen =
         groupRect !== undefined && groupRect.bottom > viewportRect.top && groupRect.top < viewportRect.bottom
 

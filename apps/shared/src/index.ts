@@ -1,4 +1,3 @@
-export { NavigationHistory, historyKeyDirection, bindHistoryMouseNavigation } from './navigation-history'
 export { hasAnsi, sanitizeAnsiForRender, stripAnsi } from './ansi'
 export { backendScopeKey, backendScopePrefix, LOCAL_CONNECTION_ID, registryBackendScopeKey } from './backend-scope'
 export {
@@ -28,7 +27,7 @@ export type {
   UsageBarData,
   UsageModelData
 } from './billing-types'
-export { cardReference, linkifyCardMentions, isWorkItemLink, resolveCard, type CardReference, type CardSummary } from './card-links'
+export { cardReference, type CardReference, type CardSummary, isWorkItemLink, linkifyCardMentions, resolveCard } from './card-links'
 export { skillCatalogInstallIdentifier, skillCatalogInstallUrl } from './catalog-install'
 export {
   driveChargeSettlement,
@@ -101,6 +100,7 @@ export {
   type WebSocketLike
 } from './json-rpc-gateway'
 export { modelSearchText } from './model-search-text'
+export { bindHistoryMouseNavigation, historyKeyDirection, NavigationHistory } from './navigation-history'
 export {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,

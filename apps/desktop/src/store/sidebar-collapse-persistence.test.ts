@@ -153,12 +153,14 @@ describe('sidebar collapse persistence', () => {
         expect(findGroup(tree.$layoutTree.get()!, sidebar.id)?.minimized).toBe(true)
 
         toggle()
+
         if (flipped) {
           // Right-side toggle hides when already open so the preview rail can
           // actually close. Show again, then the rest of the contract matches left.
           expect($open.get()).toBe(false)
           toggle()
         }
+
         expect($open.get()).toBe(true)
         expect(tree.$collapsedTreeSides.get().has(side)).toBe(false)
         expect(findGroup(tree.$layoutTree.get()!, sidebar.id)).toMatchObject({ active: 'bots', minimized: false })

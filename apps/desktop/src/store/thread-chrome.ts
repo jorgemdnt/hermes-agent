@@ -40,6 +40,7 @@ function load(): ThreadChrome {
     }
 
     const parsed = JSON.parse(raw) as Partial<ThreadChrome>
+
     const asFlagMap = (value: unknown): Record<string, boolean> => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return {}

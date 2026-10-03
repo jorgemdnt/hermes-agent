@@ -65,15 +65,14 @@ import { $connectionsRegistry } from '@/store/connection-registry-state'
 import { watchDeadSessionPrune } from '@/store/dead-session-prune'
 import { $interfaceMode, $showsAdvancedChrome, setModeContext, toggleSimpleMode } from '@/store/interface-mode'
 import {
-  $fileBrowserOpen,
   $fileTreeOpen,
   $sidebarOpen,
   FILE_BROWSER_DEFAULT_WIDTH,
   FILE_BROWSER_MAX_WIDTH,
   FILE_BROWSER_MIN_WIDTH,
   FILE_BROWSER_PANE_ID,
-  FILES_PANE_ID,
   fileBrowserSide,
+  FILES_PANE_ID,
   setFileBrowserOpen,
   setFileTreeOpen,
   setSidebarOpen,
@@ -479,6 +478,7 @@ registerLayoutPresets()
 
 const hadPersistedLayout = $layoutTree.get() !== null
 declareDefaultTree(DEFAULT_TREE, BASIC_TREE)
+
 if (!hadPersistedLayout) {
   applyLayoutPreset(WORK_LAYOUT_ID, WORK_TREE)
 } else if (treeLooksLikeWork($layoutTree.get()) && $activePresetId.get() === 'default') {
