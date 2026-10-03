@@ -10,7 +10,7 @@ async function loadTerminalStore() {
   vi.doMock('@/store/session', () => ({
     $currentCwd
   }))
-  vi.doMock('@/store/session-states', () => ({
+  vi.doMock('@/store/session-focus', () => ({
     $focusedStoredSessionId
   }))
 

@@ -26,9 +26,11 @@ vi.mock('@/store/profile', async () => ({
   $activeProfile: (await import('nanostores')).atom('default'),
   switchProfile: vi.fn()
 }))
-vi.mock('@/store/session-focus', async () => ({ $focusedTreePaneId: (await import('nanostores')).atom('workspace') }))
+vi.mock('@/store/session-focus', async () => ({
+  $focusedTreePaneId: (await import('nanostores')).atom('workspace'),
+  $focusedStoredSessionId: (await import('nanostores')).atom('qa-session')
+}))
 vi.mock('@/store/session-states', async () => ({
-  $focusedStoredSessionId: (await import('nanostores')).atom('qa-session'),
   focusedSessionWorkspaceScope: () => ({
     ownerRoute: { connectionId: 'owner-connection', profile: 'owner-profile' },
     workspaceMode: 'bots',
