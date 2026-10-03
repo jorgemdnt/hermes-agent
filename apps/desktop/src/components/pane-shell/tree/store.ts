@@ -44,6 +44,7 @@ import {
   type SplitNode,
   type TabStripMode
 } from './model'
+import { isTreePaneParked } from './parked-panes'
 import { FLOATING_PLACEMENT } from './renderer/floating-rect'
 import { tabStripVisibleForZone } from './renderer/strip-visibility'
 import { treeLooksLikeWork, WORK_LAYOUT_ID } from './work-layout'
@@ -1581,6 +1582,7 @@ export function adoptContributedPanes(): void {
     c =>
       !inTree.has(c.id) &&
       !dismissed.has(c.id) &&
+      !isTreePaneParked(c.id) &&
       placementOf(c.id) !== FLOATING_PLACEMENT &&
       (c.id !== 'work' || isWorkLayout())
   )
