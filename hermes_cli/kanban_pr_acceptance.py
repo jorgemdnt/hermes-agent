@@ -133,6 +133,22 @@ def _assignee_profile_home(assignee: str | None) -> str | None:
         raise _GateAuthError(f"assignee profile {assignee!r} cannot be resolved") from None
 
 
+def is_open_pr(url: str, assignee: str | None = None) -> bool:
+    """A live GitHub read, using the same profile identity as PR acceptance.
+
+    An unavailable read is not evidence of an open PR; the next tick retries.
+    """
+    match = _PR.fullmatch(url)
+    if not match:
+        return False
+    try:
+        pr = _api(f"repos/{match[1]}/pulls/{match[2]}",
+                  profile_home=_assignee_profile_home(assignee))
+        return isinstance(pr, dict) and pr.get("state") == "open" and not pr.get("merged")
+    except (_GateAuthError, OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return False
+
+
 def collect_acceptance(contract: str, published_pr: str | None,
                        assignee: str | None = None) -> dict:
     receipt = {"ok": False, "classification": "missing", "head_sha": None,

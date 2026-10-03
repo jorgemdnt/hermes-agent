@@ -79,14 +79,6 @@ _RESPAWN_GUARD_SUCCESS_WINDOW = 3600  # 1 hour
 # ``HERMES_KANBAN_RATE_LIMIT_COOLDOWN_SECONDS``.
 DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS = 300  # 5 minutes
 
-# Within this window a GitHub PR URL in a comment blocks re-spawn.
-_RESPAWN_GUARD_PR_WINDOW = 86400  # 24 hours
-
-_RESPAWN_GUARD_PR_URL_RE = re.compile(
-    r"https?://github\.com/[^/\s]+/[^/\s]+/pull/\d+",
-    re.IGNORECASE,
-)
-
 
 @dataclass
 class DispatchResult:
@@ -140,7 +132,7 @@ class DispatchResult:
     respawn_guarded: list[tuple[str, str]] = field(default_factory=list)
     """``(task_id, reason)`` skipped by the respawn guard: ``"blocker_auth"``
     (quota/auth error — also auto-blocked), ``"recent_success"`` (completed run
-    within guard window), ``"active_pr"`` (GitHub PR URL in a recent comment)."""
+    within guard window), ``"active_pr"`` (the card's explicitly published PR is still open)."""
     rate_limited: list[str] = field(default_factory=list)
     """Task ids whose workers bailed on a provider rate-limit / quota wall
     (EX_TEMPFAIL sentinel exit) and were released to ``ready`` WITHOUT counting
@@ -1537,14 +1529,14 @@ def check_respawn_guard(
     (quota/auth pattern; the breaker still trips eventually), then for the
     ready lane only ``"recent_success"`` (completed run within the window, unless
     a re-queue event arrived after it — a deliberate re-run) and ``"active_pr"``
-    (PR URL in a recent comment; re-spawning risks a duplicate PR — unless a
-    handoff event followed the comment: the named profile must work on that
-    PR). The review lane skips the last two: they are the *inputs* to a review
+    (the card's published PR is still open; re-spawning risks a duplicate PR —
+    unless a handoff event followed publication: the named profile must work
+    on that PR). The review lane skips the last two: they are the *inputs* to a review
     handoff. Stale / dead claim locks are NOT a guard reason — the reclaim
     passes own those.
     """
     row = conn.execute(
-        "SELECT last_failure_error FROM tasks WHERE id = ?",
+        "SELECT last_failure_error, completion_contract, created_at, assignee FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
     if row is None:
@@ -1591,8 +1583,8 @@ def check_respawn_guard(
     if err and latest_outcome != "crashed" and _RESPAWN_BLOCKER_RE.search(err):
         return "blocker_auth"
 
-    # Review-lane spawns stop here: a recent completed run and a fresh PR URL
-    # are the canonical *inputs* to a review handoff, not duplicate-work signals.
+    # Review-lane spawns stop here: a completed run and an owned open PR are
+    # inputs to a review handoff, not duplicate-work signals.
     if lane == "review":
         return None
 
@@ -1619,32 +1611,60 @@ def check_respawn_guard(
         if not requeued_after:
             return "recent_success"
 
-    # 4. GitHub PR URL in a recent comment — prior worker already opened a PR.
-    #    Exception: a handoff AFTER the newest PR comment (operator reassign,
-    #    reviewer changes_requested, review reopen) names the profile that must
-    #    now work on THAT PR — a closer or the implementer finishing it, not a
-    #    duplicate implementation (#111910). A crash/reclaim is not a handoff,
-    #    so the worker that opened the PR is still not re-spawned against it.
-    pr_cutoff = now - _RESPAWN_GUARD_PR_WINDOW
-    for c in conn.execute(
-        "SELECT body, created_at FROM task_comments "
-        "WHERE task_id = ? AND created_at >= ? ORDER BY created_at DESC",
-        (task_id, pr_cutoff),
-    ).fetchall():
-        body = _kb._lossy_text(c["body"])
-        if not (body and _RESPAWN_GUARD_PR_URL_RE.search(body)):
-            continue
-        events = conn.execute(
-            # Strictly after: a same-second tie stays guarded (fail closed).
-            "SELECT kind, payload FROM task_events "
-            "WHERE task_id = ? AND created_at > ? "
-            "AND kind IN ('assigned', 'changes_requested', 'review_reopened')",
-            (task_id, int(c["created_at"] or 0)),
-        ).fetchall()
-        if any(_is_handoff_event(e["kind"], e["payload"]) for e in events):
-            return None
-        return "active_pr"
+    # 4. Only structured publication establishes ownership, never prose links.
+    # A real handoff still allows the named profile to work on that same PR.
+    published = _task_published_pr(conn, task_id, row)
+    if published is None:
+        return None
+    url, published_at = published
+    events = conn.execute(
+        # Strictly after: a same-second tie stays guarded (fail closed).
+        "SELECT kind, payload FROM task_events "
+        "WHERE task_id = ? AND created_at > ? "
+        "AND kind IN ('assigned', 'changes_requested', 'review_reopened')",
+        (task_id, published_at),
+    ).fetchall()
+    if any(_is_handoff_event(e["kind"], e["payload"]) for e in events):
+        return None
+    from hermes_cli.kanban_pr_acceptance import is_open_pr
 
+    return "active_pr" if is_open_pr(url, assignee=row["assignee"]) else None
+
+
+def _task_published_pr(conn: sqlite3.Connection, task_id: str, row) -> Optional[tuple[str, int]]:
+    """Exact contract wins; otherwise use the newest valid published_pr metadata.
+
+    Older publication survives newer runs without metadata. A repository-only
+    contract limits publication to that repository, but does not identify a PR.
+    """
+    from hermes_cli.kanban_pr_acceptance import _PR
+
+    contract = row["completion_contract"] or "local-only"
+    declared = _PR.fullmatch(contract)
+    for run in conn.execute(
+        "SELECT metadata, started_at, ended_at FROM task_runs "
+        "WHERE task_id = ? AND metadata IS NOT NULL ORDER BY id DESC", (task_id,),
+    ).fetchall():
+        url = _kb._json_dict(run["metadata"]).get("published_pr")
+        if not isinstance(url, str):
+            continue
+        match = _PR.fullmatch(url)
+        if not match:
+            continue
+        if declared and url != contract:
+            continue
+        if not declared and contract != "local-only" and match[1] != contract:
+            continue
+        return url, int(run["ended_at"] or run["started_at"])
+    if declared:
+        # A failed completion can bind the contract before run metadata is saved.
+        for event in conn.execute(
+            "SELECT payload, created_at FROM task_events "
+            "WHERE task_id = ? AND kind = 'pr_acceptance' ORDER BY id ASC", (task_id,),
+        ).fetchall():
+            if _kb._json_dict(event["payload"]).get("pr_url") == contract:
+                return contract, int(event["created_at"])
+        return contract, int(row["created_at"])
     return None
 
 
